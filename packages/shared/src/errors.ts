@@ -56,6 +56,10 @@ export const ERRORS = {
   DEPENDENCY_CYCLE: 'هذا الربط يصنع حلقة بين المهام، فلا يمكن حفظه.',
   DEPENDENCY_SELF: 'لا يمكن ربط المهمة بنفسها.',
   DEPENDENCY_EXISTS: 'هذا الربط موجود مسبقًا.',
+  DEPENDENCY_TYPE_DISABLED: 'هذا النوع من الربط غير مفعّل بعد؛ المتاح الآن «انتهاء ← بداية» فقط.',
+  TASK_PARENT_INVALID: 'لا يمكن وضع المهمة تحت نفسها أو تحت إحدى مهامها الفرعية أو تحت معلَم.',
+  PROJECT_ARCHIVED: 'هذا المشروع مؤرشف، فلا يمكن تعديله.',
+  CALENDAR_DATE_EXISTS: 'يوجد استثناء في هذا التاريخ في التقويم مسبقًا.',
 
   // violations
   LOCATION_REQUIRED: 'الموقع الجغرافي مطلوب لتسجيل المخالفة.',

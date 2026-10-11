@@ -132,6 +132,38 @@ export const emails = {
     });
   },
 
+  taskAssigned(p: { name: string; taskName: string; projectName: string; endDate: string; url: string }) {
+    return layout('أُسندت إليك مهمة', {
+      greeting: hello(p.name),
+      paragraphs: [`أُسندت إليك المهمة «${p.taskName}» في مشروع «${p.projectName}».`, `تاريخ النهاية: ${p.endDate}.`],
+      action: { label: 'فتح مهامي', url: p.url },
+    });
+  },
+
+  taskMentioned(p: { name: string; authorName: string; taskName: string; projectName: string; url: string }) {
+    return layout('أشار إليك أحدهم في تعليق', {
+      greeting: hello(p.name),
+      paragraphs: [`أشار إليك ${p.authorName} في تعليق على المهمة «${p.taskName}» في مشروع «${p.projectName}».`],
+      action: { label: 'فتح المهمة', url: p.url },
+    });
+  },
+
+  taskDueSoon(p: { name: string; taskName: string; projectName: string; endDate: string; url: string }) {
+    return layout('مهمة تقترب من موعد نهايتها', {
+      greeting: hello(p.name),
+      paragraphs: [`تنتهي المهمة «${p.taskName}» في مشروع «${p.projectName}» في ${p.endDate}، أي خلال يومَي عمل أو أقل.`],
+      action: { label: 'فتح مهامي', url: p.url },
+    });
+  },
+
+  taskOverdue(p: { name: string; taskName: string; projectName: string; endDate: string; url: string }) {
+    return layout('مهمة متأخرة عن موعدها', {
+      greeting: hello(p.name),
+      paragraphs: [`تجاوزت المهمة «${p.taskName}» في مشروع «${p.projectName}» تاريخ نهايتها (${p.endDate}) ولم تكتمل بعد.`, 'حدّث نسبة الإنجاز والحالة أو تواصل مع مدير المشروع.'],
+      action: { label: 'فتح مهامي', url: p.url },
+    });
+  },
+
   setPassword(p: { name: string; url: string; hours: number }) {
     return layout('أنشئ كلمة المرور لحسابك في نزلي', {
       greeting: hello(p.name),

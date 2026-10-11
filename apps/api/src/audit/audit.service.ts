@@ -62,6 +62,26 @@ export const AuditAction = {
   VIOLATIONS_EXPORTED: 'violations.exported',
   VIOLATIONS_DASHBOARD_EXPORTED: 'violations.dashboard_exported',
   VIOLATION_PHOTOS_PURGED: 'violations.photos_purged',
+  // Phase 4 — projects, tasks, calendars (ADR-060):
+  PROJECT_CREATED: 'project.created',
+  PROJECT_UPDATED: 'project.updated',
+  PROJECT_ARCHIVED: 'project.archived',
+  PROJECT_ACCESS_GRANTED: 'project.access_granted',
+  PROJECT_ACCESS_REVOKED: 'project.access_revoked',
+  PROJECT_EXPORTED: 'project.exported',
+  TASK_CREATED: 'task.created',
+  TASK_UPDATED: 'task.updated',
+  TASK_ARCHIVED: 'task.archived',
+  TASK_MOVED: 'task.moved',
+  TASK_COMMENT_ADDED: 'task.comment_added',
+  TASK_ATTACHMENT_ADDED: 'task.attachment_added',
+  TASK_ATTACHMENT_REMOVED: 'task.attachment_removed',
+  DEPENDENCY_CREATED: 'dependency.created',
+  DEPENDENCY_DELETED: 'dependency.deleted',
+  CALENDAR_CREATED: 'calendar.created',
+  CALENDAR_UPDATED: 'calendar.updated',
+  CALENDAR_EXCEPTION_CREATED: 'calendar_exception.created',
+  CALENDAR_EXCEPTION_DELETED: 'calendar_exception.deleted',
 } as const;
 
 export interface AuditEntryInput {
@@ -126,6 +146,23 @@ export class AuditService {
     db: Db = this.prisma,
   ): Promise<void> {
     return this.log({ ...entry, actorId: ctx.actorId, ip: ctx.ip, requestId: ctx.requestId }, db);
+  }
+
+  /** Appends many entries in one statement (a batch that shifted hundreds of tasks). */
+  async logMany(ctx: RequestContext, entries: Array<Omit<AuditEntryInput, 'actorId' | 'ip' | 'requestId'>>, db: Db = this.prisma): Promise<void> {
+    if (!entries.length) return;
+    await db.auditLog.createMany({
+      data: entries.map((e) => ({
+        actorId: ctx.actorId,
+        action: e.action,
+        entityType: e.entityType,
+        entityId: e.entityId ?? null,
+        before: json(e.before),
+        after: json(e.after),
+        ip: ctx.ip,
+        requestId: ctx.requestId,
+      })),
+    });
   }
 
   async list(q: AuditQuery): Promise<Paginated<AuditEntryDto>> {

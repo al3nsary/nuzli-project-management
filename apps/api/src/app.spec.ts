@@ -194,6 +194,26 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
     expect(Object.keys(bad.body.details.fieldErrors)).toEqual(expect.arrayContaining(['from', 'bbox']));
   });
 
+  it('Phase 4: project/task writes are ADMIN-only by the matrix; monitors cannot read projects', async () => {
+    const sup = tokenFor('00000000-0000-4000-8000-0000000000a6', 'SUPERVISOR');
+    const monitor = tokenFor('00000000-0000-4000-8000-0000000000a7', 'MONITOR');
+    const pid = '00000000-0000-4000-8000-0000000000e1';
+    const http = () => request(app.getHttpServer());
+    await http().post('/api/v1/projects').set('Authorization', `Bearer ${sup}`).send({ name: 'مشروع', startDate: '2026-10-11' }).expect(403);
+    await http()
+      .post(`/api/v1/projects/${pid}/tasks/batch`)
+      .set('Authorization', `Bearer ${sup}`)
+      .send({ changes: [{ id: pid, version: 0, progress: 10 }] })
+      .expect(403);
+    await http().post(`/api/v1/projects/${pid}/dependencies`).set('Authorization', `Bearer ${sup}`).send({ predecessorId: pid, successorId: pid }).expect(403);
+    await http().get('/api/v1/calendars').set('Authorization', `Bearer ${sup}`).expect(403);
+    await http().get('/api/v1/projects').set('Authorization', `Bearer ${monitor}`).expect(403);
+    await http().get('/api/v1/tasks/mine').set('Authorization', `Bearer ${monitor}`).expect(403);
+    const admin = tokenFor('00000000-0000-4000-8000-0000000000a8', 'ADMIN');
+    const bad = await http().post(`/api/v1/projects/${pid}/tasks/batch`).set('Authorization', `Bearer ${admin}`).send({ changes: [] }).expect(400);
+    expect(bad.body.code).toBe('VALIDATION_FAILED');
+  });
+
   it('generates an OpenAPI document from the zod schemas', () => {
     const doc = SwaggerModule.createDocument(app, new DocumentBuilder().setTitle('t').build());
     expect(Object.keys(doc.paths)).toEqual(
@@ -206,6 +226,10 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
     // Phase 3.
     expect(Object.keys(doc.paths)).toEqual(
       expect.arrayContaining(['/api/v1/violations', '/api/v1/violations/roster', '/api/v1/violations/mine', '/api/v1/violations/stats', '/api/v1/violations/export.xlsx', '/api/v1/violations/{id}/files/{fileId}/url', '/api/v1/violations/{id}/status', '/api/v1/violations/{id}/responses', '/api/v1/violation-types', '/api/v1/violation-types/{id}']),
+    );
+    // Phase 4.
+    expect(Object.keys(doc.paths)).toEqual(
+      expect.arrayContaining(['/api/v1/projects', '/api/v1/projects/{id}/gantt', '/api/v1/projects/{id}/tasks', '/api/v1/projects/{id}/tasks/batch', '/api/v1/projects/{id}/dependencies', '/api/v1/projects/{id}/access/{userId}', '/api/v1/projects/{id}/export.xlsx', '/api/v1/tasks/mine', '/api/v1/tasks/{id}', '/api/v1/tasks/{id}/comments', '/api/v1/tasks/{id}/activity', '/api/v1/tasks/{id}/attachments/{fileId}', '/api/v1/dependencies/{id}', '/api/v1/calendars/{id}/exceptions/{exId}']),
     );
     const createViolation = doc.paths['/api/v1/violations']?.post?.requestBody as { content: Record<string, { schema: { required?: string[] } }> };
     expect(createViolation.content['application/json']?.schema.required).toEqual(

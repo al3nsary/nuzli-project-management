@@ -146,3 +146,78 @@ export interface ActivityDto {
   before: unknown;
   after: unknown;
 }
+
+// ───────────────────────────── Phase 4 as built (additive; see docs/phase-4-backend.md)
+
+/** `GET /projects?status=&q=` — without `status`: every non-archived project. */
+export const projectListQuerySchema = z.object({
+  status: z.enum(['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'ARCHIVED', 'ALL']).optional(),
+  q: z.string().trim().max(100).optional(),
+});
+export type ProjectListQuery = z.infer<typeof projectListQuerySchema>;
+
+/** `PATCH /calendars/:id`. */
+export const updateCalendarSchema = calendarSchema.partial();
+
+/** `POST /tasks/:id/attachments` — links a READY file uploaded with `entityType: 'task'`. */
+export const taskAttachmentSchema = z.object({ fileId: uuid });
+
+export interface ProjectAccessDto {
+  user: { id: string; fullName: string; role: string };
+  level: 'VIEW';
+  grantedAt: string;
+}
+
+/** `GET /projects/:id/gantt` — the whole chart in one call. */
+export interface GanttDto {
+  project: ProjectDto;
+  tasks: TaskDto[];
+  dependencies: DependencyDto[];
+  calendar: CalendarDto;
+}
+
+/** `POST /projects/:id/tasks` → the new task plus the rolled-up parents that changed. */
+export type CreatedTaskDto = TaskDto & { affected: TaskDto[] };
+
+/** `PATCH /tasks/:id`. `affected` = every other task the server changed (roll-ups, shifted successors). */
+export interface TaskUpdateResult {
+  task: TaskDto;
+  affected: TaskDto[];
+}
+
+/** `POST /projects/:id/tasks/batch` → every task the server persisted (edited + shifted + rolled up). */
+export interface TaskBatchResult {
+  tasks: TaskDto[];
+}
+
+/** `DELETE /tasks/:id`. */
+export interface TaskArchiveResult {
+  archivedIds: string[];
+  affected: TaskDto[];
+}
+
+/** `POST /projects/:id/dependencies` → the dependency plus the tasks it shifted. */
+export type CreatedDependencyDto = DependencyDto & { affected: TaskDto[] };
+
+/** `409 CONFLICT_VERSION` details for task writes: nothing was written. */
+export interface TaskVersionConflictDetails {
+  refresh: 'tasks';
+  conflicts: { id: string; currentVersion: number | null }[];
+}
+
+/** `GET /tasks/mine` — sorted by end date. */
+export interface MyTaskDto extends TaskDto {
+  project: { id: string; name: string };
+  /** End date before today (Riyadh) and not DONE. */
+  overdue: boolean;
+  /** Not overdue, not DONE, and ends within 2 working days (project calendar). */
+  dueSoon: boolean;
+}
+
+export interface TaskAttachmentDto {
+  id: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedBy: { id: string; fullName: string } | null;
+  createdAt: string;
+}

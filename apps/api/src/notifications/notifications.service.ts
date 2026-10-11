@@ -139,8 +139,28 @@ export class NotificationsService {
           typeName: String(payload.typeName ?? ''),
           url: `${web}/violations/${String(payload.violationId ?? '')}`,
         });
+      case 'TASK_ASSIGNED':
+      case 'TASK_DUE_SOON':
+      case 'TASK_OVERDUE': {
+        const p = {
+          name: to.fullName,
+          taskName: String(payload.taskName ?? ''),
+          projectName: String(payload.projectName ?? ''),
+          endDate: String(payload.endDate ?? ''),
+          url: `${web}/my-tasks`,
+        };
+        if (type === 'TASK_ASSIGNED') return emails.taskAssigned(p);
+        return type === 'TASK_DUE_SOON' ? emails.taskDueSoon(p) : emails.taskOverdue(p);
+      }
+      case 'TASK_MENTIONED':
+        return emails.taskMentioned({
+          name: to.fullName,
+          authorName: String(payload.authorName ?? ''),
+          taskName: String(payload.taskName ?? ''),
+          projectName: String(payload.projectName ?? ''),
+          url: `${web}/projects/${String(payload.projectId ?? '')}?task=${String(payload.taskId ?? '')}`,
+        });
       default:
-        // Phase 4 events get their templates with their modules.
         return null;
     }
   }

@@ -534,10 +534,13 @@ model Baseline {
 }
 
 model BaselineTask {
-  baselineId String   @map("baseline_id") @db.Uuid
-  taskId     String   @map("task_id") @db.Uuid
-  startDate  DateTime @map("start_date") @db.Date
-  endDate    DateTime @map("end_date") @db.Date
+  baselineId   String   @map("baseline_id") @db.Uuid
+  taskId       String   @map("task_id") @db.Uuid
+  startDate    DateTime @map("start_date") @db.Date
+  endDate      DateTime @map("end_date") @db.Date
+  /// Planned duration and progress at snapshot time (Phase 5 variance: plan vs actual).
+  durationDays Int      @default(0) @map("duration_days")
+  progress     Decimal  @default(0) @db.Decimal(5, 2)
   baseline   Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
   task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 

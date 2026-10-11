@@ -24,6 +24,7 @@ import { MembersModule } from './members/members.module';
 import { ReferenceModule } from './reference/reference.module';
 import { CardsModule } from './cards/cards.module';
 import { ViolationsModule } from './violations/violations.module';
+import { ProjectsModule } from './projects/projects.module';
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
 
@@ -102,6 +103,7 @@ export const LOG_REDACT_PATHS = [
     ReferenceModule,
     CardsModule,
     ViolationsModule,
+    ProjectsModule,
   ],
   controllers: [HealthController],
   providers: [
