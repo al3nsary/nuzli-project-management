@@ -112,8 +112,27 @@ export class NotificationsService {
         });
       case 'REGISTRATION_REJECTED':
         return emails.registrationRejected({ name: to.fullName, reason: String(payload.reason ?? '') });
+      case 'TEAM_PENDING_APPROVAL':
+        return emails.teamPendingApproval({
+          adminName: to.fullName,
+          teamName: String(payload.teamName ?? ''),
+          supervisorName: String(payload.supervisorName ?? ''),
+          url: `${web}/teams`,
+        });
+      case 'TEAM_APPROVED':
+        return emails.teamApproved({
+          name: to.fullName,
+          teamName: String(payload.teamName ?? ''),
+          url: `${web}/teams/${String(payload.teamId ?? '')}`,
+        });
+      case 'TEAM_REJECTED':
+        return emails.teamRejected({
+          name: to.fullName,
+          teamName: String(payload.teamName ?? ''),
+          reason: String(payload.reason ?? ''),
+        });
       default:
-        // Phase 2+ events get their templates with their modules.
+        // Phase 3+ events get their templates with their modules.
         return null;
     }
   }

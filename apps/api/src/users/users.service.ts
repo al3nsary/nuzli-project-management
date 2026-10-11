@@ -117,44 +117,60 @@ export class UsersService {
 
   /** Admin creates a user directly: ACTIVE at once, with a one-time set-password e-mail. */
   async create(input: CreateUserData, viewer: Viewer, ctx: RequestContext): Promise<UserDto> {
-    const nid = this.crypto.protectNationalId(input.nationalId);
     const { user, token } = await withPrismaErrors(() =>
-      this.prisma.$transaction(async (tx) => {
-        const now = new Date();
-        const created = await tx.user.create({
-          data: {
-            fullName: input.fullName,
-            email: input.email,
-            mobile: input.mobile,
-            nationalIdEnc: nid.enc,
-            nationalIdHash: nid.hash,
-            nationalIdFirst: nid.first,
-            nationalIdLast2: nid.last2,
-            passwordHash: null,
-            role: input.role,
-            status: 'ACTIVE',
-            approvedAt: now,
-            approvedById: viewer.id,
-            createdById: viewer.id,
-          },
-          select: USER_DTO_SELECT,
-        });
-        const raw = await this.auth.createActionToken(created.id, ActionPurpose.SET_PASSWORD, tx);
-        await this.audit.logCtx(
-          ctx,
-          {
-            action: AuditAction.USER_CREATED,
-            entityType: 'user',
-            entityId: created.id,
-            after: auditUser(created),
-          },
-          tx,
-        );
-        return { user: created, token: raw };
-      }),
+      this.prisma.$transaction((tx) => this.createInTx(tx, input, viewer, ctx)),
     );
     await this.auth.sendSetPasswordEmail(user, token);
     return this.dto(user, viewer, true);
+  }
+
+  /**
+   * The body of `create` inside a caller-owned transaction (used by team creation with an
+   * inline new supervisor). The caller sends the set-password e-mail after the commit.
+   */
+  async createInTx(
+    tx: Prisma.TransactionClient,
+    input: CreateUserData,
+    viewer: Viewer,
+    ctx: RequestContext,
+  ): Promise<{ user: UserRow; token: string }> {
+    const nid = this.crypto.protectNationalId(input.nationalId);
+    const now = new Date();
+    const created = await tx.user.create({
+      data: {
+        fullName: input.fullName,
+        email: input.email,
+        mobile: input.mobile,
+        nationalIdEnc: nid.enc,
+        nationalIdHash: nid.hash,
+        nationalIdFirst: nid.first,
+        nationalIdLast2: nid.last2,
+        passwordHash: null,
+        role: input.role,
+        status: 'ACTIVE',
+        approvedAt: now,
+        approvedById: viewer.id,
+        createdById: viewer.id,
+      },
+      select: USER_DTO_SELECT,
+    });
+    const raw = await this.auth.createActionToken(created.id, ActionPurpose.SET_PASSWORD, tx);
+    await this.audit.logCtx(
+      ctx,
+      {
+        action: AuditAction.USER_CREATED,
+        entityType: 'user',
+        entityId: created.id,
+        after: auditUser(created),
+      },
+      tx,
+    );
+    return { user: created, token: raw };
+  }
+
+  /** E-mails the one-time set-password link (after the creating transaction committed). */
+  sendSetPasswordEmail(user: { email: string; fullName: string }, token: string): Promise<void> {
+    return this.auth.sendSetPasswordEmail(user, token);
   }
 
   // ─────────────────────────────────────────── registrations (ADR-008)

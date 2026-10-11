@@ -309,6 +309,8 @@ model TeamMember {
   @@index([jobTitleId])
   @@index([departmentId])
   @@index([fullName])
+  /// Member search by the last four digits of the national ID (GET /members?q=1234).
+  @@index([nationalIdLast4])
   @@map("team_members")
 }
 

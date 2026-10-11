@@ -6,6 +6,7 @@ import { AppError } from '../common/app-error';
 import {
   ALLOW_PASSWORD_CHANGE_PENDING,
   IS_PUBLIC,
+  ANY_PERMISSIONS,
   REQUIRED_PERMISSIONS,
 } from '../common/decorators';
 import type { AuthRequest, AuthUser } from '../common/request';
@@ -82,10 +83,12 @@ export class PermissionsGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const targets = [context.getHandler(), context.getClass()];
     const required = this.reflector.getAllAndMerge<Permission[]>(REQUIRED_PERMISSIONS, targets);
-    if (!required?.length) return true;
+    const any = this.reflector.getAllAndOverride<Permission[] | undefined>(ANY_PERMISSIONS, targets);
+    if (!required?.length && !any?.length) return true;
     const user = context.switchToHttp().getRequest<AuthRequest>().user;
     if (!user) throw new AppError('UNAUTHENTICATED');
-    if (!required.every((p) => can(user, p))) throw new AppError('FORBIDDEN');
+    if (required?.length && !required.every((p) => can(user, p))) throw new AppError('FORBIDDEN');
+    if (any?.length && !any.some((p) => can(user, p))) throw new AppError('FORBIDDEN');
     return true;
   }
 }

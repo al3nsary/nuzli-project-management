@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import {
   AllowWhenPasswordChangeRequired,
   Public,
+  RequireAnyPermission,
   RequirePermission,
 } from '../common/decorators';
 import type { AuthUser } from '../common/request';
@@ -14,6 +15,7 @@ class Fixture {
   @Get() @RequirePermission('users.manageRoles') manageRoles() {}
   @Get() @RequirePermission('notifications.read', 'violations.create') monitorOnly() {}
   @Get() open() {}
+  @Get() @RequireAnyPermission('teams.readAll', 'teams.readOwn') teams() {}
   @Public() @Get() publicRoute() {}
   @AllowWhenPasswordChangeRequired() @Get() me() {}
 }
@@ -67,6 +69,14 @@ describe('PermissionsGuard (ADR-006)', () => {
   it('reads class-level permissions', () => {
     expect(() => guard.canActivate(ctx('list', { user: user('MONITOR') }, ClassLevel))).toThrow();
     expect(guard.canActivate(ctx('list', { user: user('ADMIN') }, ClassLevel))).toBe(true);
+  });
+
+  it('@RequireAnyPermission passes with any one listed permission (data scope is in the service)', () => {
+    expect(guard.canActivate(ctx('teams', { user: user('ADMIN') }))).toBe(true);
+    expect(guard.canActivate(ctx('teams', { user: user('SUPERVISOR') }))).toBe(true);
+    expect(() => guard.canActivate(ctx('teams', { user: user('MONITOR') }))).toThrow(
+      expect.objectContaining({ code: 'FORBIDDEN' }),
+    );
   });
 
   it('non-active users hold no permission', () => {

@@ -152,10 +152,31 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
     expect(bad.headers['access-control-allow-origin']).toBeUndefined();
   });
 
+  it('Phase 2: moving members is ADMIN-only (guard), PDF export is 501 until configured', async () => {
+    const sup = tokenFor('00000000-0000-4000-8000-0000000000a1', 'SUPERVISOR');
+    const move = await request(app.getHttpServer())
+      .post('/api/v1/members/move')
+      .set('Authorization', `Bearer ${sup}`)
+      .send({ memberIds: ['00000000-0000-4000-8000-0000000000b1'], toTeamId: '00000000-0000-4000-8000-0000000000c1' })
+      .expect(403);
+    expect(move.body.code).toBe('FORBIDDEN');
+
+    const admin = tokenFor('00000000-0000-4000-8000-0000000000a2', 'ADMIN');
+    const pdf = await request(app.getHttpServer())
+      .get('/api/v1/cards/batches/00000000-0000-4000-8000-0000000000d1/pdf')
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(501);
+    expect(pdf.body).toMatchObject({ code: 'PDF_NOT_CONFIGURED', message_ar: expect.stringContaining('PDF') });
+  });
+
   it('generates an OpenAPI document from the zod schemas', () => {
     const doc = SwaggerModule.createDocument(app, new DocumentBuilder().setTitle('t').build());
     expect(Object.keys(doc.paths)).toEqual(
       expect.arrayContaining(['/api/v1/auth/login', '/api/v1/users', '/api/v1/registrations/{id}/approve', '/api/v1/files/presign']),
+    );
+    // Phase 2 routes are documented from the same schemas.
+    expect(Object.keys(doc.paths)).toEqual(
+      expect.arrayContaining(['/api/v1/colors/available', '/api/v1/teams', '/api/v1/teams/{id}/members', '/api/v1/members/move', '/api/v1/members/import', '/api/v1/reference/{kind}', '/api/v1/cards/preview', '/api/v1/cards/batches/{id}/pdf', '/api/v1/logos']),
     );
     const login = doc.paths['/api/v1/auth/login']?.post?.requestBody as { content: Record<string, { schema: { required?: string[] } }> };
     expect(login.content['application/json']?.schema.required).toEqual(['identifier', 'password']);

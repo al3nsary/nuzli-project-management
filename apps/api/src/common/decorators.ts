@@ -4,6 +4,7 @@ import type { AuthRequest, AuthUser, RequestContext } from './request';
 
 export const IS_PUBLIC = 'nuzli:isPublic';
 export const REQUIRED_PERMISSIONS = 'nuzli:permissions';
+export const ANY_PERMISSIONS = 'nuzli:anyPermissions';
 export const ALLOW_PASSWORD_CHANGE_PENDING = 'nuzli:allowMustChangePassword';
 
 /** Opt out of the global JWT guard. */
@@ -12,6 +13,14 @@ export const Public = () => SetMetadata(IS_PUBLIC, true);
 /** Every listed permission is required (checked with `can()` from @nuzli/shared). */
 export const RequirePermission = (...permissions: Permission[]) =>
   SetMetadata(REQUIRED_PERMISSIONS, permissions);
+
+/**
+ * At least one listed permission is required. Used where an admin permission and its
+ * data-scoped supervisor twin (`teams.readAll` / `teams.readOwn`) open the same route;
+ * the service then applies the data scope.
+ */
+export const RequireAnyPermission = (...permissions: Permission[]) =>
+  SetMetadata(ANY_PERMISSIONS, permissions);
 
 /** Reachable while `mustChangePassword` is true (change-password, me, logout). */
 export const AllowWhenPasswordChangeRequired = () =>

@@ -64,12 +64,32 @@ export const teamColorSchema = z.object({
 });
 
 export const archiveTeamSchema = z.object({ reason });
+export const rejectTeamSchema = z.object({ reason });
+
+/** Admin palette edit: rename, retire (isActive=false) or restore. */
+export const updateTeamColorSchema = z
+  .object({ name: z.string().trim().min(2).max(40).optional(), isActive: z.boolean().optional() })
+  .refine((v) => v.name !== undefined || v.isActive !== undefined, { message: 'لا يوجد ما يُحدَّث' });
+
+export const violationVisibilitySchema = z.object({ mode: z.enum(['INHERIT', 'SHOW', 'HIDE']) });
 
 export interface TeamColorDto {
   id: string;
   name: string;
   hex: string;
   isActive: boolean;
+}
+
+/** Admin palette row: which ACTIVE/PENDING team holds the colour, if any. */
+export interface TeamColorPaletteDto extends TeamColorDto {
+  inUseBy: { teamId: string; teamName: string } | null;
+}
+
+/** 409 COLOR_TAKEN details: the client replaces its picker with `available`. */
+export interface ColorTakenDetails {
+  fieldErrors: { colorId: string[] };
+  refresh: 'colors';
+  available: TeamColorDto[];
 }
 
 export interface TeamSummaryDto {
@@ -84,6 +104,19 @@ export interface TeamDto extends TeamSummaryDto {
   memberCount: number;
   createdAt: string;
   violationVisibility?: 'INHERIT' | 'SHOW' | 'HIDE';
+}
+
+export interface TeamDetailDto extends TeamDto {
+  members: MemberDto[];
+}
+
+export interface SupervisorHistoryDto {
+  id: string;
+  supervisor: { id: string; fullName: string };
+  validFrom: string;
+  validTo: string | null;
+  changedBy: { id: string; fullName: string } | null;
+  reason: string | null;
 }
 
 export interface MemberDto {
@@ -113,5 +146,19 @@ export interface ImportRowResult {
   row: number;
   ok: boolean;
   errors: string[];
-  value?: { fullName: string; nationalIdMasked: string; jobTitle?: string; department?: string };
+  value?: {
+    fullName: string;
+    nationalIdMasked: string;
+    jobTitle?: string;
+    department?: string;
+    /** True when the text matched an admin-managed list entry (else kept as free text). */
+    jobTitleMatched?: boolean;
+    departmentMatched?: boolean;
+  };
+}
+
+export interface ImportMembersResultDto {
+  results: ImportRowResult[];
+  /** Rows inserted (0 for a preview). */
+  committed: number;
 }

@@ -46,3 +46,46 @@ export const DEFAULT_CALENDAR = {
   /** 0 = Sunday … 6 = Saturday → Friday and Saturday (brief §6.1). */
   weekendDays: [5, 6],
 };
+
+/**
+ * Three built-in layouts (brief §8.4), created once by name. The admin may edit or archive
+ * them; a missing one is recreated on the next start only if no template has its name.
+ * Sizes refer to BUILTIN_CARD_SIZES by name. The first becomes the default when none exists.
+ */
+export const BUILTIN_CARD_TEMPLATES: ReadonlyArray<{
+  name: string;
+  sizeName: string;
+  orientation: 'LANDSCAPE' | 'PORTRAIT';
+  layoutKey: 'CLASSIC_HORIZONTAL' | 'VERTICAL_BADGE' | 'COMPACT_LABEL';
+  config: Record<string, unknown>;
+  isDefault: boolean;
+}> = [
+  {
+    name: 'كلاسيكية أفقية — CR80',
+    sizeName: 'CR80 (بطاقة قياسية)',
+    orientation: 'LANDSCAPE',
+    layoutKey: 'CLASSIC_HORIZONTAL',
+    config: {},
+    isDefault: true,
+  },
+  {
+    name: 'شارة عمودية — CR80',
+    sizeName: 'CR80 (بطاقة قياسية)',
+    orientation: 'PORTRAIT',
+    layoutKey: 'VERTICAL_BADGE',
+    config: { logoPosition: 'center', accentStrip: 'top', fontSizes: { name: 12, body: 7 } },
+    isDefault: false,
+  },
+  {
+    name: 'ملصق مدمج — 90 × 40',
+    sizeName: '90 × 40',
+    orientation: 'LANDSCAPE',
+    layoutKey: 'COMPACT_LABEL',
+    config: {
+      fields: { department: false, qr: false, photo: false },
+      fontSizes: { name: 10, body: 6 },
+      accentStrip: 'start',
+    },
+    isDefault: false,
+  },
+];

@@ -94,6 +94,33 @@ export const emails = {
     });
   },
 
+  teamPendingApproval(p: { adminName: string; teamName: string; supervisorName: string; url: string }) {
+    return layout('فريق جديد بانتظار الاعتماد', {
+      greeting: hello(p.adminName),
+      paragraphs: [
+        `أنشأ المشرف ${p.supervisorName} الفريق «${p.teamName}»، وهو بانتظار اعتمادك.`,
+        'لون الفريق محجوز له حتى تعتمده أو ترفضه.',
+      ],
+      action: { label: 'فتح الفرق', url: p.url },
+    });
+  },
+
+  teamApproved(p: { name: string; teamName: string; url: string }) {
+    return layout('اعتُمد فريقك في نزلي', {
+      greeting: hello(p.name),
+      paragraphs: [`اعتمد مدير النظام الفريق «${p.teamName}»، وأصبح نشطًا.`],
+      action: { label: 'فتح الفريق', url: p.url },
+    });
+  },
+
+  teamRejected(p: { name: string; teamName: string; reason: string }) {
+    return layout('رُفض طلب إنشاء فريق', {
+      greeting: hello(p.name),
+      paragraphs: [`رفض مدير النظام الفريق «${p.teamName}».`, `السبب: ${p.reason}`],
+      footnote: 'أُعيد لون الفريق إلى قائمة الألوان المتاحة.',
+    });
+  },
+
   setPassword(p: { name: string; url: string; hours: number }) {
     return layout('أنشئ كلمة المرور لحسابك في نزلي', {
       greeting: hello(p.name),

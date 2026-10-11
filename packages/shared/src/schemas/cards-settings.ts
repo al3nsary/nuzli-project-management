@@ -44,6 +44,29 @@ export const cardTemplateSchema = z.object({
   logoId: uuid.nullable().optional(),
 });
 
+export const updateCardTemplateSchema = cardTemplateSchema.partial();
+
+/** `POST /logos` — the file is uploaded first via `/files/presign` with entityType 'logo'. */
+export const logoInputSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  fileId: uuid,
+  isDefault: z.boolean().default(false),
+});
+
+/** `POST /cards/preview` — teams and/or individual members. */
+export const cardPreviewSchema = z
+  .object({
+    templateId: uuid,
+    teamIds: z.array(uuid).max(100).default([]),
+    memberIds: z.array(uuid).max(1000).default([]),
+    includeSupervisors: z.boolean().default(true),
+  })
+  .refine((v) => v.teamIds.length > 0 || v.memberIds.length > 0, {
+    message: 'اختر فريقًا أو عضوًا واحدًا على الأقل',
+    path: ['teamIds'],
+  });
+export type CardPreviewInput = z.input<typeof cardPreviewSchema>;
+
 export const cardDataSchema = z.object({
   fullName: z.string().trim().max(120),
   jobTitle: z.string().trim().max(80).optional().default(''),
@@ -103,12 +126,39 @@ export interface LogoDto {
   isDefault: boolean;
 }
 
+export interface CardPreviewSubjectDto {
+  memberId?: string;
+  userId?: string;
+  data: CardData;
+}
+
+export interface CardPreviewDto {
+  template: CardTemplateDto;
+  subjects: CardPreviewSubjectDto[];
+}
+
 export interface PrintBatchDto {
   id: string;
+  idempotencyKey: string;
   template: { id: string; name: string };
   printedBy: { id: string; fullName: string };
   printedAt: string;
   cardCount: number;
+}
+
+export interface PrintBatchItemDto {
+  id: string;
+  memberId: string | null;
+  userId: string | null;
+  /** As printed; the national ID is masked unless the template printed it in full. */
+  data: CardData;
+  savedBack: boolean;
+}
+
+export interface PrintBatchDetailDto extends PrintBatchDto {
+  /** Template (size, orientation, layout, config) as it was at print time. */
+  templateSnapshot: Record<string, unknown>;
+  items: PrintBatchItemDto[];
 }
 
 // ---------------------------------------------------------------- settings (brief §10)
@@ -130,9 +180,15 @@ export const DEFAULT_SETTINGS: Settings = SETTINGS_SCHEMA.parse({});
 export const updateSettingsSchema = SETTINGS_SCHEMA.partial();
 
 export const referenceItemSchema = z.object({ name: z.string().trim().min(2).max(120) });
+export const updateReferenceItemSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  isActive: z.boolean().optional(),
+});
 export interface ReferenceItemDto {
   id: string;
   name: string;
+  /** Inactive items are hidden from pickers but kept on existing members. */
+  isActive?: boolean;
 }
 
 export interface NotificationDto {

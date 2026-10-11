@@ -18,6 +18,11 @@ import { PrismaModule } from './prisma/prisma.module';
 import { SettingsModule } from './settings/settings.module';
 import { StorageModule } from './storage/storage.module';
 import { UsersModule } from './users/users.module';
+import { ColorsModule } from './colors/colors.module';
+import { TeamsModule } from './teams/teams.module';
+import { MembersModule } from './members/members.module';
+import { ReferenceModule } from './reference/reference.module';
+import { CardsModule } from './cards/cards.module';
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
 
@@ -90,6 +95,11 @@ export const LOG_REDACT_PATHS = [
     StorageModule,
     AuthModule,
     UsersModule,
+    ColorsModule,
+    MembersModule,
+    TeamsModule,
+    ReferenceModule,
+    CardsModule,
   ],
   controllers: [HealthController],
   providers: [

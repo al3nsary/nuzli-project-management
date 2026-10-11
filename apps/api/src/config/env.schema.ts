@@ -83,6 +83,10 @@ export const envSchema = z
     SMTP_USER: z.string().optional(),
     SMTP_PASS: z.string().optional(),
     MAIL_FROM: z.string().default('نزلي <no-reply@nuzli.local>'),
+
+    /** Optional server-side PDF renderer (ADR-024/ADR-043). Unset → GET /cards/batches/:id/pdf answers 501. */
+    PDF_SERVICE_URL: z.string().url().optional(),
+    PDF_SERVICE_TIMEOUT_MS: int(60000, 1000, 600000),
   })
   .transform((env) => ({
     ...env,

@@ -8,6 +8,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import argon2 from 'argon2';
 import {
+  cardTemplateConfigSchema,
   DEFAULT_SETTINGS,
   email as emailSchema,
   fullName as fullNameSchema,
@@ -18,7 +19,7 @@ import {
 import { z } from 'zod';
 import { AuditAction } from '../audit/audit.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { BUILTIN_CARD_SIZES, DEFAULT_CALENDAR, TEAM_PALETTE } from './seed-data';
+import { BUILTIN_CARD_SIZES, BUILTIN_CARD_TEMPLATES, DEFAULT_CALENDAR, TEAM_PALETTE } from './seed-data';
 
 export interface SeedEnv {
   NATIONAL_ID_ENC_KEY: string;
@@ -35,6 +36,7 @@ export interface SeedResult {
   settingsCreated: number;
   colorsCreated: number;
   cardSizesCreated: number;
+  cardTemplatesCreated: number;
   calendarCreated: boolean;
   adminCreated: boolean;
 }
@@ -68,6 +70,8 @@ export async function runSeed(prisma: PrismaClient, env: SeedEnv, log: Log = con
     skipDuplicates: true,
   });
 
+  const cardTemplatesCreated = await seedCardTemplates(prisma);
+
   let calendarCreated = false;
   if (!(await prisma.calendar.findFirst({ where: { isDefault: true } }))) {
     await prisma.calendar.create({ data: { ...DEFAULT_CALENDAR, isDefault: true } });
@@ -79,11 +83,38 @@ export async function runSeed(prisma: PrismaClient, env: SeedEnv, log: Log = con
     settingsCreated: settings.count,
     colorsCreated: colors.count,
     cardSizesCreated: sizes.count,
+    cardTemplatesCreated,
     calendarCreated,
     adminCreated,
   };
   log(`[seed] ${JSON.stringify(result)}`);
   return result;
+}
+
+/** Built-in templates by name (idempotent); never steals the default from an admin choice. */
+export async function seedCardTemplates(prisma: PrismaClient): Promise<number> {
+  let created = 0;
+  for (const t of BUILTIN_CARD_TEMPLATES) {
+    if (await prisma.cardTemplate.findFirst({ where: { name: t.name }, select: { id: true } })) continue;
+    const size = await prisma.cardSize.findUnique({ where: { name: t.sizeName }, select: { id: true } });
+    if (!size) continue;
+    const hasDefault = !!(await prisma.cardTemplate.findFirst({
+      where: { isDefault: true, archivedAt: null },
+      select: { id: true },
+    }));
+    await prisma.cardTemplate.create({
+      data: {
+        name: t.name,
+        sizeId: size.id,
+        orientation: t.orientation,
+        layoutKey: t.layoutKey,
+        config: cardTemplateConfigSchema.parse(t.config) as Prisma.InputJsonValue,
+        isDefault: t.isDefault && !hasDefault,
+      },
+    });
+    created++;
+  }
+  return created;
 }
 
 async function bootstrapAdmin(prisma: PrismaClient, env: SeedEnv, log: Log): Promise<boolean> {

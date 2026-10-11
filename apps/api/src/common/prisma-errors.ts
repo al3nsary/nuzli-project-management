@@ -8,9 +8,11 @@ const UNIQUE_TARGETS: Array<[RegExp, ErrorCode]> = [
   [/email/, 'EMAIL_TAKEN'],
   [/mobile/, 'MOBILE_TAKEN'],
   [/teams_color_reserved_uq|color_id/, 'COLOR_TAKEN'],
+  [/team_colors_hex|hex/, 'COLOR_EXISTS'],
+  [/name/, 'NAME_TAKEN'],
 ];
 
-function targetText(err: Prisma.PrismaClientKnownRequestError): string {
+export function targetText(err: Prisma.PrismaClientKnownRequestError): string {
   const target = err.meta?.target;
   if (Array.isArray(target)) return target.join(',');
   if (typeof target === 'string') return target;
