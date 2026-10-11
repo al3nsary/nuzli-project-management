@@ -58,6 +58,66 @@ Base: `/api/v1`. JSON bodies validated by the zod schemas in `@nuzli/shared` (na
 | POST | `/files/:id/confirm` | → `{ id, status: 'READY' }`. `FILE_NOT_UPLOADED`, `FILE_TYPE_NOT_ALLOWED`, `FILE_TOO_LARGE` |
 | GET | `/files/:id/url` | → `{ url, expiresAt }` after a permission check; ID-card photos are audited |
 
-## Phase 2 (teams, members, reference data, cards) — to be detailed when the phase starts
+### Phase 1 implementation notes (as built)
+- Status codes: `ACCOUNT_LOCKED` → 423; `REFRESH_REUSED` → 401 and clears cookies; `PASSWORD_CHANGE_REQUIRED` → 403 on every route except change-password, me and logout; `CSRF_INVALID` → 403; `INVALID_STATE` → 409 (e.g. suspending a pending user).
+- A wrong current password on `/auth/change-password` → 400 `VALIDATION_FAILED` with `fieldErrors.currentPassword` (not 401, so the client does not treat it as an expired session).
+- `GET /audit` also takes `entityId`; `from`/`to` accept `YYYY-MM-DD` (a bare `to` means end of that day) or ISO instants.
+- Approve, reject, suspend, reactivate and confirm → 200; presign and create user → 201.
+- A non-UUID route id → 404 `NOT_FOUND`.
+- Audit actions: `registration.requested|approved|rejected`, `user.created|role_changed|suspended|reactivated|bootstrap_admin_created`, `settings.updated`, `auth.password_changed|password_reset|refresh_reuse_detected`, `file.id_card_url_issued`. New actions must get an Arabic label in `apps/web/src/i18n/ar.ts` (`audit.action.*`).
+
+## Phase 2 — teams, members, reference data, cards
+
+Scope rules: ADMIN sees and manages all teams. A SUPERVISOR sees and manages only the teams they lead (`teams.readOwn` / `teams.manageOwn` / `members.manageOwn`); moving members between teams is ADMIN only (`members.move`). Members without an open membership are "unassigned" (a team archive closes its memberships).
+
+### Colours (brief §5.2)
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/colors/available?excludeTeamId=` | Active colours **not** reserved by any ACTIVE/PENDING_APPROVAL team (the edited team's own colour is included when `excludeTeamId` is given). Reserved colours are never returned. |
+| GET | `/colors` | ADMIN: whole palette with `inUseBy: {teamId, teamName} \| null` |
+| POST | `/colors` | ADMIN [teamColorSchema] |
+| PATCH | `/colors/:id` | ADMIN `{ name?, isActive? }` (retire/restore) |
+
+### Teams
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/teams?status=&q=` | — | `TeamDto[]` (scoped) |
+| POST | `/teams` | [createTeamSchema] | `201 TeamDto`. Admin → ACTIVE. Supervisor → self as leader, PENDING_APPROVAL when `REQUIRE_APPROVAL_FOR_SUPERVISOR_TEAMS`, else ACTIVE; admins notified (`TEAM_PENDING_APPROVAL`). `409 COLOR_TAKEN` on the partial-unique race. |
+| GET | `/teams/:id` | — | `TeamDto & { members: MemberDto[] }` |
+| PATCH | `/teams/:id` | [updateTeamSchema] | `TeamDto` (`COLOR_TAKEN`) |
+| POST | `/teams/:id/approve` | — | `TeamDto` (ADMIN) |
+| POST | `/teams/:id/reject` | `{ reason }` | `TeamDto` → ARCHIVED, colour freed, leader notified |
+| POST | `/teams/:id/archive` | [archiveTeamSchema] | `TeamDto`, frees the colour, closes open memberships |
+| POST | `/teams/:id/supervisor` | [changeSupervisorSchema] | `TeamDto`, closes/opens `team_supervisor_history` with one timestamp |
+| GET | `/teams/:id/supervisor-history` | — | `{ supervisor, validFrom, validTo, reason }[]` |
+| PUT | `/teams/:id/violation-visibility` | `{ mode: INHERIT\|SHOW\|HIDE }` | ADMIN (used in phase 3) |
+
+### Members
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/members?q=&teamId=&unassigned=true&page=` | — | `Paginated<MemberDto>`; `q` matches name, exact national ID (blind index) or its last 4 digits |
+| POST | `/teams/:id/members` | [memberInputSchema] | `201 MemberDto` (`NATIONAL_ID_TAKEN`) |
+| GET | `/members/:id` | — | `MemberDto` (full ID for admins) |
+| PATCH | `/members/:id` | [updateMemberSchema] | `MemberDto` |
+| GET | `/members/:id/history` | — | `MembershipHistoryDto[]` |
+| POST | `/members/move` | [moveMembersSchema] | `MemberDto[]`. One transaction, one timestamp: closes each open row (`valid_to = t`) and opens a new one (`valid_from = t`). `TEAM_NOT_ACTIVE`, `MEMBER_ALREADY_IN_TEAM` |
+| POST | `/members/import` | [importMembersSchema] | `{ results: ImportRowResult[], committed: number }`. `commit=false` = preview only. Rows are parsed client-side from Excel or pasted text; keys: `fullName`, `nationalId`, `jobTitle`, `department` |
+
+### Reference data (ADMIN write, any active user read)
+`GET|POST /reference/departments`, `PATCH|DELETE /reference/departments/:id`, same for `/reference/job-titles` — [referenceItemSchema] → `ReferenceItemDto`. Delete = deactivate when referenced.
+
+### Work cards (brief §8)
+| Method | Path | Notes |
+|---|---|---|
+| GET/POST | `/cards/sizes` | [cardSizeSchema]; built-ins cannot be deleted |
+| DELETE | `/cards/sizes/:id` | custom sizes only |
+| GET/POST | `/cards/templates` | [cardTemplateSchema] → `CardTemplateDto` |
+| PATCH/DELETE | `/cards/templates/:id` | delete = archive |
+| GET/POST | `/logos` | `{ name, fileId, isDefault }` → `LogoDto` (file uploaded via `/files/presign` with `entityType: 'logo'`) |
+| POST | `/logos/:id/default` · DELETE `/logos/:id` | |
+| POST | `/cards/preview` | `{ templateId, teamIds?, memberIds?, includeSupervisors=true }` → `{ subjects: { memberId?, userId?, data: CardData }[] }`. `data.nationalId` is full only when the template has `maskNationalId=false`; `qrValue` = internal member/user UUID |
+| POST | `/cards/batches` | [printBatchSchema] → `PrintBatchDto` (idempotent by `idempotencyKey`). Items with `saveBack` update the member record (name, job title, department). Audited `cards.printed` |
+| GET | `/cards/batches?page=` · `/cards/batches/:id` | log of who printed what, when, with which template |
+| GET | `/cards/batches/:id/pdf` | server PDF with exact page sizes (ADR-024; returns `501` until the pdf service is configured) |
 ## Phase 3 (violations) — to be detailed when the phase starts
 ## Phase 4 (projects, tasks, Gantt) — to be detailed when the phase starts
