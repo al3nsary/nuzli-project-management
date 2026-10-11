@@ -12,3 +12,4 @@ test-results/
 infra/certs/*.pem
 apps/web/dev-dist/
 .turbo/
+.publish/
