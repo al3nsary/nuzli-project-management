@@ -8,7 +8,9 @@
 ## التشغيل بأمر واحد
 
 ```bash
-cp .env.example .env          # عدّل القيم (المفاتيح، بيانات أول مدير)
+cp .env.example .env                       # إعدادات compose (ليست أسرارًا)
+for f in api db backup minio; do cp env/$f.env.example env/$f.env; done
+# استبدل كل CHANGE_ME في env/*.env — الأوامر المقترحة للتوليد في رأس .env.example
 ./scripts/dev-certs.sh        # شهادة HTTPS محلية (mkcert)
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```

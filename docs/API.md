@@ -66,6 +66,15 @@ Base: `/api/v1`. JSON bodies validated by the zod schemas in `@nuzli/shared` (na
 - A non-UUID route id → 404 `NOT_FOUND`.
 - Audit actions: `registration.requested|approved|rejected`, `user.created|role_changed|suspended|reactivated|bootstrap_admin_created`, `settings.updated`, `auth.password_changed|password_reset|refresh_reuse_detected`, `file.id_card_url_issued`. New actions must get an Arabic label in `apps/web/src/i18n/ar.ts` (`audit.action.*`).
 
+### Security changes (2026-10 review — docs/security-review-2026-10.md, ADR-061..070)
+- `POST /auth/register` always → `201 {status:'PENDING'}`, also for duplicates (the existing owner is emailed). The UI must not claim an account was created.
+- Login: locked accounts answer `401 INVALID_CREDENTIALS` (no more 423). Throttling → `429 RATE_LIMITED` with `details.retryAfterSeconds`.
+- Full national IDs never go in a URL: `GET /members`, `/users`, `/users/supervisors` → `400` (`details.useInstead`) when `q` holds one. Use `POST /members/search` `{page,pageSize,sort?,q?,teamId?,unassigned}` or `POST /users/search` `{page,pageSize,sort?,q?,role?,status?}`. Decide with `isFullNationalIdTerm()` from `@nuzli/shared`.
+- `POST /cards/batches` → `PrintBatchCreatedDto` = batch + `cards: PrintRunCardDto[]` (`{memberId,userId,data,nationalIdPrinted}`) — the only response with full IDs; print from it and keep it in memory. Stored items are always masked (`nationalIdPrinted: FULL|MASKED`). Client `nationalId`/`qrValue`/`photoFileId` are ignored.
+- Supervisor duplicate national ID → `400 NATIONAL_ID_NOT_ACCEPTED` (admins still `409 NATIONAL_ID_TAKEN`).
+- Uploads go to `pending/…` and are copied to the final key on confirm. `member_photo` presign → 403 for now; logo presign with `entityId` → 403. Violation photos on a CANCELLED violation → `409 INVALID_STATE`.
+- New audit actions: `auth.account_locked`, `registration.duplicate_attempt`, `member.duplicate_rejected`, `cards.preview_full_ids`, `cards.print_data_reissued`.
+
 ## Phase 2 — teams, members, reference data, cards
 
 Scope rules: ADMIN sees and manages all teams. A SUPERVISOR sees and manages only the teams they lead (`teams.readOwn` / `teams.manageOwn` / `members.manageOwn`); moving members between teams is ADMIN only (`members.move`). Members without an open membership are "unassigned" (a team archive closes its memberships).
