@@ -176,4 +176,12 @@ Scope: ADMIN creates and manages projects and tasks. SUPERVISOR sees projects th
 | GET/POST/PATCH | `/calendars[/:id]` | [calendarSchema] | ADMIN |
 | POST/DELETE | `/calendars/:id/exceptions[/:exId]` | [calendarExceptionSchema] | ADMIN |
 
+### Phase 4 implementation notes (as built — docs/phase-4-backend.md, ADR-056..060)
+- `POST /projects/:id/tasks` → `TaskDto & { affected }`; `POST /projects/:id/dependencies` → `DependencyDto & { affected }`; `DELETE /tasks/:id` → 200 `{ archivedIds, affected }`; `DELETE /projects/:id` → 200 archived project.
+- `409 CONFLICT_VERSION` details `{ refresh: 'tasks', conflicts: [{ id, currentVersion | null }] }`. `DEPENDENCY_SELF` → 400; non-FS → 400 `DEPENDENCY_TYPE_DISABLED`. New codes: `TASK_PARENT_INVALID`, `PROJECT_ARCHIVED`, `CALENDAR_DATE_EXISTS`.
+- Extra routes: `GET /tasks/:id`, `GET /tasks/:id/attachments/:fileId/url`, `DELETE /tasks/:id/attachments/:fileId`, `GET /calendars/:id`. `GET /projects` default = non-archived (`status=ARCHIVED|ALL`). Calendars include `isDefault`. `GET /tasks/mine` → `MyTaskDto` (+ `project`, `overdue`, `dueSoon`).
+- A TASK that gets a child becomes a GROUP; a milestone cannot be a parent. Starts on non-working days snap forward; `endDate` alone sets the duration. WBS-only changes don't bump `version`.
+- Supervisors may comment on any task of a project they can see; progress/status only on their own tasks.
+- Audit: `project.created|updated|archived|access_granted|access_revoked|exported`, `task.created|updated|archived|moved|comment_added|attachment_added|attachment_removed`, `dependency.created|deleted`, `calendar.created|updated`, `calendar_exception.created|deleted`.
+
 Notifications: `TASK_ASSIGNED` on (re)assignment, `TASK_MENTIONED`, and a daily scheduled job for `TASK_DUE_SOON` (end within 2 working days) and `TASK_OVERDUE` (end passed, not DONE), each sent once per task (`due_soon_notified_at`, `overdue_notified_at`).
