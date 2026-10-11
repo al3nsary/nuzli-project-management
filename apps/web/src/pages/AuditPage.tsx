@@ -31,9 +31,48 @@ export const AUDIT_ACTIONS = [
   'user.reactivated',
   'settings.updated',
   'auth.password_changed',
+  // Phase 2
+  'team.created',
+  'team.updated',
+  'team.approved',
+  'team.rejected',
+  'team.archived',
+  'team.supervisor_changed',
+  'team.visibility_changed',
+  'member.created',
+  'member.updated',
+  'members.moved',
+  'members.imported',
+  'color.created',
+  'color.updated',
+  'reference.created',
+  'reference.updated',
+  'reference.deleted',
+  'card_template.created',
+  'card_template.updated',
+  'card_template.archived',
+  'card_size.created',
+  'card_size.deleted',
+  'logo.created',
+  'logo.deleted',
+  'logo.default_set',
+  'cards.printed',
+  'cards.pdf_exported',
 ] as const;
 
-const ENTITY_TYPES = ['user', 'settings'] as const;
+const ENTITY_TYPES = [
+  'user',
+  'settings',
+  'team',
+  'team_member',
+  'team_color',
+  'department',
+  'job_title',
+  'card_template',
+  'card_size',
+  'logo',
+  'print_batch',
+] as const;
 
 function display(value: unknown, field: string): string {
   if (value === undefined || value === null || value === '') return t('common.none');

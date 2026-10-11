@@ -181,3 +181,264 @@ h4 {
   white-space: nowrap;
   border: 0;
 }
+
+/* ---------------------------------------------------------------- Phase 2: teams */
+.nz-clamp-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.nz-scroll-x {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.nz-team-card {
+  display: block;
+  border-radius: var(--radius-card);
+  text-decoration: none;
+  color: inherit;
+}
+.nz-team-card-inner {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  padding-block: var(--sp-4);
+  padding-inline-end: var(--sp-4);
+  padding-inline-start: calc(var(--sp-4) + 6px);
+  height: 100%;
+  transition: border-color var(--motion);
+}
+.nz-team-card:hover .nz-team-card-inner {
+  border-color: var(--field);
+}
+.nz-team-header {
+  padding: var(--sp-4);
+  padding-inline-start: calc(var(--sp-4) + 8px);
+}
+.nz-team-header::before {
+  width: 8px;
+}
+
+/* Colour picker: swatch + Arabic name, never colour alone. */
+.nz-swatch-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: 6px;
+  padding-inline-end: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  transition: border-color var(--motion);
+}
+.nz-swatch-btn:hover {
+  border-color: var(--muted);
+}
+.nz-swatch-chip {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+.nz-swatch-name {
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+  text-align: start;
+}
+
+.nz-import-row[data-state='error'] {
+  background: color-mix(in srgb, var(--breach) 6%, transparent);
+  border-radius: var(--radius-input);
+}
+.nz-row-error {
+  background: color-mix(in srgb, var(--breach) 6%, transparent);
+}
+
+/* Formation board: one column per team; a horizontal snap scroller (logical, RTL-safe). */
+.nz-board {
+  display: flex;
+  gap: var(--sp-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--sp-2);
+  padding-block-end: var(--sp-3);
+  align-items: flex-start;
+}
+.nz-col {
+  flex: 0 0 292px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 250px);
+  min-height: 240px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: border-color var(--motion), box-shadow var(--motion);
+}
+.nz-col[data-over] {
+  border-color: var(--field);
+  box-shadow: 0 0 0 2px var(--field);
+}
+.nz-col-head {
+  padding: var(--sp-3);
+  flex: none;
+}
+.nz-col-head--none {
+  background: var(--ground);
+  color: var(--ink);
+  border-block-end: 1px dashed var(--line);
+}
+.nz-col-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 120px;
+}
+.nz-member-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding-block: 4px;
+  padding-inline-end: 4px;
+  padding-inline-start: 14px;
+  min-height: 48px;
+}
+.nz-member-card[data-selected] {
+  border-color: var(--field);
+  background: color-mix(in srgb, var(--field) 7%, var(--surface));
+}
+.nz-member-handle {
+  all: unset;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  cursor: grab;
+  touch-action: manipulation;
+  border-radius: 6px;
+  color: inherit;
+}
+.nz-member-handle:active {
+  cursor: grabbing;
+}
+.nz-member-handle > svg {
+  flex: none;
+  color: var(--muted);
+}
+.nz-member-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nz-member-name {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-member-meta {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-member-overlay {
+  box-shadow: var(--shadow);
+  cursor: grabbing;
+  min-width: 220px;
+  justify-content: space-between;
+  padding-inline-end: var(--sp-3);
+}
+.nz-bulk-bar {
+  position: sticky;
+  inset-block-end: var(--sp-3);
+  margin-block-start: var(--sp-3);
+  padding: var(--sp-3);
+  z-index: 5;
+  background: var(--surface);
+}
+@media (max-width: 48em) {
+  .nz-board {
+    scroll-snap-type: x mandatory;
+  }
+  .nz-col {
+    flex-basis: calc(100vw - 56px);
+    max-height: calc(100dvh - 300px);
+  }
+}
+
+/* ---------------------------------------------------------------- Phase 2: cards */
+.nz-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: var(--sp-3);
+}
+.nz-card-cell {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: var(--sp-3);
+  min-width: 0;
+  transition: border-color var(--motion);
+}
+.nz-card-cell:not([data-selected]) {
+  opacity: 0.55;
+}
+.nz-card-cell[data-active] {
+  border-color: var(--field);
+  box-shadow: 0 0 0 2px var(--field);
+  opacity: 1;
+}
+.nz-sticky,
+.nz-card-editor {
+  position: sticky;
+  top: 76px;
+}
+.nz-print-bar {
+  position: sticky;
+  inset-block-end: var(--sp-3);
+  z-index: 5;
+}
+.nz-template-choice[data-checked],
+.nz-check-card[data-checked] {
+  border-color: var(--field);
+  box-shadow: 0 0 0 1px var(--field);
+}
+.nz-logo-box {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  background: repeating-conic-gradient(var(--ground) 0% 25%, var(--surface) 0% 50%) 50% / 16px 16px;
+  border-radius: var(--radius-input);
+}
+.nz-palette-card:not([data-active]) {
+  opacity: 0.6;
+}
+@media (max-width: 62em) {
+  .nz-sticky,
+  .nz-card-editor {
+    position: static;
+  }
+}

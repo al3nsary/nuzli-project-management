@@ -1,0 +1,110 @@
+{
+  "_note": "بيانات تجريبية لنسخة العرض فقط — ليست بيانات حقيقية، وتُستبدل ببيانات المالك.",
+  "sizes": [
+    {
+      "id": "00000000-0000-4000-8000-100000000001",
+      "name": "CR80 (بطاقة قياسية)",
+      "widthMm": 85.6,
+      "heightMm": 54,
+      "isBuiltin": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-100000000002",
+      "name": "90 × 40",
+      "widthMm": 90,
+      "heightMm": 40,
+      "isBuiltin": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-100000000003",
+      "name": "4″ × 2″",
+      "widthMm": 101.6,
+      "heightMm": 50.8,
+      "isBuiltin": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-100000000004",
+      "name": "3″ × 2″",
+      "widthMm": 76.2,
+      "heightMm": 50.8,
+      "isBuiltin": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-100000000005",
+      "name": "4″ × 3″",
+      "widthMm": 101.6,
+      "heightMm": 76.2,
+      "isBuiltin": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-100000000006",
+      "name": "2.25″ × 1.25″",
+      "widthMm": 57,
+      "heightMm": 32,
+      "isBuiltin": true
+    }
+  ],
+  "templates": [
+    {
+      "id": "00000000-0000-4000-8000-110000000001",
+      "name": "كلاسيكية أفقية — CR80",
+      "sizeId": "00000000-0000-4000-8000-100000000001",
+      "orientation": "LANDSCAPE",
+      "layoutKey": "CLASSIC_HORIZONTAL",
+      "isDefault": true,
+      "logoId": null,
+      "archived": false,
+      "config": {}
+    },
+    {
+      "id": "00000000-0000-4000-8000-110000000002",
+      "name": "شارة عمودية — CR80",
+      "sizeId": "00000000-0000-4000-8000-100000000001",
+      "orientation": "PORTRAIT",
+      "layoutKey": "VERTICAL_BADGE",
+      "isDefault": false,
+      "logoId": null,
+      "archived": false,
+      "config": {
+        "logoPosition": "center",
+        "accentStrip": "top",
+        "fontSizes": {
+          "name": 12,
+          "body": 7
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-110000000003",
+      "name": "ملصق مدمج — 90 × 40",
+      "sizeId": "00000000-0000-4000-8000-100000000002",
+      "orientation": "LANDSCAPE",
+      "layoutKey": "COMPACT_LABEL",
+      "isDefault": false,
+      "logoId": null,
+      "archived": false,
+      "config": {
+        "fields": {
+          "department": false,
+          "qr": false,
+          "photo": false
+        },
+        "fontSizes": {
+          "name": 10,
+          "body": 6
+        },
+        "accentStrip": "start"
+      }
+    }
+  ],
+  "logos": [
+    {
+      "id": "00000000-0000-4000-8000-120000000001",
+      "name": "شعار تجريبي محايد",
+      "fileId": "00000000-0000-4000-8000-140000000001",
+      "isDefault": true,
+      "dataUrl": "data:image/png;base64,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",
+      "createdAt": "2026-10-02T06:00:00.000Z"
+    }
+  ]
+}

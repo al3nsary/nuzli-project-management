@@ -24,7 +24,8 @@ import {
 } from '@tabler/icons-react';
 import { can, type Role } from '@nuzli/shared';
 import { useAuthStore } from '../stores/auth';
-import { useAudit, useRegistrations, useUsers } from '../api/queries';
+import { useAudit, useRegistrations, useTeams, useUsers } from '../api/queries';
+import { TeamBadge } from '../theme/TeamBadge';
 import { formatDateTime, formatNumber, t, tKey } from '../i18n';
 import { PageHeader, roleLabel } from '../components/ui';
 
@@ -60,6 +61,93 @@ function RoleCount({ role }: { role: Role }) {
   return <Kpi label={roleLabel(role)} value={q.data?.total} loading={q.isLoading} />;
 }
 
+/** Admin: active teams and teams waiting for approval (brief §5.1). */
+function TeamsKpi() {
+  const navigate = useNavigate();
+  const teams = useTeams({});
+  const active = teams.data?.filter((x) => x.status === 'ACTIVE').length;
+  const pending = teams.data?.filter((x) => x.status === 'PENDING_APPROVAL').length ?? 0;
+  return (
+    <Card style={pending ? { borderColor: 'var(--signal)', borderWidth: 2 } : undefined}>
+      <Group justify="space-between" align="flex-start" wrap="nowrap">
+        <SimpleGrid cols={2} spacing="md">
+          <Kpi label={t('dash.activeTeams')} value={active} loading={teams.isLoading} />
+          <Kpi
+            label={t('dash.pendingTeams')}
+            value={pending}
+            loading={teams.isLoading}
+            tone={pending ? 'var(--ink)' : 'dimmed'}
+          />
+        </SimpleGrid>
+        <ThemeIcon size={40} radius="xl" variant="light" color={pending ? 'signal' : 'field'} aria-hidden>
+          <IconUsersGroup size={22} />
+        </ThemeIcon>
+      </Group>
+      <Button
+        mt="md"
+        fullWidth
+        variant={pending ? 'filled' : 'light'}
+        onClick={() => navigate(pending ? '/teams?status=PENDING_APPROVAL' : '/teams')}
+      >
+        {pending ? t('dash.reviewTeams') : t('dash.openTeams')}
+      </Button>
+    </Card>
+  );
+}
+
+/** Supervisor: the teams they lead with member counts. */
+function MyTeams() {
+  const navigate = useNavigate();
+  const teams = useTeams({});
+  return (
+    <Card>
+      <Group justify="space-between" mb="sm">
+        <Title order={2} fz="lg">
+          {t('dash.myTeams')}
+        </Title>
+        <Button variant="subtle" onClick={() => navigate('/teams')}>
+          {t('dash.openTeams')}
+        </Button>
+      </Group>
+      {teams.isLoading ? (
+        <Skeleton h={60} />
+      ) : teams.data?.length ? (
+        <Stack gap={0}>
+          {teams.data.map((tm) => (
+            <Group
+              key={tm.id}
+              justify="space-between"
+              py="xs"
+              wrap="nowrap"
+              style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
+              onClick={() => navigate(`/teams/${tm.id}`)}
+            >
+              <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
+                <TeamBadge name={tm.name} color={tm.color.hex} />
+                {tm.status === 'PENDING_APPROVAL' ? (
+                  <Text size="xs" c="var(--signal)" fw={600}>
+                    {t('teamStatus.PENDING_APPROVAL')}
+                  </Text>
+                ) : null}
+              </Group>
+              <Text size="sm" className="num" style={{ flex: 'none' }}>
+                {t('teams.memberCount', { count: tm.memberCount })}
+              </Text>
+            </Group>
+          ))}
+        </Stack>
+      ) : (
+        <Stack align="flex-start" gap="xs">
+          <Text c="dimmed">{t('dash.noTeamsYet')}</Text>
+          <Button variant="light" onClick={() => navigate('/teams')}>
+            {t('teams.create')}
+          </Button>
+        </Stack>
+      )}
+    </Card>
+  );
+}
+
 function AdminDashboard() {
   const navigate = useNavigate();
   const pending = useRegistrations({ pageSize: 1 });
@@ -69,7 +157,7 @@ function AdminDashboard() {
 
   return (
     <Stack gap="lg">
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
         <Card style={pendingCount ? { borderColor: 'var(--signal)', borderWidth: 2 } : undefined}>
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <Kpi
@@ -97,6 +185,8 @@ function AdminDashboard() {
             {pendingCount ? t('dash.reviewRegistrations') : t('dash.noPending')}
           </Button>
         </Card>
+
+        <TeamsKpi />
 
         <Card>
           <Group justify="space-between" align="flex-start" wrap="nowrap" mb="sm">
@@ -237,14 +327,16 @@ export function DashboardPage() {
       {isAdmin ? (
         <AdminDashboard />
       ) : user.role === 'SUPERVISOR' ? (
-        <ComingSoon
-          lead={t('dash.supervisorLead')}
-          items={[
-            { icon: IconUsersGroup, text: t('dash.supervisor.teams') },
-            { icon: IconListCheck, text: t('dash.supervisor.tasks') },
-            { icon: IconShieldCheck, text: t('dash.supervisor.violations') },
-          ]}
-        />
+        <Stack gap="lg">
+          <MyTeams />
+          <ComingSoon
+            lead={t('dash.supervisorLead')}
+            items={[
+              { icon: IconListCheck, text: t('dash.supervisor.tasks') },
+              { icon: IconShieldCheck, text: t('dash.supervisor.violations') },
+            ]}
+          />
+        </Stack>
       ) : (
         <ComingSoon
           lead={t('dash.monitorLead')}

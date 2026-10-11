@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useMatches } from 'react-router-dom';
 import {
   ActionIcon,
   AppShell,
@@ -183,6 +183,11 @@ export function Layout() {
   const location = useLocation();
 
   useEffect(() => setOpened(false), [location.pathname]);
+  // Boards and wide grids (route handle fullWidth) use the whole width; forms stay at 1200px.
+  const matches = useMatches();
+  const fullWidth = matches.some(
+    (m) => (m.handle as { fullWidth?: boolean } | undefined)?.fullWidth === true,
+  );
 
   const items = NAV.filter((item) => !item.permission || can(user, item.permission));
   const headerHeight = HEADER + (IS_DEMO ? STRIP : 0);
@@ -241,7 +246,7 @@ export function Layout() {
         <AppShell.Section grow component="nav">
           <Stack gap={4}>
             {items.map((item) => (
-              <NavLink key={item.to} to={item.to} end={item.to === '/'} className="nz-nav-link">
+              <NavLink key={item.to} to={item.to} end={item.end ?? item.to === '/'} className="nz-nav-link">
                 <item.icon size={20} stroke={1.7} aria-hidden />
                 <span>{t(item.label)}</span>
                 {item.badge === 'registrations' ? <NavCount /> : null}
@@ -257,7 +262,7 @@ export function Layout() {
       </AppShell.Navbar>
 
       <AppShell.Main id="main" style={{ background: 'var(--ground)' }}>
-        <Box maw={1200} mx="auto" pb="xl">
+        <Box maw={fullWidth ? undefined : 1200} mx="auto" pb="xl">
           <Outlet />
         </Box>
       </AppShell.Main>

@@ -1,6 +1,12 @@
 import type { Permission } from '@nuzli/shared';
 import {
+  IconArrowsExchange,
   IconBell,
+  IconId,
+  IconIdBadge2,
+  IconListDetails,
+  IconTemplate,
+  IconUsersGroup,
   IconHistory,
   IconLayoutDashboard,
   IconSettings,
@@ -18,6 +24,8 @@ export interface NavItem {
   permission?: Permission;
   /** Show the pending-registrations count next to the item. */
   badge?: 'registrations';
+  /** Active only on an exact match (a parent of other items, e.g. /teams vs /teams/formation). */
+  end?: boolean;
 }
 
 /**
@@ -25,7 +33,18 @@ export interface NavItem {
  * (projects, my tasks, teams, team formation, violations, work cards…) — and nowhere else.
  */
 export const NAV: NavItem[] = [
-  { to: '/', label: 'nav.dashboard', icon: IconLayoutDashboard },
+  { to: '/', label: 'nav.dashboard', icon: IconLayoutDashboard, end: true },
+  // Phase 2 — teams and work cards (brief §5, §8)
+  { to: '/teams', label: 'nav.teams', icon: IconUsersGroup, permission: 'teams.readOwn', end: true },
+  { to: '/teams/formation', label: 'nav.formation', icon: IconArrowsExchange, permission: 'members.move' },
+  { to: '/members', label: 'nav.members', icon: IconId, permission: 'teams.readOwn' },
+  { to: '/cards', label: 'nav.cards', icon: IconIdBadge2, permission: 'cards.print', end: true },
+  {
+    to: '/cards/templates',
+    label: 'nav.cardTemplates',
+    icon: IconTemplate,
+    permission: 'cards.manageTemplates',
+  },
   {
     to: '/registrations',
     label: 'nav.registrations',
@@ -41,5 +60,17 @@ export const NAV: NavItem[] = [
     icon: IconBell,
     permission: 'notifications.read',
   },
-  { to: '/settings', label: 'nav.settings', icon: IconSettings, permission: 'settings.manage' },
+  {
+    to: '/settings/reference',
+    label: 'nav.reference',
+    icon: IconListDetails,
+    permission: 'reference.manage',
+  },
+  {
+    to: '/settings',
+    label: 'nav.settings',
+    icon: IconSettings,
+    permission: 'settings.manage',
+    end: true,
+  },
 ];

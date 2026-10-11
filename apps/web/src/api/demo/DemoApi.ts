@@ -20,77 +20,19 @@ import {
   updateSettingsSchema,
   type AuditEntryDto,
   type AuthSession,
-  type ErrorCode,
   type NotificationDto,
-  type Paginated,
   type Permission,
   type Role,
   type Settings,
   type UserDto,
 } from '@nuzli/shared';
-import type { z } from 'zod';
-import { ApiError } from '../errors';
 import type { ApiClient, DemoAccount, DemoControls, SessionListener } from '../client';
 import { riyadhDay } from '../../i18n/format';
 import { DemoDb, type DemoAudit, type DemoUser } from './db';
-import { loadSeed } from './seed';
+import { loadPhase2Seed, loadSeed } from './seed';
+import { createPhase2, type Phase2Api } from './phase2';
+import { fail, hashPassword, newId, paginate, validate } from './util';
 import { DEMO_DB_NAME, DEMO_EXPIRES_IN, DEMO_PASSWORD } from './constants';
-
-const STATUS: Partial<Record<ErrorCode, number>> = {
-  VALIDATION_FAILED: 400,
-  REJECTION_REASON_REQUIRED: 400,
-  TOKEN_INVALID: 400,
-  UNAUTHENTICATED: 401,
-  INVALID_CREDENTIALS: 401,
-  FORBIDDEN: 403,
-  ACCOUNT_PENDING: 403,
-  ACCOUNT_REJECTED: 403,
-  ACCOUNT_SUSPENDED: 403,
-  PASSWORD_CHANGE_REQUIRED: 403,
-  NOT_FOUND: 404,
-  EMAIL_TAKEN: 409,
-  MOBILE_TAKEN: 409,
-  NATIONAL_ID_TAKEN: 409,
-  LAST_ADMIN: 409,
-  NOT_PENDING: 409,
-};
-
-function fail(code: ErrorCode, details?: unknown): never {
-  throw ApiError.of(code, STATUS[code] ?? 400, details);
-}
-
-function validate<S extends z.ZodTypeAny>(schema: S, input: unknown): z.output<S> {
-  const r = schema.safeParse(input ?? {});
-  if (!r.success) {
-    fail('VALIDATION_FAILED', { fieldErrors: r.error.flatten().fieldErrors });
-  }
-  return r.data;
-}
-
-async function sha256(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-/** Demo-only hashing. The real API uses argon2id; this only avoids keeping plain text in IndexedDB. */
-function hashPassword(password: string) {
-  return sha256(`nuzli-demo:${password}`);
-}
-
-function newId() {
-  return crypto.randomUUID();
-}
-
-function paginate<T>(rows: T[], page = 1, pageSize = 25): Paginated<T> {
-  const p = Math.max(1, Math.floor(page));
-  const size = Math.min(200, Math.max(1, Math.floor(pageSize)));
-  return {
-    items: rows.slice((p - 1) * size, p * size),
-    total: rows.length,
-    page: p,
-    pageSize: size,
-  };
-}
 
 const byCreatedDesc = (a: { createdAt: string }, b: { createdAt: string }) =>
   b.createdAt.localeCompare(a.createdAt);
@@ -109,8 +51,16 @@ export class DemoApi implements ApiClient {
   private ready: Promise<void> | null = null;
   private listeners = new Set<SessionListener>();
 
+  colors!: Phase2Api['colors'];
+  teams!: Phase2Api['teams'];
+  members!: Phase2Api['members'];
+  reference!: Phase2Api['reference'];
+  cards!: Phase2Api['cards'];
+  logos!: Phase2Api['logos'];
+
   constructor(opts: { dbName?: string } = {}) {
     this.db = new DemoDb(opts.dbName ?? DEMO_DB_NAME);
+    Object.assign(this, createPhase2(this));
     const seed = loadSeed();
     const first = (role: Role) => seed.users.find((u) => u.role === role && u.status === 'ACTIVE');
     const accounts: DemoAccount[] = (['ADMIN', 'SUPERVISOR', 'MONITOR'] as Role[])
@@ -133,6 +83,11 @@ export class DemoApi implements ApiClient {
   }
 
   private async seedIfEmpty() {
+    await this.seedPhase1();
+    await this.seedPhase2();
+  }
+
+  private async seedPhase1() {
     const seeded = await this.db.kv.get('seeded');
     if (seeded) return;
     const seed = loadSeed();
@@ -150,20 +105,29 @@ export class DemoApi implements ApiClient {
     );
   }
 
+  /** Teams, members, palette, reference lists and cards — also for browsers seeded in Phase 1. */
+  private async seedPhase2() {
+    if (await this.db.kv.get('seededPhase2')) return;
+    const seed = loadPhase2Seed();
+    const db = this.db;
+    await db.transaction('rw', db.tables, async () => {
+      await db.colors.bulkPut(seed.colors);
+      await db.teams.bulkPut(seed.teams);
+      await db.supervisorHistory.bulkPut(seed.supervisorHistory);
+      await db.members.bulkPut(seed.members);
+      await db.memberships.bulkPut(seed.memberships);
+      await db.reference.bulkPut(seed.reference);
+      await db.cardSizes.bulkPut(seed.cardSizes);
+      await db.cardTemplates.bulkPut(seed.cardTemplates);
+      await db.logos.bulkPut(seed.logos);
+      await db.kv.put({ key: 'seededPhase2', value: new Date().toISOString() });
+    });
+  }
+
   async reset() {
-    await this.db.transaction(
-      'rw',
-      [this.db.users, this.db.notifications, this.db.audit, this.db.sessions, this.db.kv],
-      async () => {
-        await Promise.all([
-          this.db.users.clear(),
-          this.db.notifications.clear(),
-          this.db.audit.clear(),
-          this.db.sessions.clear(),
-          this.db.kv.clear(),
-        ]);
-      },
-    );
+    await this.db.transaction('rw', this.db.tables, async () => {
+      await Promise.all(this.db.tables.map((table) => table.clear()));
+    });
     this.token = null;
     this.ready = null;
     await this.init();
@@ -186,7 +150,8 @@ export class DemoApi implements ApiClient {
   }
 
   /** The signed-in, active user; optionally checks a permission like the API guard does. */
-  private async actor(permission?: Permission): Promise<DemoUser> {
+  /** @internal The signed-in user (also used by the Phase 2 module). */
+  async actor(permission?: Permission): Promise<DemoUser> {
     await this.init();
     if (!this.token) fail('UNAUTHENTICATED');
     const session = await this.db.sessions.get(this.token);
@@ -232,11 +197,13 @@ export class DemoApi implements ApiClient {
       fail('NATIONAL_ID_TAKEN');
   }
 
-  private writeAudit(entry: Omit<DemoAudit, 'id' | 'at' | 'ip'>) {
+  /** @internal */
+  writeAudit(entry: Omit<DemoAudit, 'id' | 'at' | 'ip'>) {
     return this.db.audit.add({ ...entry, id: newId(), at: new Date().toISOString(), ip: null });
   }
 
-  private notify(userId: string, type: string, payload: Record<string, unknown>) {
+  /** @internal */
+  notify(userId: string, type: string, payload: Record<string, unknown>) {
     return this.db.notifications.add({
       id: newId(),
       userId,
@@ -729,7 +696,13 @@ export class DemoApi implements ApiClient {
 
   // ------------------------------------------------------------------ settings
 
-  private async readSettings(): Promise<Settings> {
+  /** @internal */
+  demoPasswordHash() {
+    return hashPassword(DEMO_PASSWORD);
+  }
+
+  /** @internal */
+  async readSettings(): Promise<Settings> {
     const stored = (await this.db.kv.get('settings'))?.value as Partial<Settings> | undefined;
     return { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
   }

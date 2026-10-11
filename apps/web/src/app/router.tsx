@@ -1,4 +1,20 @@
+import { Suspense, lazy, type ComponentType } from 'react';
 import { createBrowserRouter, createMemoryRouter, type RouteObject } from 'react-router-dom';
+import { LoadingBlock } from '../components/ui';
+
+function lazyPage<K extends string>(
+  load: () => Promise<{ [P in K]: ComponentType }>,
+  name: K,
+): ComponentType {
+  const Page = lazy(() => load().then((m) => ({ default: m[name] as ComponentType })));
+  return function LazyPage() {
+    return (
+      <Suspense fallback={<LoadingBlock />}>
+        <Page />
+      </Suspense>
+    );
+  };
+}
 import { Layout } from './Layout';
 import { NotFound, PublicOnly, RequireAuth, RequirePermission, RouteError } from './guards';
 import { LoginPage } from '../pages/auth/LoginPage';
@@ -14,6 +30,19 @@ import { AuditPage } from '../pages/AuditPage';
 import { NotificationsPage } from '../pages/NotificationsPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SettingsPage } from '../pages/SettingsPage';
+
+
+// Phase 2 screens are split out of the main bundle (dnd-kit, exceljs, card templates).
+const TeamsPage = lazyPage(() => import('../pages/teams/TeamsPage'), 'TeamsPage');
+const TeamDetailPage = lazyPage(() => import('../pages/teams/TeamDetailPage'), 'TeamDetailPage');
+const FormationPage = lazyPage(() => import('../pages/teams/FormationPage'), 'FormationPage');
+const MembersPage = lazyPage(() => import('../pages/members/MembersPage'), 'MembersPage');
+const CardsPage = lazyPage(() => import('../pages/cards/CardsPage'), 'CardsPage');
+const CardHistoryPage = lazyPage(() => import('../pages/cards/CardHistoryPage'), 'CardHistoryPage');
+const TemplatesPage = lazyPage(() => import('../pages/cards/TemplatesPage'), 'TemplatesPage');
+const PrintView = lazyPage(() => import('../pages/cards/PrintView'), 'PrintView');
+const CalibrationPage = lazyPage(() => import('../pages/cards/CalibrationPage'), 'CalibrationPage');
+const ReferencePage = lazyPage(() => import('../pages/settings/ReferencePage'), 'ReferencePage');
 
 export const routes: RouteObject[] = [
   {
@@ -50,6 +79,29 @@ export const routes: RouteObject[] = [
         <ChangePasswordPage />
       </RequireAuth>
     ),
+  },
+  // Print pages render without the app shell: only the cards and a screen-only toolbar.
+  {
+    path: '/cards/print/:batchId',
+    element: (
+      <RequireAuth>
+        <RequirePermission permission="cards.print">
+          <PrintView />
+        </RequirePermission>
+      </RequireAuth>
+    ),
+    errorElement: <RouteError />,
+  },
+  {
+    path: '/cards/calibration',
+    element: (
+      <RequireAuth>
+        <RequirePermission permission="cards.manageTemplates">
+          <CalibrationPage />
+        </RequirePermission>
+      </RequireAuth>
+    ),
+    errorElement: <RouteError />,
   },
   {
     path: '/',
@@ -94,6 +146,74 @@ export const routes: RouteObject[] = [
         ),
       },
       { path: 'profile', element: <ProfilePage /> },
+      // Phase 2
+      {
+        path: 'teams',
+        element: (
+          <RequirePermission permission="teams.readOwn">
+            <TeamsPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'teams/formation',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="members.move">
+            <FormationPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'teams/:id',
+        element: (
+          <RequirePermission permission="teams.readOwn">
+            <TeamDetailPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'members',
+        element: (
+          <RequirePermission permission="teams.readOwn">
+            <MembersPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'cards',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="cards.print">
+            <CardsPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'cards/history',
+        element: (
+          <RequirePermission permission="cards.print">
+            <CardHistoryPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'cards/templates',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="cards.manageTemplates">
+            <TemplatesPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'settings/reference',
+        element: (
+          <RequirePermission permission="reference.manage">
+            <ReferencePage />
+          </RequirePermission>
+        ),
+      },
       {
         path: 'settings',
         element: (

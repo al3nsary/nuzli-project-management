@@ -1,12 +1,29 @@
 import type {
   AuditEntryDto,
   AuthSession,
+  CardPreviewDto,
+  CardSizeDto,
+  CardTemplateDto,
+  ImportMembersResultDto,
+  LogoDto,
+  MemberDto,
+  MembershipHistoryDto,
   NotificationDto,
   Paginated,
+  PrintBatchDetailDto,
+  PrintBatchDto,
+  ReferenceItemDto,
   Role,
   Settings,
+  SupervisorHistoryDto,
+  TeamColorDto,
+  TeamColorPaletteDto,
+  TeamDetailDto,
+  TeamDto,
+  TeamStatus,
   UserDto,
   UserStatus,
+  VisibilityMode,
 } from '@nuzli/shared';
 import type { z } from 'zod';
 import type {
@@ -22,6 +39,24 @@ import type {
   suspendUserSchema,
   updateProfileSchema,
   updateSettingsSchema,
+  archiveTeamSchema,
+  cardPreviewSchema,
+  cardSizeSchema,
+  cardTemplateSchema,
+  changeSupervisorSchema,
+  createTeamSchema,
+  importMembersSchema,
+  memberInputSchema,
+  moveMembersSchema,
+  printBatchSchema,
+  referenceItemSchema,
+  rejectTeamSchema,
+  teamColorSchema,
+  updateCardTemplateSchema,
+  updateMemberSchema,
+  updateReferenceItemSchema,
+  updateTeamColorSchema,
+  updateTeamSchema,
 } from '@nuzli/shared';
 
 /**
@@ -54,6 +89,36 @@ export interface AuditQuery extends PageQuery {
 
 export interface NotificationQuery extends PageQuery {
   unread?: boolean;
+}
+
+export interface TeamListQuery {
+  /** Omitted = ACTIVE + PENDING_APPROVAL (as built, ADR-039..045); `ALL` includes archived. */
+  status?: TeamStatus | 'ALL';
+  q?: string;
+}
+
+export interface MemberListQuery extends PageQuery {
+  teamId?: string;
+  unassigned?: boolean;
+}
+
+/** `/reference/departments` and `/reference/job-titles`. */
+export type ReferenceKind = 'departments' | 'job-titles';
+
+/**
+ * Logo upload as one call for screens. HttpApi runs presign → PUT → confirm → POST /logos;
+ * DemoApi stores the image as a data URL. Only PNG, JPEG and WebP are accepted (never SVG).
+ */
+export interface LogoUploadInput {
+  name: string;
+  file: Blob & { name?: string; type: string };
+  isDefault?: boolean;
+}
+
+/** `DELETE /reference/:kind/:id` → 200 (as built; not in @nuzli/shared, defined here). */
+export interface ReferenceRemoveResult {
+  result: 'DELETED' | 'DEACTIVATED';
+  item: ReferenceItemDto;
 }
 
 export interface DemoAccount {
@@ -127,6 +192,77 @@ export interface ApiClient {
   settings: {
     get(): Promise<Settings>;
     update(input: In<typeof updateSettingsSchema>): Promise<Settings>;
+  };
+
+  // ---------------------------------------------------------------- Phase 2
+
+  colors: {
+    /** Colours no ACTIVE/PENDING team holds; the edited team's own colour is included. */
+    available(excludeTeamId?: string): Promise<TeamColorDto[]>;
+    /** ADMIN: the whole palette with the team that holds each colour. */
+    list(): Promise<TeamColorPaletteDto[]>;
+    create(input: In<typeof teamColorSchema>): Promise<TeamColorDto>;
+    update(id: string, input: In<typeof updateTeamColorSchema>): Promise<TeamColorDto>;
+  };
+
+  teams: {
+    list(query?: TeamListQuery): Promise<TeamDto[]>;
+    get(id: string): Promise<TeamDetailDto>;
+    create(input: In<typeof createTeamSchema>): Promise<TeamDto>;
+    update(id: string, input: In<typeof updateTeamSchema>): Promise<TeamDto>;
+    approve(id: string): Promise<TeamDto>;
+    reject(id: string, input: In<typeof rejectTeamSchema>): Promise<TeamDto>;
+    archive(id: string, input: In<typeof archiveTeamSchema>): Promise<TeamDto>;
+    changeSupervisor(id: string, input: In<typeof changeSupervisorSchema>): Promise<TeamDto>;
+    supervisorHistory(id: string): Promise<SupervisorHistoryDto[]>;
+    setViolationVisibility(id: string, mode: VisibilityMode): Promise<TeamDto>;
+    addMember(teamId: string, input: In<typeof memberInputSchema>): Promise<MemberDto>;
+    importMembers(input: In<typeof importMembersSchema>): Promise<ImportMembersResultDto>;
+  };
+
+  members: {
+    list(query?: MemberListQuery): Promise<Paginated<MemberDto>>;
+    get(id: string): Promise<MemberDto>;
+    update(id: string, input: In<typeof updateMemberSchema>): Promise<MemberDto>;
+    history(id: string): Promise<MembershipHistoryDto[]>;
+    move(input: In<typeof moveMembersSchema>): Promise<MemberDto[]>;
+  };
+
+  reference: {
+    list(kind: ReferenceKind): Promise<ReferenceItemDto[]>;
+    create(kind: ReferenceKind, input: In<typeof referenceItemSchema>): Promise<ReferenceItemDto>;
+    update(
+      kind: ReferenceKind,
+      id: string,
+      input: In<typeof updateReferenceItemSchema>,
+    ): Promise<ReferenceItemDto>;
+    /** Deletes, or deactivates when members still reference the item. */
+    remove(kind: ReferenceKind, id: string): Promise<ReferenceRemoveResult>;
+  };
+
+  cards: {
+    sizes(): Promise<CardSizeDto[]>;
+    createSize(input: In<typeof cardSizeSchema>): Promise<CardSizeDto>;
+    deleteSize(id: string): Promise<void>;
+    templates(): Promise<CardTemplateDto[]>;
+    createTemplate(input: In<typeof cardTemplateSchema>): Promise<CardTemplateDto>;
+    updateTemplate(id: string, input: In<typeof updateCardTemplateSchema>): Promise<CardTemplateDto>;
+    archiveTemplate(id: string): Promise<void>;
+    preview(input: In<typeof cardPreviewSchema>): Promise<CardPreviewDto>;
+    /** Idempotent by `idempotencyKey`: repeating it returns the original batch. */
+    createBatch(input: In<typeof printBatchSchema>): Promise<PrintBatchDto>;
+    batches(query?: PageQuery): Promise<Paginated<PrintBatchDto>>;
+    batch(id: string): Promise<PrintBatchDetailDto>;
+    /** Server PDF (ADR-024). Throws `PDF_NOT_CONFIGURED` (501) until the pdf service exists. */
+    pdf(id: string): Promise<Blob>;
+  };
+
+  logos: {
+    /** Each logo carries a displayable `url`. */
+    list(): Promise<LogoDto[]>;
+    upload(input: LogoUploadInput): Promise<LogoDto>;
+    setDefault(id: string): Promise<LogoDto>;
+    remove(id: string): Promise<void>;
   };
 }
 

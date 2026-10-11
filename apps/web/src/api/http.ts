@@ -5,10 +5,31 @@ import type {
   UserDto,
   AuditEntryDto,
   NotificationDto,
+  CardPreviewDto,
+  CardSizeDto,
+  CardTemplateDto,
+  ImportMembersResultDto,
+  LogoDto,
+  MemberDto,
+  MembershipHistoryDto,
+  PresignedUpload,
+  PrintBatchDetailDto,
+  PrintBatchDto,
+  ReferenceItemDto,
+  SupervisorHistoryDto,
+  TeamColorDto,
+  TeamColorPaletteDto,
+  TeamDetailDto,
+  TeamDto,
 } from '@nuzli/shared';
 import { ApiError } from './errors';
 import { t } from '../i18n';
-import { toQueryString, type ApiClient, type SessionListener } from './client';
+import {
+  toQueryString,
+  type ApiClient,
+  type ReferenceRemoveResult,
+  type SessionListener,
+} from './client';
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
@@ -95,6 +116,18 @@ export class HttpApi implements ApiClient {
     } catch {
       throw new ApiError(0, 'NETWORK_ERROR', t('error.network'));
     }
+  }
+
+  /** A binary response (PDF). Errors still arrive as the JSON error body. */
+  private async requestBlob(path: string): Promise<Blob> {
+    let res = await this.send('GET', path, {});
+    if (res.status === 401) {
+      const session = await this.refreshOnce();
+      if (!session) throw ApiError.of('UNAUTHENTICATED', 401);
+      res = await this.send('GET', path, {});
+    }
+    if (!res.ok) return this.parse<Blob>(res);
+    return res.blob();
   }
 
   private async parse<T>(res: Response): Promise<T> {
@@ -212,4 +245,118 @@ export class HttpApi implements ApiClient {
     get: () => this.request<Settings>('GET', '/settings'),
     update: (input) => this.request<Settings>('PATCH', '/settings', { body: input }),
   };
+
+  // ---------------------------------------------------------------- Phase 2
+
+  colors: ApiClient['colors'] = {
+    available: (excludeTeamId) =>
+      this.request<TeamColorDto[]>('GET', `/colors/available${toQueryString({ excludeTeamId })}`),
+    list: () => this.request<TeamColorPaletteDto[]>('GET', '/colors'),
+    create: (input) => this.request<TeamColorDto>('POST', '/colors', { body: input }),
+    update: (id, input) =>
+      this.request<TeamColorDto>('PATCH', `/colors/${enc(id)}`, { body: input }),
+  };
+
+  teams: ApiClient['teams'] = {
+    list: (q) => this.request<TeamDto[]>('GET', `/teams${toQueryString(q)}`),
+    get: (id) => this.request<TeamDetailDto>('GET', `/teams/${enc(id)}`),
+    create: (input) => this.request<TeamDto>('POST', '/teams', { body: input }),
+    update: (id, input) => this.request<TeamDto>('PATCH', `/teams/${enc(id)}`, { body: input }),
+    approve: (id) => this.request<TeamDto>('POST', `/teams/${enc(id)}/approve`),
+    reject: (id, input) =>
+      this.request<TeamDto>('POST', `/teams/${enc(id)}/reject`, { body: input }),
+    archive: (id, input) =>
+      this.request<TeamDto>('POST', `/teams/${enc(id)}/archive`, { body: input }),
+    changeSupervisor: (id, input) =>
+      this.request<TeamDto>('POST', `/teams/${enc(id)}/supervisor`, { body: input }),
+    supervisorHistory: (id) =>
+      this.request<SupervisorHistoryDto[]>('GET', `/teams/${enc(id)}/supervisor-history`),
+    setViolationVisibility: (id, mode) =>
+      this.request<TeamDto>('PUT', `/teams/${enc(id)}/violation-visibility`, { body: { mode } }),
+    addMember: (teamId, input) =>
+      this.request<MemberDto>('POST', `/teams/${enc(teamId)}/members`, { body: input }),
+    importMembers: (input) =>
+      this.request<ImportMembersResultDto>('POST', '/members/import', { body: input }),
+  };
+
+  members: ApiClient['members'] = {
+    list: (q) => this.request<Paginated<MemberDto>>('GET', `/members${toQueryString(q)}`),
+    get: (id) => this.request<MemberDto>('GET', `/members/${enc(id)}`),
+    update: (id, input) =>
+      this.request<MemberDto>('PATCH', `/members/${enc(id)}`, { body: input }),
+    history: (id) => this.request<MembershipHistoryDto[]>('GET', `/members/${enc(id)}/history`),
+    move: (input) => this.request<MemberDto[]>('POST', '/members/move', { body: input }),
+  };
+
+  reference: ApiClient['reference'] = {
+    list: (kind) => this.request<ReferenceItemDto[]>('GET', `/reference/${kind}`),
+    create: (kind, input) =>
+      this.request<ReferenceItemDto>('POST', `/reference/${kind}`, { body: input }),
+    update: (kind, id, input) =>
+      this.request<ReferenceItemDto>('PATCH', `/reference/${kind}/${enc(id)}`, { body: input }),
+    remove: (kind, id) =>
+      this.request<ReferenceRemoveResult>('DELETE', `/reference/${kind}/${enc(id)}`),
+  };
+
+  cards: ApiClient['cards'] = {
+    sizes: () => this.request<CardSizeDto[]>('GET', '/cards/sizes'),
+    createSize: (input) => this.request<CardSizeDto>('POST', '/cards/sizes', { body: input }),
+    deleteSize: (id) => this.request<void>('DELETE', `/cards/sizes/${enc(id)}`),
+    templates: () => this.request<CardTemplateDto[]>('GET', '/cards/templates'),
+    createTemplate: (input) =>
+      this.request<CardTemplateDto>('POST', '/cards/templates', { body: input }),
+    updateTemplate: (id, input) =>
+      this.request<CardTemplateDto>('PATCH', `/cards/templates/${enc(id)}`, { body: input }),
+    archiveTemplate: (id) => this.request<void>('DELETE', `/cards/templates/${enc(id)}`),
+    preview: (input) => this.request<CardPreviewDto>('POST', '/cards/preview', { body: input }),
+    createBatch: (input) => this.request<PrintBatchDto>('POST', '/cards/batches', { body: input }),
+    batches: (q) =>
+      this.request<Paginated<PrintBatchDto>>('GET', `/cards/batches${toQueryString(q)}`),
+    batch: (id) => this.request<PrintBatchDetailDto>('GET', `/cards/batches/${enc(id)}`),
+    pdf: (id) => this.requestBlob(`/cards/batches/${enc(id)}/pdf`),
+  };
+
+  logos: ApiClient['logos'] = {
+    list: async () => {
+      const logos = await this.request<LogoDto[]>('GET', '/logos');
+      return Promise.all(
+        logos.map(async (logo) => {
+          if (logo.url) return logo;
+          try {
+            const { url } = await this.request<{ url: string }>(
+              'GET',
+              `/files/${enc(logo.fileId)}/url`,
+            );
+            return { ...logo, url };
+          } catch {
+            return logo;
+          }
+        }),
+      );
+    },
+    upload: async ({ name, file, isDefault }) => {
+      const presigned = await this.request<PresignedUpload>('POST', '/files/presign', {
+        body: { entityType: 'logo', kind: 'LOGO', contentType: file.type, sizeBytes: file.size },
+      });
+      let put: Response;
+      try {
+        put = await this.fetchImpl(presigned.url, {
+          method: presigned.method,
+          headers: presigned.headers,
+          body: file,
+        });
+      } catch {
+        throw new ApiError(0, 'NETWORK_ERROR', t('error.network'));
+      }
+      if (!put.ok) throw ApiError.of('FILE_NOT_UPLOADED', 400);
+      await this.request('POST', `/files/${enc(presigned.fileId)}/confirm`);
+      return this.request<LogoDto>('POST', '/logos', {
+        body: { name, fileId: presigned.fileId, isDefault: Boolean(isDefault) },
+      });
+    },
+    setDefault: (id) => this.request<LogoDto>('POST', `/logos/${enc(id)}/default`),
+    remove: (id) => this.request<void>('DELETE', `/logos/${enc(id)}`),
+  };
 }
+
+const enc = encodeURIComponent;

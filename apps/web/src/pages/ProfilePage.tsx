@@ -31,7 +31,7 @@ import { formatDate, formatNumber, t, tKey } from '../i18n';
 /** Which notification types can reach each role (brief §9). */
 const TYPES_BY_ROLE: Record<Role, NotificationType[]> = {
   ADMIN: ['REGISTRATION_REQUESTED', 'TEAM_PENDING_APPROVAL', 'VIOLATION_OBJECTION'],
-  SUPERVISOR: ['TASK_ASSIGNED', 'TASK_MENTIONED', 'TASK_DUE_SOON', 'TASK_OVERDUE'],
+  SUPERVISOR: ['TEAM_APPROVED', 'TEAM_REJECTED', 'TASK_ASSIGNED', 'TASK_MENTIONED', 'TASK_DUE_SOON', 'TASK_OVERDUE'],
   MONITOR: [],
 };
 

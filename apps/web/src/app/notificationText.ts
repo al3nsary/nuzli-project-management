@@ -20,6 +20,10 @@ export function notificationLink(n: NotificationDto): string | null {
       return '/registrations';
     case 'REGISTRATION_APPROVED':
       return '/';
+    case 'TEAM_PENDING_APPROVAL':
+    case 'TEAM_APPROVED':
+    case 'TEAM_REJECTED':
+      return typeof n.payload?.teamId === 'string' ? `/teams/${n.payload.teamId}` : '/teams';
     default:
       return null;
   }
