@@ -658,6 +658,8 @@ model File {
   status       FileStatus @default(PENDING)
   uploadedById String?    @map("uploaded_by") @db.Uuid
   entityType   String     @map("entity_type")
+  /// Upload purpose (ID_CARD, EVIDENCE, ATTACHMENT, LOGO, PHOTO). ID_CARD URLs are audited.
+  kind         String?
   entityId     String?    @map("entity_id") @db.Uuid
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)

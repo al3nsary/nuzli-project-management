@@ -12,6 +12,8 @@ export const PERMISSIONS = [
   'users.manageRoles',
   'users.suspend',
   'registrations.review',
+  /** See full (unmasked) national IDs of users and members (brief §13). */
+  'nationalIds.readFull',
   // teams & members
   'teams.readAll',
   'teams.readOwn',

@@ -1,0 +1,17 @@
+# Build context is the repo root for every image.
+.git
+**/node_modules
+**/dist
+**/dev-dist
+**/coverage
+**/.turbo
+**/*.log
+.env
+.env.*
+!.env.example
+infra/certs/*.pem
+infra/certs/*.key
+playwright-report
+test-results
+e2e
+docs

@@ -33,6 +33,15 @@ Format: each ADR has **Context · Decision · Consequences**. Status is *Accepte
 | ADR-027 | DemoApi persistence, demo password and sessions | Accepted |
 | ADR-028 | Phase 1 audit action vocabulary | Accepted (API must match) |
 | ADR-029 | CI and Pages use `npm ci` until a pnpm lockfile exists | Accepted (amends ADR-022 for CI) |
+| ADR-030 | Last-admin lock under READ COMMITTED (amends ADR-009) | Accepted |
+| ADR-031 | Guards reload the user on every request | Accepted |
+| ADR-032 | National-ID ciphertext format and permission `nationalIds.readFull` | Accepted |
+| ADR-033 | Swagger from the shared zod schemas with a small in-house converter | Accepted |
+| ADR-034 | Login, lockout and enumeration rules | Accepted |
+| ADR-035 | `files.kind` column and the Phase 1 file read policy | Accepted |
+| ADR-036 | Dev object storage behind the HTTPS proxy (`S3_PUBLIC_ENDPOINT`) | Accepted |
+| ADR-037 | Backups: sleep-loop scheduler, plain SQL + openssl, `restore.sh --verify` | Accepted |
+| ADR-038 | API Docker image: pnpm prod install + global Prisma CLI | Accepted |
 
 ---
 
@@ -153,3 +162,36 @@ Format: each ADR has **Context · Decision · Consequences**. Status is *Accepte
 **Context.** ADR-022 plans pnpm in CI, but the repository only has an npm `package-lock.json`.
 **Decision.** `.github/workflows/ci.yml` and `pages.yml` run `npm ci` and `npm run … -w <workspace>`.
 **Consequences.** Switch both workflows to pnpm (corepack) in the same change that commits `pnpm-lock.yaml`.
+
+## ADR-030 — Last-admin lock under READ COMMITTED (amends ADR-009)
+**Context.** ADR-009 asked for a `SERIALIZABLE` transaction plus `SELECT … FOR UPDATE` on the active admin rows. Under SERIALIZABLE the losing transaction of two concurrent demotions fails with a serialization error (P2034) instead of the meaningful `LAST_ADMIN`.
+**Decision.** `apps/api/src/users/last-admin.ts` runs in the default READ COMMITTED transaction: `SELECT id FROM users WHERE role='ADMIN' AND status='ACTIVE' ORDER BY id FOR UPDATE`. The second transaction waits on the row locks, PostgreSQL re-evaluates the `WHERE` on the locked rows after the first commits, so it sees the reduced set and fails with `LAST_ADMIN`. The lock is taken only when the change would remove an active admin (demote, suspend; delete later). P2034 is still mapped to `CONFLICT_VERSION` if it ever occurs.
+**Consequences.** Same guarantee (never zero active admins), clearer error. Covered by unit tests (mocked transaction) and an integration test with two concurrent mutual demotions.
+
+## ADR-031 — Guards reload the user on every request
+**Decision.** `JwtAuthGuard` verifies the 15-minute HS256 token and then loads `id, role, status, mustChangePassword` by primary key. The `role` claim in the token is informational only. Non-active users get `ACCOUNT_PENDING/REJECTED/SUSPENDED`; while `mustChangePassword` is true only routes marked `@AllowWhenPasswordChangeRequired()` pass (`/auth/change-password`, `/auth/me`; `/auth/logout` and `/auth/refresh` are cookie routes and public). `PermissionsGuard` then applies `can()` from `@nuzli/shared`. Guard order: throttler → JWT → permissions.
+**Consequences.** Suspension and role changes apply immediately, not after the access token expires — one indexed lookup per request.
+
+## ADR-032 — National-ID ciphertext format and `nationalIds.readFull`
+**Decision.** `national_id_enc` = ASCII key version + `:` (e.g. `v1:`) ‖ IV (12) ‖ GCM tag (16) ‖ ciphertext. `NATIONAL_ID_ENC_KEY` is `vN:<base64 32 bytes>` (bare base64 = `v1`); `NATIONAL_ID_ENC_KEYS_OLD` lists older keys kept for decryption during rotation. The blind index is unversioned HMAC-SHA256 hex over the Western-digit form, so rotating `NATIONAL_ID_HMAC_KEY` needs the column recompute described in ADR-011. A new permission `nationalIds.readFull` (ADMIN only, via the matrix) decides when a `UserDto` includes the decrypted value (`GET /users/:id`, admin actions); lists always return `nationalIdMasked` built from the stored first/last digits with `maskNationalIdParts()` (new in `@nuzli/shared`), without decrypting. Audit snapshots never contain the full value (`sanitizeForAudit` masks any `nationalId` key and drops secrets).
+
+## ADR-033 — Swagger from the shared zod schemas
+**Decision.** No `nestjs-zod` dependency. `apps/api/src/common/zod-openapi.ts` converts the zod features used in `@nuzli/shared` (objects, strings with formats, numbers, enums, optional/default/nullable, effects, arrays, records, unions) to OpenAPI. `@ZodBody(schema)` / `@ZodQuery(schema)` apply the `ZodValidationPipe` **and** the Swagger metadata in one parameter decorator, so documentation and validation cannot drift.
+**Consequences.** Response schemas are not documented yet (the DTO interfaces live in `@nuzli/shared`).
+
+## ADR-034 — Login, lockout and enumeration rules
+**Decision.** Login by email (contains `@`) or Saudi mobile (normalised to E.164). Unknown accounts still run an argon2 verify against a dummy hash. Account status (`ACCOUNT_PENDING/REJECTED/SUSPENDED`) is revealed only after a correct password. `LOGIN_MAX_FAILURES` (5) consecutive failures lock the account for `LOGIN_LOCK_MINUTES` (15) → `ACCOUNT_LOCKED` (HTTP 423), even with the right password. Auth endpoints are throttled per IP (`THROTTLE_AUTH_LIMIT`/min). `forgot-password` answers 204 immediately and does the lookup and e-mail after the response. One-time action tokens (`SET_PASSWORD` 72 h, `RESET_PASSWORD` 1 h) are stored as SHA-256, claimed with a conditional update, and every use revokes all sessions. Concurrent refresh of the same token counts as reuse (the whole family is revoked) — the web app serialises refreshes (single-flight).
+
+## ADR-035 — `files.kind` and the Phase 1 file read policy
+**Decision.** Migration `20261012000000_files_kind` adds a nullable `files.kind` (ID_CARD, EVIDENCE, ATTACHMENT, LOGO, PHOTO) so ID-card photo URLs can be audited (`file.id_card_url_issued`) before violations exist. Presigned URLs (`GET /files/:id/url`) are issued to the uploader, or by entity: violation → `violations.readAll`; task → `projects.readAll`; logo → `cards.print`/`logos.manage`; member photo → `teams.readAll`/`members.manage`/`cards.print`. ID-card photos additionally need `violations.viewIdPhoto`. Phases 2–4 add data-scoped rules that only narrow this. Confirm rejects anything whose magic bytes are not JPEG/PNG/WebP/PDF or differ from the declared type, deletes the object and marks the row `deleted_at`.
+
+## ADR-036 — Dev object storage behind the HTTPS proxy
+**Context.** Presigned URLs embed the host they were signed for; the API reaches MinIO as `http://minio:9000`, browsers cannot, and an `http://` URL from an `https://` page is mixed content on phones.
+**Decision.** `S3_PUBLIC_ENDPOINT` (optional) is the endpoint used only to sign browser URLs. In dev it is `https://localhost` (or the LAN origin), and `infra/nginx/dev-storage.conf` proxies `/<bucket>/` to MinIO with the Host header unchanged, so signatures match. In production `S3_PUBLIC_ENDPOINT` is unset and browsers talk to OCI directly (the SPA CSP allows `https://*.oraclecloud.com`).
+**Consequences.** The dev bucket name must match the nginx location (`nuzli`). OCI bucket CORS must allow the site origin for PUT (deployment note).
+
+## ADR-037 — Backups
+**Decision.** `infra/backup` (postgres:16-alpine + openssl + AWS CLI) runs as the `postgres` user with a sleep-loop scheduler (no root crond): daily at `BACKUP_TIME` UTC, `pg_dump --clean --if-exists | gzip -9 | openssl enc -aes-256-cbc -pbkdf2 -iter 200000`, a `.sha256` next to each file, local retention `BACKUP_RETENTION_DAYS`, optional upload to an S3-compatible bucket. `restore.sh <file|s3://…> --verify` restores into a throw-away database, counts migrations and users, and drops it — a safe drill for CI or ops; `--yes` restores in place.
+
+## ADR-038 — API Docker image
+**Decision.** Multi-stage, pnpm via corepack, build context = repo root. The runtime stage installs production dependencies with `pnpm install --prod --filter "@nuzli/api..."`, copies the built `dist` of api/shared/scheduling, installs the Prisma CLI globally at the client's version (needed for `prisma migrate deploy` at start) and runs `prisma generate` into the production `node_modules`. Runs as `node` under `tini`; entrypoint: migrate → seed → `node dist/main.js`. The `dev` stage (compose dev) runs `nest start --watch` with `src` bind-mounted.

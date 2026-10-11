@@ -4,6 +4,7 @@ import {
   isClockDriftSuspect,
   isValidNationalId,
   maskNationalId,
+  maskNationalIdParts,
   nationalIdCheckDigit,
   normalizeSaudiMobile,
   PERMISSIONS,
@@ -44,6 +45,12 @@ describe('national ID', () => {
   it('masks as 1•••••••23', () => {
     expect(maskNationalId('1234567823')).toBe('1•••••••23');
     expect(maskNationalId(null)).toBe('');
+  });
+
+  it('masks from stored parts without decrypting', () => {
+    expect(maskNationalIdParts('1', '23')).toBe('1•••••••23');
+    expect(maskNationalIdParts('2', '4523')).toBe('2•••••••23');
+    expect(maskNationalIdParts('', '23')).toBe('');
   });
 });
 

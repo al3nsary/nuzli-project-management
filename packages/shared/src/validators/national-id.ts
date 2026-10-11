@@ -47,7 +47,17 @@ export function maskNationalId(id: string | null | undefined): string {
   if (!id) return '';
   const clean = toWesternDigits(id).trim();
   if (clean.length < 4) return '•'.repeat(clean.length);
-  return `${clean[0]}${'•'.repeat(clean.length - 3)}${clean.slice(-2)}`;
+  return maskNationalIdParts(clean[0]!, clean.slice(-2), clean.length);
+}
+
+/**
+ * Same mask built from the clear-text parts stored next to the ciphertext (ADR-011),
+ * so lists never need to decrypt. Only the last two digits are shown even when more are stored.
+ */
+export function maskNationalIdParts(first: string, last: string, length = 10): string {
+  if (!first || !last) return '';
+  const tail = last.slice(-2);
+  return `${first}${'•'.repeat(Math.max(length - 1 - tail.length, 0))}${tail}`;
 }
 
 /** Converts Arabic-Indic (٠-٩) and Persian (۰-۹) digits to Western digits. */

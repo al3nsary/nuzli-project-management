@@ -1,0 +1,47 @@
+# Production override: no MinIO (OCI Object Storage via S3_* in .env), resource limits,
+# restart policies, rotated logs.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Certificates: point CERTS_DIR at the Let's Encrypt live directory or provided certificates.
+
+x-restart: &restart
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+services:
+  proxy:
+    <<: *restart
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
+
+  api:
+    <<: *restart
+    environment:
+      NODE_ENV: production
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      MAIL_TRANSPORT: smtp
+    deploy:
+      resources:
+        limits: { cpus: "1.50", memory: 1G }
+        reservations: { memory: 256M }
+
+  db:
+    <<: *restart
+    # Postgres is reachable only inside the compose network (no published port).
+    deploy:
+      resources:
+        limits: { cpus: "2.00", memory: 2G }
+        reservations: { memory: 512M }
+    shm_size: 256m
+
+  backup:
+    <<: *restart
+    environment:
+      BACKUP_S3_ENABLED: ${BACKUP_S3_ENABLED:-true}
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 512M }
