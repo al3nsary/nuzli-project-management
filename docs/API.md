@@ -119,5 +119,61 @@ Scope rules: ADMIN sees and manages all teams. A SUPERVISOR sees and manages onl
 | POST | `/cards/batches` | [printBatchSchema] → `PrintBatchDto` (idempotent by `idempotencyKey`). Items with `saveBack` update the member record (name, job title, department). Audited `cards.printed` |
 | GET | `/cards/batches?page=` · `/cards/batches/:id` | log of who printed what, when, with which template |
 | GET | `/cards/batches/:id/pdf` | server PDF with exact page sizes (ADR-024; returns `501` until the pdf service is configured) |
-## Phase 3 (violations) — to be detailed when the phase starts
-## Phase 4 (projects, tasks, Gantt) — to be detailed when the phase starts
+## Phase 3 — violations (offline-first)
+
+Scope: MONITOR creates and reads what they recorded; ADMIN reads and manages all; SUPERVISOR reads their own teams' violations (by `team_id_snapshot` ∈ teams they lead now) **only** when visibility resolves to SHOW: team override `SHOW|HIDE`, or `INHERIT` → setting `SUPERVISORS_CAN_SEE_VIOLATIONS`. When hidden, supervisor list endpoints return an empty page and detail returns 404.
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| GET | `/violations/roster` | — | `{ items: RosterEntry[], generatedAt }` — MONITOR/ADMIN; active members with current team; masked ID + last 4 only |
+| GET | `/violation-types?active=true` | — | `ViolationTypeDto[]` |
+| POST/PATCH | `/violation-types[/:id]` | [violationTypeSchema] | ADMIN |
+| POST | `/violations` | [createViolationSchema] | `201 ViolationDto`, or `200` with the existing one when `clientUuid` already exists (idempotent). Resolves team/supervisor snapshots at `capturedAt` (ADR-014), sets `received_at`, drift flag. `MEMBER_HAS_NO_TEAM` is **not** an error: snapshot null is allowed and flagged in the UI |
+| POST | `/files/presign` | `entityType: 'violation', entityId, kind: 'ID_CARD'\|'EVIDENCE'` | `PresignedUpload`. Rejects more than `VIOLATION_MAX_PHOTOS` evidence photos (`TOO_MANY_PHOTOS`) and more than one ID-card photo |
+| POST | `/files/:id/confirm` | — | links the file to the violation (`violation_files`) when READY; idempotent |
+| GET | `/violations?…` | [violationFilterSchema] + pagination | `Paginated<ViolationDto>` (scoped) |
+| GET | `/violations/mine` | pagination | MONITOR: recorded by me |
+| GET | `/violations/:id` | — | `ViolationDto` |
+| GET | `/violations/:id/files/:fileId/url` | — | presigned GET; ID-card views audited `violation.id_photo_viewed` |
+| PATCH | `/violations/:id` | [updateViolationSchema] | recorder within `VIOLATION_EDIT_WINDOW_MINUTES` after `received_at`, else ADMIN only (`EDIT_WINDOW_CLOSED`); audited with before/after |
+| POST | `/violations/:id/status` | [changeViolationStatusSchema] | ADMIN; CANCELLED requires reason |
+| POST | `/violations/:id/responses` | [violationResponseSchema] | SUPERVISOR (visible + own team) → notifies admins `VIOLATION_OBJECTION` |
+| GET | `/violations/stats?…` | [violationFilterSchema] | `ViolationStats` (ADMIN) — every chart uses the same filters |
+| GET | `/violations/export.xlsx?…` | filters | Excel per ADR-019 (RTL, **no freeze panes**), audited `violations.exported` |
+| GET | `/violations/dashboard.pdf?…` | filters | PDF via the pdf service (501 until configured) |
+| PUT | `/teams/:id/violation-visibility` | `{ mode }` | (already in phase 2) |
+
+### Phase 3 implementation notes (as built — docs/phase-3-backend.md, ADR-046..050)
+- A `clientUuid` already recorded by another user → 409 `CONFLICT_VERSION`. Inactive member/type → 400 `VALIDATION_FAILED` with field errors. `TOO_MANY_PHOTOS` → 409; `EDIT_WINDOW_CLOSED` → 403; a PDF for a violation photo → 415.
+- Photo uploads for a violation: recorder or admin only (else 404). One ID-card photo per violation is also enforced by a partial unique index.
+- `/violations/mine` accepts the same filters; `/violations` also takes `q` (member name) and `sort`. `ViolationFileDto.id` is the file id used in `/violations/:id/files/:fileId/url`. ID-card URLs need `violations.viewIdPhoto` (supervisors get 403) and are audited; evidence views are not (ADR-050).
+- Stats: `thisWeek`/`previousWeek` ignore the date range but keep other filters; `byTeam` omits violations without a team snapshot; `topMembers` counts members with more than one violation; `pointsTruncated` when > 5,000 points.
+- Excel export capped at 50,000 rows, two RTL sheets, no freeze panes.
+- Audit actions: `violation_type.created|updated`, `violation.updated|status_changed|response_added|id_photo_viewed`, `violations.exported|dashboard_exported|photos_purged`. Notification: `VIOLATION_OBJECTION`.
+
+## Phase 4 — projects, tasks, Gantt
+
+Scope: ADMIN creates and manages projects and tasks. SUPERVISOR sees projects they were granted (`project_access`) or where they have an assigned task, sees all tasks of those projects read-only, and may change **progress, status** of tasks assigned to them and comment (ADR-007).
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/projects?status=&q=` | — | `ProjectDto[]` (scoped) |
+| POST | `/projects` | [createProjectSchema] | `201 ProjectDto` (default calendar when none) |
+| GET/PATCH/DELETE | `/projects/:id` | [updateProjectSchema] | delete = archive |
+| GET/POST/DELETE | `/projects/:id/access[/:userId]` | [grantProjectAccessSchema] | ADMIN |
+| GET | `/projects/:id/gantt` | — | `{ project, tasks: TaskDto[], dependencies: DependencyDto[], calendar: CalendarDto }` — one call for the whole chart |
+| POST | `/projects/:id/tasks` | [createTaskSchema] | `201 TaskDto` (+ any rolled-up parents in `affected: TaskDto[]`) |
+| PATCH | `/tasks/:id` | [updateTaskSchema] | `{ task, affected: TaskDto[] }` — server re-runs the engine (auto-schedule) and returns every changed task; `409 CONFLICT_VERSION` |
+| POST | `/projects/:id/tasks/batch` | [taskBatchSchema] | `{ tasks: TaskDto[] }` — one drag-end, one transaction, all versions checked (ADR-017); server validates by re-running `@nuzli/scheduling` |
+| DELETE | `/tasks/:id` | — | archives the task and its subtree; `affected` |
+| POST | `/projects/:id/dependencies` | [createDependencySchema] | `201 DependencyDto` + `affected`; `DEPENDENCY_CYCLE` (409, `details.path`), `DEPENDENCY_SELF`, `DEPENDENCY_EXISTS`; only FS accepted from the UI |
+| DELETE | `/dependencies/:id` | — | `204` |
+| GET | `/tasks/mine` | — | supervisor's assigned tasks across projects |
+| GET/POST | `/tasks/:id/comments` | [taskCommentSchema] | mentions notify `TASK_MENTIONED` |
+| GET | `/tasks/:id/activity` | — | `ActivityDto[]` (from the audit log) |
+| GET/POST/DELETE | `/tasks/:id/attachments[/:fileId]` | `{ fileId }` | files uploaded with `entityType: 'task'` |
+| GET | `/projects/:id/export.xlsx` | — | tasks to Excel (ADR-019) |
+| GET/POST/PATCH | `/calendars[/:id]` | [calendarSchema] | ADMIN |
+| POST/DELETE | `/calendars/:id/exceptions[/:exId]` | [calendarExceptionSchema] | ADMIN |
+
+Notifications: `TASK_ASSIGNED` on (re)assignment, `TASK_MENTIONED`, and a daily scheduled job for `TASK_DUE_SOON` (end within 2 working days) and `TASK_OVERDUE` (end passed, not DONE), each sent once per task (`due_soon_notified_at`, `overdue_notified_at`).

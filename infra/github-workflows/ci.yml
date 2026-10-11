@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shared-and-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: shared — build, typecheck, test
+        run: |
+          npm run build -w @nuzli/shared
+          npm run typecheck -w @nuzli/shared
+          npm run test -w @nuzli/shared
+      - name: web — typecheck, i18n check, test, build (real + demo)
+        run: |
+          npm run typecheck -w @nuzli/web
+          npm run check:i18n -w @nuzli/web
+          npm run test -w @nuzli/web
+          npm run build -w @nuzli/web
+          npm run build:demo -w @nuzli/web
+
+  # TODO(backend-nest): add the `api` job (typecheck, Jest, Testcontainers integration
+  # tests, Docker build) once apps/api lands.
