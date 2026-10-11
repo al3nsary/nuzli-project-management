@@ -43,6 +43,25 @@ const TemplatesPage = lazyPage(() => import('../pages/cards/TemplatesPage'), 'Te
 const PrintView = lazyPage(() => import('../pages/cards/PrintView'), 'PrintView');
 const CalibrationPage = lazyPage(() => import('../pages/cards/CalibrationPage'), 'CalibrationPage');
 const ReferencePage = lazyPage(() => import('../pages/settings/ReferencePage'), 'ReferencePage');
+// Phase 3: violations (Leaflet, ECharts and image compression stay out of the main bundle).
+const RecordViolationPage = lazyPage(
+  () => import('../pages/violations/RecordViolationPage'),
+  'RecordViolationPage',
+);
+const MyViolationsPage = lazyPage(() => import('../pages/violations/MyViolationsPage'), 'MyViolationsPage');
+const PendingSyncPage = lazyPage(() => import('../pages/violations/MyViolationsPage'), 'PendingSyncPage');
+const ViolationsListPage = lazyPage(
+  () => import('../pages/violations/ViolationsListPage'),
+  'ViolationsListPage',
+);
+const ViolationsDashboardPage = lazyPage(
+  () => import('../pages/violations/ViolationsDashboardPage'),
+  'ViolationsDashboardPage',
+);
+const TeamViolationsPage = lazyPage(
+  () => import('../pages/violations/TeamViolationsPage'),
+  'TeamViolationsPage',
+);
 
 export const routes: RouteObject[] = [
   {
@@ -203,6 +222,57 @@ export const routes: RouteObject[] = [
         element: (
           <RequirePermission permission="cards.manageTemplates">
             <TemplatesPage />
+          </RequirePermission>
+        ),
+      },
+      // Phase 3
+      {
+        path: 'violations/new',
+        element: (
+          <RequirePermission permission="violations.create">
+            <RecordViolationPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'violations/mine',
+        element: (
+          <RequirePermission permission="violations.create">
+            <MyViolationsPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'violations/pending',
+        element: (
+          <RequirePermission permission="violations.create">
+            <PendingSyncPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'violations',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="violations.readAll">
+            <ViolationsListPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'violations/dashboard',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="violations.stats">
+            <ViolationsDashboardPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'violations/team',
+        element: (
+          <RequirePermission permission="violations.readOwnTeams">
+            <TeamViolationsPage />
           </RequirePermission>
         ),
       },

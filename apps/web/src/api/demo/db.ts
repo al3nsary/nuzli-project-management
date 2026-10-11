@@ -7,7 +7,10 @@ import type {
   MemberStatus,
   PrintBatchItemDto,
   Role,
+  Severity,
   TeamStatus,
+  ViolationFileKind,
+  ViolationStatus,
   UserPreferences,
   UserStatus,
   VisibilityMode,
@@ -170,6 +173,75 @@ export interface DemoBatch {
   items: (PrintBatchItemDto & { data: CardData })[];
 }
 
+// ---------------------------------------------------------------- Phase 3 rows
+
+export interface DemoViolationType {
+  id: string;
+  name: string;
+  severity: Severity | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface DemoViolationResponse {
+  id: string;
+  supervisorId: string;
+  body: string;
+  createdAt: string;
+}
+
+/** A violation with its snapshots (ADR-014/046): team and supervisor at `capturedAt`. */
+export interface DemoViolation {
+  id: string;
+  clientUuid: string;
+  memberId: string;
+  typeId: string;
+  teamIdSnapshot: string | null;
+  supervisorIdSnapshot: string | null;
+  recordedById: string;
+  description: string;
+  notes: string | null;
+  latitude: number;
+  longitude: number;
+  accuracyM: number;
+  capturedAt: string;
+  receivedAt: string;
+  clientSentAt: string | null;
+  clockDriftSuspect: boolean;
+  deviceInfo: Record<string, unknown>;
+  expectedIdPhotos: number;
+  expectedEvidence: number;
+  status: ViolationStatus;
+  cancelReason: string | null;
+  responses: DemoViolationResponse[];
+}
+
+/** A `files` row: PENDING after presign, READY after confirm; `violationId` once linked. */
+export interface DemoFile {
+  id: string;
+  entityType: string;
+  entityId: string | null;
+  kind: ViolationFileKind | string | null;
+  mimeType: string;
+  sizeBytes: number;
+  status: 'PENDING' | 'READY';
+  createdById: string;
+  createdAt: string;
+  /** Presigned PUT expiry; a PENDING upload stops counting against the limit after it (ADR-048). */
+  expiresAt: string;
+  /** Set when linked to a violation (`violation_files`). */
+  violationId: string | null;
+  /** Seeded photos are drawn on a canvas on first view (never real photos). */
+  placeholder?: { label: string; hue: number } | null;
+}
+
+/** The fake bucket: object bytes by file id (ArrayBuffer, not Blob — see ADR-072). */
+export interface DemoObject {
+  key: string;
+  data: ArrayBuffer;
+  type: string;
+}
+
 export class DemoDb extends Dexie {
   users!: Table<DemoUser, string>;
   notifications!: Table<DemoNotification, string>;
@@ -186,6 +258,10 @@ export class DemoDb extends Dexie {
   cardTemplates!: Table<DemoTemplate, string>;
   logos!: Table<DemoLogo, string>;
   batches!: Table<DemoBatch, string>;
+  violationTypes!: Table<DemoViolationType, string>;
+  violations!: Table<DemoViolation, string>;
+  files!: Table<DemoFile, string>;
+  objects!: Table<DemoObject, string>;
 
   constructor(name: string) {
     super(name);
@@ -208,6 +284,13 @@ export class DemoDb extends Dexie {
       cardTemplates: 'id',
       logos: 'id',
       batches: 'id, &idempotencyKey, printedAt',
+    });
+    // Phase 3: violations, their files and the fake object storage.
+    this.version(3).stores({
+      violationTypes: 'id',
+      violations: 'id, &clientUuid, capturedAt, recordedById, memberId, teamIdSnapshot',
+      files: 'id, violationId, entityId',
+      objects: 'key',
     });
   }
 

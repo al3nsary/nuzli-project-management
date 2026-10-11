@@ -58,6 +58,16 @@ export const AUDIT_ACTIONS = [
   'logo.default_set',
   'cards.printed',
   'cards.pdf_exported',
+  // Phase 3
+  'violation_type.created',
+  'violation_type.updated',
+  'violation.updated',
+  'violation.status_changed',
+  'violation.response_added',
+  'violation.id_photo_viewed',
+  'violations.exported',
+  'violations.dashboard_exported',
+  'violations.photos_purged',
 ] as const;
 
 const ENTITY_TYPES = [
@@ -72,12 +82,20 @@ const ENTITY_TYPES = [
   'card_size',
   'logo',
   'print_batch',
+  'violation',
+  'violation_type',
+  'violation_file',
 ] as const;
 
 function display(value: unknown, field: string): string {
   if (value === undefined || value === null || value === '') return t('common.none');
   if (field === 'role' || field === 'requestedRole') return roleLabel(String(value));
-  if (field === 'status') return tKey(`status.${String(value)}`, 'common.none');
+  if (field === 'status') {
+    const v = String(value);
+    // Account statuses and violation statuses share the field name.
+    return hasKey(`status.${v}`) ? tKey(`status.${v}`, 'common.none') : tKey(`vstatus.${v}`, 'common.none');
+  }
+  if (field === 'severity') return tKey(`severity.${String(value)}`, 'common.none');
   if (typeof value === 'boolean') return value ? t('common.yes') : t('common.no');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);

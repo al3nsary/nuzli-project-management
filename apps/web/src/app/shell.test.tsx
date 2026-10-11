@@ -47,7 +47,11 @@ describe('RTL app shell', () => {
     expect(within(nav).getByText('الرئيسية')).toBeInTheDocument();
     expect(within(nav).queryByText('المستخدمون')).toBeNull();
     expect(within(nav).queryByText('طلبات التسجيل')).toBeNull();
-    expect(await screen.findByText('ما الذي سيصل إلى حسابك قريبًا')).toBeInTheDocument();
+    // Phase 3: the monitor's violation items, and the admin's violation pages stay hidden.
+    expect(within(nav).getByText('مخالفاتي')).toBeInTheDocument();
+    expect(within(nav).getByText('بانتظار المزامنة')).toBeInTheDocument();
+    expect(within(nav).queryByText('لوحة المخالفات')).toBeNull();
+    expect(await screen.findByText('أعضاء محفوظون على الجهاز')).toBeInTheDocument();
   });
 
   it('sends anonymous visitors to the Arabic login page', async () => {

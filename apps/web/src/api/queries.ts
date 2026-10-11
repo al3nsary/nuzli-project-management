@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from './context';
 import { useAuthStore } from '../stores/auth';
-import type { MemberDto } from '@nuzli/shared';
+import type { MemberDto, ViolationFilter } from '@nuzli/shared';
 import type {
   AuditQuery,
   MemberListQuery,
@@ -10,6 +10,7 @@ import type {
   ReferenceKind,
   TeamListQuery,
   UserListQuery,
+  ViolationListQuery,
 } from './client';
 
 /** Query keys in one place so mutations invalidate the right lists. */
@@ -291,6 +292,107 @@ export function useInvalidateTeams() {
     Promise.all(
       ['teams', 'team', 'members', 'member', 'colors', 'audit', 'notifications', 'supervisors'].map(
         (key) => qc.invalidateQueries({ queryKey: [key] }),
+      ),
+    );
+}
+
+// ---------------------------------------------------------------- Phase 3
+
+export const qk3 = {
+  types: (all: boolean) => ['violation-types', all ? 'all' : 'active'] as const,
+  list: (q: ViolationListQuery) => ['violations', 'list', q] as const,
+  mine: (q: ViolationListQuery) => ['violations', 'mine', q] as const,
+  one: (id: string) => ['violation', id] as const,
+  stats: (f: ViolationFilter) => ['violations', 'stats', f] as const,
+  history: (id: string) => ['violation', id, 'history'] as const,
+};
+
+export function useViolationTypes(all = false, enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: qk3.types(all),
+    queryFn: () => api.violationTypes.list(all ? {} : { active: true }),
+    enabled: useSignedIn() && enabled,
+  });
+}
+
+export function useViolations(q: ViolationListQuery, enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: qk3.list(q),
+    queryFn: () => api.violations.list(q),
+    placeholderData: keepPreviousData,
+    enabled: useSignedIn() && enabled,
+  });
+}
+
+export function useMyViolations(q: ViolationListQuery, enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: qk3.mine(q),
+    queryFn: () => api.violations.mine(q),
+    placeholderData: keepPreviousData,
+    enabled: useSignedIn() && enabled,
+    retry: false,
+  });
+}
+
+export function useViolation(id: string | null) {
+  const api = useApi();
+  return useQuery({
+    queryKey: qk3.one(id ?? ''),
+    queryFn: () => api.violations.get(id as string),
+    enabled: useSignedIn() && Boolean(id),
+    staleTime: 0,
+  });
+}
+
+export function useViolationStats(f: ViolationFilter, enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: qk3.stats(f),
+    queryFn: () => api.violations.stats(f),
+    placeholderData: keepPreviousData,
+    enabled: useSignedIn() && enabled,
+  });
+}
+
+export function useViolationHistory(id: string | null, enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: qk3.history(id ?? ''),
+    queryFn: () => api.audit.list({ entityType: 'violation', entityId: id as string, pageSize: 100 }),
+    enabled: useSignedIn() && Boolean(id) && enabled,
+  });
+}
+
+/**
+ * Supervisor visibility as the API resolves it (ADR-047): any own, non-archived team whose
+ * override is SHOW, or INHERIT with `SUPERVISORS_CAN_SEE_VIOLATIONS` on. Only hides the nav
+ * item and explains the empty page — the API enforces it.
+ */
+export function useTeamViolationsVisible(enabled = true) {
+  const user = useAuthStore((s) => s.user);
+  const settings = useSettings();
+  const teams = useTeams({}, enabled && Boolean(user));
+  if (!enabled || !settings.data || !teams.data) return { visible: false, loading: settings.isLoading || teams.isLoading };
+  const visible = teams.data.some(
+    (tm) =>
+      tm.status !== 'ARCHIVED' &&
+      tm.supervisor?.id === user?.id &&
+      (tm.violationVisibility === 'SHOW' ||
+        (tm.violationVisibility !== 'HIDE' && settings.data.SUPERVISORS_CAN_SEE_VIOLATIONS)),
+  );
+  return { visible, loading: false };
+}
+
+/** After any violation change: lists, details, stats, audit and notifications. */
+export function useInvalidateViolations() {
+  const qc = useQueryClient();
+  return () =>
+    Promise.all(
+      ['violations', 'violation', 'violation-types', 'audit', 'notifications'].map((key) =>
+        qc.invalidateQueries({ queryKey: [key] }),
       ),
     );
 }

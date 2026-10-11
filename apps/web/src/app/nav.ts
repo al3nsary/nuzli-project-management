@@ -1,5 +1,11 @@
 import type { Permission } from '@nuzli/shared';
 import {
+  IconAlertOctagon,
+  IconCamera,
+  IconChartBar,
+  IconClipboardList,
+  IconCloudUpload,
+  IconShieldCheck,
   IconArrowsExchange,
   IconBell,
   IconId,
@@ -22,8 +28,10 @@ export interface NavItem {
   icon: Icon;
   /** Hidden unless `can(user, permission)`. Omit for every signed-in user. */
   permission?: Permission;
-  /** Show the pending-registrations count next to the item. */
-  badge?: 'registrations';
+  /** Show a count next to the item: pending registrations, or unsynced violations on this device. */
+  badge?: 'registrations' | 'outbox';
+  /** Extra data-dependent rule (the API still enforces): supervisor violation visibility. */
+  gate?: 'teamViolations';
   /** Active only on an exact match (a parent of other items, e.g. /teams vs /teams/formation). */
   end?: boolean;
 }
@@ -44,6 +52,46 @@ export const NAV: NavItem[] = [
     label: 'nav.cardTemplates',
     icon: IconTemplate,
     permission: 'cards.manageTemplates',
+  },
+  // Phase 3 — violations (brief §7)
+  {
+    to: '/violations/new',
+    label: 'nav.recordViolation',
+    icon: IconCamera,
+    permission: 'violations.create',
+  },
+  {
+    to: '/violations/mine',
+    label: 'nav.myViolations',
+    icon: IconClipboardList,
+    permission: 'violations.create',
+  },
+  {
+    to: '/violations/pending',
+    label: 'nav.pendingSync',
+    icon: IconCloudUpload,
+    permission: 'violations.create',
+    badge: 'outbox',
+  },
+  {
+    to: '/violations',
+    label: 'nav.violations',
+    icon: IconAlertOctagon,
+    permission: 'violations.readAll',
+    end: true,
+  },
+  {
+    to: '/violations/dashboard',
+    label: 'nav.violationsDashboard',
+    icon: IconChartBar,
+    permission: 'violations.stats',
+  },
+  {
+    to: '/violations/team',
+    label: 'nav.teamViolations',
+    icon: IconShieldCheck,
+    permission: 'violations.readOwnTeams',
+    gate: 'teamViolations',
   },
   {
     to: '/registrations',

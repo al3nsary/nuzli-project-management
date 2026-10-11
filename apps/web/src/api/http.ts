@@ -21,7 +21,12 @@ import type {
   TeamColorPaletteDto,
   TeamDetailDto,
   TeamDto,
+  RosterResponse,
+  ViolationDto,
+  ViolationStats,
+  ViolationTypeDto,
 } from '@nuzli/shared';
+import { ERRORS } from '@nuzli/shared';
 import { ApiError } from './errors';
 import { t } from '../i18n';
 import {
@@ -30,6 +35,7 @@ import {
   type ReferenceRemoveResult,
   type SessionListener,
 } from './client';
+import { toViolationQueryString } from './violationQuery';
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
@@ -87,15 +93,23 @@ export class HttpApi implements ApiClient {
   }
 
   private async request<T>(method: Method, path: string, opts: RequestOptions = {}): Promise<T> {
+    return (await this.requestWithStatus<T>(method, path, opts)).body;
+  }
+
+  /** Like `request`, plus the HTTP status (violation create answers 201 or 200). */
+  private async requestWithStatus<T>(
+    method: Method,
+    path: string,
+    opts: RequestOptions = {},
+  ): Promise<{ body: T; status: number }> {
     const retry = opts.retryOn401 ?? !NO_REFRESH.some((p) => path.startsWith(p));
-    const res = await this.send(method, path, opts);
+    let res = await this.send(method, path, opts);
     if (res.status === 401 && retry) {
       const session = await this.refreshOnce();
       if (!session) throw ApiError.of('UNAUTHENTICATED', 401);
-      const again = await this.send(method, path, opts);
-      return this.parse<T>(again);
+      res = await this.send(method, path, opts);
     }
-    return this.parse<T>(res);
+    return { body: await this.parse<T>(res), status: res.status };
   }
 
   private async send(method: Method, path: string, opts: RequestOptions): Promise<Response> {
@@ -167,7 +181,9 @@ export class HttpApi implements ApiClient {
       this.accessToken = session?.accessToken ?? null;
       this.emit(session);
       return session;
-    } catch {
+    } catch (err) {
+      // Offline is not "signed out": the caller keeps its offline session (docs/offline.md).
+      if (err instanceof ApiError && err.code === 'NETWORK_ERROR') throw err;
       return null;
     }
   }
@@ -314,6 +330,71 @@ export class HttpApi implements ApiClient {
       this.request<Paginated<PrintBatchDto>>('GET', `/cards/batches${toQueryString(q)}`),
     batch: (id) => this.request<PrintBatchDetailDto>('GET', `/cards/batches/${enc(id)}`),
     pdf: (id) => this.requestBlob(`/cards/batches/${enc(id)}/pdf`),
+  };
+
+  // ---------------------------------------------------------------- Phase 3
+
+  files: ApiClient['files'] = {
+    presign: (input) => this.request<PresignedUpload>('POST', '/files/presign', { body: input }),
+    /** Straight to object storage with exactly the presigned headers (no auth header, no cookies). */
+    upload: async (presigned, blob) => {
+      let put: Response;
+      try {
+        put = await this.fetchImpl(presigned.url, {
+          method: presigned.method,
+          headers: presigned.headers,
+          body: blob,
+        });
+      } catch {
+        throw new ApiError(0, 'NETWORK_ERROR', t('error.network'));
+      }
+      if (!put.ok) {
+        // 403 from the bucket usually means the URL expired: the engine presigns again.
+        throw new ApiError(put.status, 'FILE_NOT_UPLOADED', ERRORS.FILE_NOT_UPLOADED);
+      }
+    },
+    confirm: (fileId) =>
+      this.request<{ id: string; status: 'READY' }>('POST', `/files/${enc(fileId)}/confirm`),
+  };
+
+  violationTypes: ApiClient['violationTypes'] = {
+    list: (q) =>
+      this.request<ViolationTypeDto[]>(
+        'GET',
+        `/violation-types${toQueryString(q?.active ? { active: 'true' } : {})}`,
+      ),
+    create: (input) => this.request<ViolationTypeDto>('POST', '/violation-types', { body: input }),
+    update: (id, input) =>
+      this.request<ViolationTypeDto>('PATCH', `/violation-types/${enc(id)}`, { body: input }),
+  };
+
+  violations: ApiClient['violations'] = {
+    roster: () => this.request<RosterResponse>('GET', '/violations/roster'),
+    create: async (input) => {
+      const { body, status } = await this.requestWithStatus<ViolationDto>('POST', '/violations', {
+        body: input,
+      });
+      return { violation: body, created: status === 201 };
+    },
+    list: (q) =>
+      this.request<Paginated<ViolationDto>>('GET', `/violations${toViolationQueryString(q)}`),
+    mine: (q) =>
+      this.request<Paginated<ViolationDto>>('GET', `/violations/mine${toViolationQueryString(q)}`),
+    get: (id) => this.request<ViolationDto>('GET', `/violations/${enc(id)}`),
+    fileUrl: (id, fileId) =>
+      this.request<{ url: string; expiresAt: string }>(
+        'GET',
+        `/violations/${enc(id)}/files/${enc(fileId)}/url`,
+      ),
+    update: (id, input) =>
+      this.request<ViolationDto>('PATCH', `/violations/${enc(id)}`, { body: input }),
+    setStatus: (id, input) =>
+      this.request<ViolationDto>('POST', `/violations/${enc(id)}/status`, { body: input }),
+    respond: (id, input) =>
+      this.request<ViolationDto>('POST', `/violations/${enc(id)}/responses`, { body: input }),
+    stats: (f) => this.request<ViolationStats>('GET', `/violations/stats${toViolationQueryString(f)}`),
+    exportXlsx: (f) => this.requestBlob(`/violations/export.xlsx${toViolationQueryString(f)}`),
+    dashboardPdf: (f) => this.requestBlob(`/violations/dashboard.pdf${toViolationQueryString(f)}`),
   };
 
   logos: ApiClient['logos'] = {

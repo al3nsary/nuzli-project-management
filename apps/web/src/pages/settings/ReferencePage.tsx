@@ -26,6 +26,7 @@ import { qk2, usePalette, useReference } from '../../api/queries';
 import { EmptyState, ErrorBlock, FormError, LoadingBlock, PageHeader } from '../../components/ui';
 import { t } from '../../i18n';
 import { IconListDetails } from '@tabler/icons-react';
+import { ViolationTypesPanel } from './ViolationTypesPanel';
 
 function ItemRow({ kind, item }: { kind: ReferenceKind; item: ReferenceItemDto }) {
   const api = useApi();
@@ -345,6 +346,7 @@ export function ReferencePage() {
           <Tabs.Tab value="departments">{t('reference.tab.departments')}</Tabs.Tab>
           <Tabs.Tab value="job-titles">{t('reference.tab.jobTitles')}</Tabs.Tab>
           <Tabs.Tab value="colors">{t('reference.tab.colors')}</Tabs.Tab>
+          <Tabs.Tab value="violation-types">{t('reference.tab.violationTypes')}</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="departments">
           <ReferenceList kind="departments" />
@@ -354,6 +356,9 @@ export function ReferencePage() {
         </Tabs.Panel>
         <Tabs.Panel value="colors">
           <PalettePanel />
+        </Tabs.Panel>
+        <Tabs.Panel value="violation-types">
+          <ViolationTypesPanel />
         </Tabs.Panel>
       </Tabs>
     </>

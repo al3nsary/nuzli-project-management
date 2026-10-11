@@ -24,6 +24,13 @@ import type {
   UserDto,
   UserStatus,
   VisibilityMode,
+  PresignUploadInput,
+  PresignedUpload,
+  RosterResponse,
+  ViolationDto,
+  ViolationFilter,
+  ViolationStats,
+  ViolationTypeDto,
 } from '@nuzli/shared';
 import type { z } from 'zod';
 import type {
@@ -57,6 +64,12 @@ import type {
   updateReferenceItemSchema,
   updateTeamColorSchema,
   updateTeamSchema,
+  createViolationSchema,
+  updateViolationSchema,
+  changeViolationStatusSchema,
+  violationResponseSchema,
+  violationTypeSchema,
+  updateViolationTypeSchema,
 } from '@nuzli/shared';
 
 /**
@@ -81,6 +94,8 @@ export interface UserListQuery extends PageQuery {
 export interface AuditQuery extends PageQuery {
   action?: string;
   entityType?: string;
+  /** One record's history (the API accepts `entityId`). */
+  entityId?: string;
   actorId?: string;
   /** `YYYY-MM-DD`, inclusive, Asia/Riyadh day. */
   from?: string;
@@ -119,6 +134,18 @@ export interface LogoUploadInput {
 export interface ReferenceRemoveResult {
   result: 'DELETED' | 'DEACTIVATED';
   item: ReferenceItemDto;
+}
+
+/** `GET /violations` and `/violations/mine`: the shared filters plus pagination, `q` and `sort`. */
+export interface ViolationListQuery extends ViolationFilter, PageQuery {
+  /** `capturedAt|receivedAt|status:asc|desc`; default `capturedAt:desc`. */
+  sort?: string;
+}
+
+/** `POST /violations`: 201 = created, 200 = the same clientUuid was already recorded. */
+export interface CreateViolationResult {
+  violation: ViolationDto;
+  created: boolean;
 }
 
 export interface DemoAccount {
@@ -255,6 +282,46 @@ export interface ApiClient {
     batch(id: string): Promise<PrintBatchDetailDto>;
     /** Server PDF (ADR-024). Throws `PDF_NOT_CONFIGURED` (501) until the pdf service exists. */
     pdf(id: string): Promise<Blob>;
+  };
+
+  // ---------------------------------------------------------------- Phase 3
+
+  /**
+   * Object-storage uploads (docs/API.md Phase 1 + 3). The sync engine runs presign → upload →
+   * confirm per photo. HttpApi PUTs the blob straight to the presigned URL with exactly the
+   * returned headers; DemoApi keeps the blob in IndexedDB (a fake bucket).
+   */
+  files: {
+    presign(input: PresignUploadInput): Promise<PresignedUpload>;
+    upload(presigned: PresignedUpload, blob: Blob): Promise<void>;
+    confirm(fileId: string): Promise<{ id: string; status: 'READY' }>;
+  };
+
+  violationTypes: {
+    /** Non-admins always get the active ones. */
+    list(query?: { active?: boolean }): Promise<ViolationTypeDto[]>;
+    create(input: In<typeof violationTypeSchema>): Promise<ViolationTypeDto>;
+    update(id: string, input: In<typeof updateViolationTypeSchema>): Promise<ViolationTypeDto>;
+  };
+
+  violations: {
+    /** MONITOR/ADMIN: the minimal member list cached on the device (masked IDs only). */
+    roster(): Promise<RosterResponse>;
+    /** Idempotent by `clientUuid` (ADR-046). */
+    create(input: In<typeof createViolationSchema>): Promise<CreateViolationResult>;
+    list(query?: ViolationListQuery): Promise<Paginated<ViolationDto>>;
+    mine(query?: ViolationListQuery): Promise<Paginated<ViolationDto>>;
+    get(id: string): Promise<ViolationDto>;
+    /** Presigned GET. ID-card photos are audited (`violation.id_photo_viewed`). */
+    fileUrl(id: string, fileId: string): Promise<{ url: string; expiresAt: string }>;
+    update(id: string, input: In<typeof updateViolationSchema>): Promise<ViolationDto>;
+    setStatus(id: string, input: In<typeof changeViolationStatusSchema>): Promise<ViolationDto>;
+    respond(id: string, input: In<typeof violationResponseSchema>): Promise<ViolationDto>;
+    stats(filter?: ViolationFilter): Promise<ViolationStats>;
+    /** RTL workbook without freeze panes (ADR-019). */
+    exportXlsx(filter?: ViolationFilter): Promise<Blob>;
+    /** Throws `PDF_NOT_CONFIGURED` (501) until the pdf service exists. */
+    dashboardPdf(filter?: ViolationFilter): Promise<Blob>;
   };
 
   logos: {

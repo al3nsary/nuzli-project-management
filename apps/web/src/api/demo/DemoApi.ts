@@ -29,8 +29,10 @@ import {
 import type { ApiClient, DemoAccount, DemoControls, SessionListener } from '../client';
 import { riyadhDay } from '../../i18n/format';
 import { DemoDb, type DemoAudit, type DemoUser } from './db';
-import { loadPhase2Seed, loadSeed } from './seed';
+import { loadPhase2Seed, loadPhase3Seed, loadSeed } from './seed';
 import { createPhase2, type Phase2Api } from './phase2';
+import { createPhase3, type Phase3Api } from './phase3';
+import { seedViolations } from './seedViolations';
 import { fail, hashPassword, newId, paginate, validate } from './util';
 import { DEMO_DB_NAME, DEMO_EXPIRES_IN, DEMO_PASSWORD } from './constants';
 
@@ -57,10 +59,21 @@ export class DemoApi implements ApiClient {
   reference!: Phase2Api['reference'];
   cards!: Phase2Api['cards'];
   logos!: Phase2Api['logos'];
+  files!: Phase3Api['files'];
+  violationTypes!: Phase3Api['violationTypes'];
+  violations!: Phase3Api['violations'];
+
+  /**
+   * The demo has no network, so offline is simulated for the "network-shaped" violation
+   * endpoints: they fail with NETWORK_ERROR while the browser is offline or `network.offline`
+   * is set (tests, docs/offline.md). Everything else keeps working from IndexedDB.
+   */
+  readonly network = { offline: false };
 
   constructor(opts: { dbName?: string } = {}) {
     this.db = new DemoDb(opts.dbName ?? DEMO_DB_NAME);
     Object.assign(this, createPhase2(this));
+    Object.assign(this, createPhase3(this));
     const seed = loadSeed();
     const first = (role: Role) => seed.users.find((u) => u.role === role && u.status === 'ACTIVE');
     const accounts: DemoAccount[] = (['ADMIN', 'SUPERVISOR', 'MONITOR'] as Role[])
@@ -85,6 +98,31 @@ export class DemoApi implements ApiClient {
   private async seedIfEmpty() {
     await this.seedPhase1();
     await this.seedPhase2();
+    await this.seedPhase3();
+  }
+
+  /** @internal */
+  isOffline(): boolean {
+    if (this.network.offline) return true;
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
+
+  /** Violation types and ~60 violations relative to now, snapshots from membership history. */
+  private async seedPhase3() {
+    if (await this.db.kv.get('seededPhase3')) return;
+    const seed = loadPhase3Seed();
+    const db = this.db;
+    await db.transaction('rw', db.tables, async () => {
+      await db.violationTypes.bulkPut(seed.types);
+      const { violations, files } = seedViolations(seed.violations, {
+        memberships: await db.memberships.toArray(),
+        supervisorHistory: await db.supervisorHistory.toArray(),
+        now: new Date(),
+      });
+      await db.violations.bulkPut(violations);
+      await db.files.bulkPut(files);
+      await db.kv.put({ key: 'seededPhase3', value: new Date().toISOString() });
+    });
   }
 
   private async seedPhase1() {
@@ -623,6 +661,7 @@ export class DemoApi implements ApiClient {
       const rows = (await this.db.audit.toArray())
         .filter((a) => !query.action || a.action === query.action)
         .filter((a) => !query.entityType || a.entityType === query.entityType)
+        .filter((a) => !query.entityId || a.entityId === query.entityId)
         .filter((a) => !query.actorId || a.actorId === query.actorId)
         .filter((a) => !query.from || riyadhDay(new Date(a.at)) >= query.from)
         .filter((a) => !query.to || riyadhDay(new Date(a.at)) <= query.to)

@@ -4,6 +4,20 @@ import { notifications } from '@mantine/notifications';
 import { useApi } from '../api/context';
 import { useAuthStore } from '../stores/auth';
 import { t } from '../i18n';
+import { offlineDb } from '../features/violations/offline/db';
+import { clearOfflineData } from '../features/violations/offline/outbox';
+import { peekSyncEngine, setOfflineUser } from '../features/violations/offline/runtime';
+
+/** Brief §7.4: logout removes the roster, the outbox and every cached personal datum. */
+async function wipeDevice() {
+  setOfflineUser(null);
+  peekSyncEngine()?.stop();
+  try {
+    await clearOfflineData(offlineDb());
+  } catch {
+    // IndexedDB unavailable (private mode): nothing was stored.
+  }
+}
 
 export function useSessionActions() {
   const api = useApi();
@@ -11,7 +25,9 @@ export function useSessionActions() {
   const navigate = useNavigate();
   const clear = useAuthStore((s) => s.clear);
 
+  /** Callers warn first when unsynced violations exist (Layout's logout dialog). */
   const logout = async () => {
+    await wipeDevice();
     try {
       await api.auth.logout();
     } catch {
@@ -25,6 +41,7 @@ export function useSessionActions() {
 
   const resetDemo = async () => {
     if (!api.demo) return;
+    await wipeDevice();
     await api.demo.reset();
     api.setAccessToken(null);
     clear();

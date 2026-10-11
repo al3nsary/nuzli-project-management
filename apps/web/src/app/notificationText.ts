@@ -10,6 +10,9 @@ export function notificationText(n: NotificationDto): string {
     name: str('fullName') || str('name'),
     role: roleLabel(str('requestedRole') || str('role')),
     reason: str('reason'),
+    supervisor: str('supervisorName'),
+    member: str('memberName'),
+    type: str('typeName'),
   });
 }
 
@@ -24,6 +27,10 @@ export function notificationLink(n: NotificationDto): string | null {
     case 'TEAM_APPROVED':
     case 'TEAM_REJECTED':
       return typeof n.payload?.teamId === 'string' ? `/teams/${n.payload.teamId}` : '/teams';
+    case 'VIOLATION_OBJECTION':
+      return typeof n.payload?.violationId === 'string'
+        ? `/violations?open=${encodeURIComponent(n.payload.violationId)}`
+        : '/violations';
     default:
       return null;
   }

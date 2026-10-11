@@ -8,6 +8,7 @@ import './theme/global.css';
 import { App } from './app/App';
 import { createAppRouter } from './app/router';
 import { createApi } from './api';
+import { registerPwa } from './app/registerPwa';
 
 async function start() {
   const api = await createApi();
@@ -20,3 +21,4 @@ async function start() {
 }
 
 void start();
+if (import.meta.env.PROD) void registerPwa();

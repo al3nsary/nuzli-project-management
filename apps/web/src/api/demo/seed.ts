@@ -18,6 +18,10 @@ import teamsSeed from '../../../../../seed/demo/teams.json';
 import membersSeed from '../../../../../seed/demo/members.json';
 import referenceSeed from '../../../../../seed/demo/reference.json';
 import cardsSeed from '../../../../../seed/demo/cards.json';
+import violationTypesSeed from '../../../../../seed/demo/violation-types.json';
+import violationsSeed from '../../../../../seed/demo/violations.json';
+import type { Severity, ViolationStatus } from '@nuzli/shared';
+import type { DemoViolationType } from './db';
 import type {
   DemoAudit,
   DemoCardSize,
@@ -113,5 +117,47 @@ export function loadPhase2Seed(): Phase2Seed {
       archived: tpl.archived,
     })),
     logos: cardsSeed.logos.map((l) => ({ ...l })),
+  };
+}
+
+// ---------------------------------------------------------------- Phase 3
+
+
+/** One seeded violation with relative time (seed/demo/violations.json). */
+export interface ViolationSeedRow {
+  id: string;
+  clientUuid: string;
+  memberId: string;
+  typeId: string;
+  recordedById: string;
+  daysAgo: number;
+  riyadhTime: string;
+  syncDelayMinutes: number;
+  clockDriftMinutes: number;
+  latitude: number;
+  longitude: number;
+  accuracyM: number;
+  description: string;
+  notes: string | null;
+  status: ViolationStatus;
+  cancelReason: string | null;
+  evidencePhotos: number;
+}
+
+export function loadPhase3Seed(): { types: DemoViolationType[]; violations: ViolationSeedRow[] } {
+  return {
+    types: violationTypesSeed.types.map((ty) => ({
+      id: ty.id,
+      name: ty.name,
+      severity: (ty.severity as Severity | null) ?? null,
+      isActive: ty.isActive !== false,
+      createdAt: '2026-08-02T06:00:00.000Z',
+    })),
+    violations: violationsSeed.violations.map((v) => ({
+      ...v,
+      status: v.status as ViolationStatus,
+      notes: v.notes ?? null,
+      cancelReason: v.cancelReason ?? null,
+    })),
   };
 }

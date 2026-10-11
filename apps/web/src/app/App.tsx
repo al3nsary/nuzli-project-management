@@ -8,6 +8,11 @@ import { ApiProvider } from '../api/context';
 import { ApiError } from '../api/errors';
 import { useAuthStore } from '../stores/auth';
 import { cssVariablesResolver, theme } from '../theme/theme';
+import { OfflineRuntime } from '../features/violations/offline/OfflineRuntime';
+import { offlineDb } from '../features/violations/offline/db';
+import { loadOfflineUser } from '../features/violations/offline/session';
+import { useOfflineStore } from '../features/violations/offline/runtime';
+import { UpdatePrompt } from './UpdatePrompt';
 
 export function createQueryClient() {
   return new QueryClient({
@@ -24,13 +29,20 @@ export function createQueryClient() {
   });
 }
 
-/** Restores the session on load (refresh cookie, or demo storage) and follows adapter-driven changes. */
+/**
+ * Restores the session on load (refresh cookie, or demo storage) and follows adapter-driven
+ * changes. Offline (no network to refresh with), a recorder gets their cached profile back so
+ * the record form and the outbox still open; the next request online renews the real session
+ * through the cookie (ADR-073).
+ */
 function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode }) {
   const setSession = useAuthStore((s) => s.setSession);
   useEffect(() => {
     let alive = true;
     const off = api.onSessionChange((session) => {
-      if (alive) setSession(session);
+      if (!alive) return;
+      if (session) useOfflineStore.getState().set({ offlineSession: false });
+      setSession(session);
     });
     api.auth
       .refresh()
@@ -39,7 +51,18 @@ function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode 
         api.setAccessToken(session?.accessToken ?? null);
         setSession(session);
       })
-      .catch(() => alive && setSession(null));
+      .catch(async (err: unknown) => {
+        if (!alive) return;
+        if (err instanceof ApiError && err.code === 'NETWORK_ERROR') {
+          const user = await loadOfflineUser(offlineDb()).catch(() => null);
+          if (alive && user) {
+            useOfflineStore.getState().set({ offlineSession: true });
+            setSession({ accessToken: '', expiresIn: 0, user });
+            return;
+          }
+        }
+        if (alive) setSession(null);
+      });
     return () => {
       alive = false;
       off();
@@ -89,7 +112,11 @@ export function AppProviders({
         <ColorSchemeSync />
         <QueryClientProvider client={qc}>
           <ApiProvider api={api}>
-            <AuthBootstrap api={api}>{children}</AuthBootstrap>
+            <AuthBootstrap api={api}>
+              <OfflineRuntime />
+              <UpdatePrompt />
+              {children}
+            </AuthBootstrap>
           </ApiProvider>
         </QueryClientProvider>
       </MantineProvider>

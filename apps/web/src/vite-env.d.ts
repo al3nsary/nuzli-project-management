@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/client" />
 
 interface ImportMetaEnv {
   /** '1' in the GitHub Pages demo build (ADR-020). */
@@ -10,3 +11,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** apps/web package.json version, injected by vite.config.ts (sent as device info). */
+declare const __APP_VERSION__: string;

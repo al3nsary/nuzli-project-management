@@ -16,10 +16,12 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import {
+  IconAlertTriangle,
   IconChevronDown,
   IconLogout,
   IconRefresh,
   IconUserCircle,
+  IconWifiOff,
   IconX,
 } from '@tabler/icons-react';
 import { can } from '@nuzli/shared';
@@ -28,7 +30,12 @@ import { NotificationBell } from './NotificationBell';
 import { useSessionActions } from './useSessionActions';
 import { useAuthStore } from '../stores/auth';
 import { useApi } from '../api/context';
-import { useRegistrations } from '../api/queries';
+import { useRegistrations, useTeamViolationsVisible } from '../api/queries';
+import { offlineDb } from '../features/violations/offline/db';
+import { unsyncedCount } from '../features/violations/offline/outbox';
+import { useUnsyncedCount } from '../features/violations/offline/runtime';
+import { useOnline } from '../lib/useOnline';
+import { MonitorBottomBar } from './MonitorBottomBar';
 import { IS_DEMO } from '../api';
 import { formatNumber, t } from '../i18n';
 import { VestBand } from '../theme/VestBand';
@@ -77,6 +84,28 @@ function NavCount() {
       aria-label={String(total)}
     >
       {formatNumber(total)}
+    </Badge>
+  );
+}
+
+/** Unsynced violations on this device (badge on «بانتظار المزامنة»). */
+function OutboxCount() {
+  const user = useAuthStore((s) => s.user);
+  const n = useUnsyncedCount(user?.id);
+  if (!n) return null;
+  return (
+    <Badge className="nz-count" color="signal" variant="filled" size="sm" aria-label={t('outbox.badgeAria', { n })}>
+      {formatNumber(n)}
+    </Badge>
+  );
+}
+
+function OfflineChip() {
+  const online = useOnline();
+  if (online) return null;
+  return (
+    <Badge color="signal" variant="light" size="lg" leftSection={<IconWifiOff size={14} />} className="nz-offline-chip">
+      {t('shell.offline')}
     </Badge>
   );
 }
@@ -134,8 +163,45 @@ export function DemoResetButton({ variant = 'sidebar' }: { variant?: 'sidebar' |
 function UserMenu() {
   const user = useAuthStore((s) => s.user);
   const { logout } = useSessionActions();
+  const [unsynced, setUnsynced] = useState(0);
+  const [busy, setBusy] = useState(false);
   if (!user) return null;
+  // Brief §7.4: warn before logout wipes violations that never reached the server.
+  const requestLogout = async () => {
+    const n = await unsyncedCount(offlineDb()).catch(() => 0);
+    if (n > 0) setUnsynced(n);
+    else void logout();
+  };
   return (
+    <>
+    <Modal opened={unsynced > 0} onClose={() => setUnsynced(0)} title={t('shell.logoutUnsyncedTitle')}>
+      <Stack>
+        <Group gap="sm" wrap="nowrap" align="flex-start">
+          <IconAlertTriangle size={24} color="var(--breach)" style={{ flexShrink: 0 }} aria-hidden />
+          <Text>{t('shell.logoutUnsyncedBody', { n: unsynced })}</Text>
+        </Group>
+        <Group justify="flex-end" gap="xs">
+          <Button variant="default" onClick={() => setUnsynced(0)}>
+            {t('shell.logoutStay')}
+          </Button>
+          <Button
+            color="breach"
+            loading={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await logout();
+              } finally {
+                setBusy(false);
+                setUnsynced(0);
+              }
+            }}
+          >
+            {t('shell.logoutWipe', { n: unsynced })}
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
     <Menu position="bottom-end" width={240} shadow="md">
       <Menu.Target>
         <UnstyledButton
@@ -168,12 +234,13 @@ function UserMenu() {
         <Menu.Item
           color="breach"
           leftSection={<IconLogout size={18} className="mirror-rtl" />}
-          onClick={() => void logout()}
+          onClick={() => void requestLogout()}
         >
           {t('shell.logout')}
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>
+    </>
   );
 }
 
@@ -189,7 +256,15 @@ export function Layout() {
     (m) => (m.handle as { fullWidth?: boolean } | undefined)?.fullWidth === true,
   );
 
-  const items = NAV.filter((item) => !item.permission || can(user, item.permission));
+  const teamGate = useTeamViolationsVisible(
+    can(user, 'violations.readOwnTeams') && !can(user, 'violations.readAll'),
+  );
+  const items = NAV.filter((item) => !item.permission || can(user, item.permission)).filter(
+    (item) =>
+      item.gate !== 'teamViolations' || (!can(user, 'violations.readAll') && teamGate.visible),
+  );
+  // A monitor on a phone gets the three violation actions at the bottom (design skill).
+  const bottomBar = user?.role === 'MONITOR';
   const headerHeight = HEADER + (IS_DEMO ? STRIP : 0);
 
   return (
@@ -222,6 +297,7 @@ export function Layout() {
             </Text>
           </Group>
           <Group gap={4} wrap="nowrap">
+            <OfflineChip />
             <NotificationBell />
             <UserMenu />
           </Group>
@@ -250,6 +326,7 @@ export function Layout() {
                 <item.icon size={20} stroke={1.7} aria-hidden />
                 <span>{t(item.label)}</span>
                 {item.badge === 'registrations' ? <NavCount /> : null}
+                {item.badge === 'outbox' ? <OutboxCount /> : null}
               </NavLink>
             ))}
           </Stack>
@@ -261,11 +338,16 @@ export function Layout() {
         ) : null}
       </AppShell.Navbar>
 
-      <AppShell.Main id="main" style={{ background: 'var(--ground)' }}>
+      <AppShell.Main
+        id="main"
+        style={{ background: 'var(--ground)' }}
+        className={bottomBar ? 'nz-has-bottombar' : undefined}
+      >
         <Box maw={fullWidth ? undefined : 1200} mx="auto" pb="xl">
           <Outlet />
         </Box>
       </AppShell.Main>
+      {bottomBar ? <MonitorBottomBar /> : null}
     </AppShell>
   );
 }

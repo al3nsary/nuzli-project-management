@@ -12,7 +12,6 @@ import {
   Title,
 } from '@mantine/core';
 import {
-  IconClipboardList,
   IconHistory,
   IconListCheck,
   IconMapPin,
@@ -20,13 +19,13 @@ import {
   IconUserCheck,
   IconUserOff,
   IconUsersGroup,
-  IconCloudUpload,
 } from '@tabler/icons-react';
 import { can, type Role } from '@nuzli/shared';
 import { useAuthStore } from '../stores/auth';
 import { useAudit, useRegistrations, useTeams, useUsers } from '../api/queries';
 import { TeamBadge } from '../theme/TeamBadge';
 import { formatDateTime, formatNumber, t, tKey } from '../i18n';
+import { MonitorHome } from './violations/MonitorHome';
 import { PageHeader, roleLabel } from '../components/ui';
 
 function Kpi({
@@ -338,14 +337,7 @@ export function DashboardPage() {
           />
         </Stack>
       ) : (
-        <ComingSoon
-          lead={t('dash.monitorLead')}
-          items={[
-            { icon: IconMapPin, text: t('dash.monitor.record') },
-            { icon: IconClipboardList, text: t('dash.monitor.mine') },
-            { icon: IconCloudUpload, text: t('dash.monitor.sync') },
-          ]}
-        />
+        <MonitorHome />
       )}
     </>
   );
