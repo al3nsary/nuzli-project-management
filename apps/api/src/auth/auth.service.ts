@@ -9,16 +9,17 @@ import {
 } from '@nuzli/shared';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
-import { withPrismaErrors } from '../common/prisma-errors';
+import { mapPrismaError, withPrismaErrors } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { AppConfig } from '../config/app-config';
-import { CryptoService, randomToken, sha256Hex } from '../crypto/crypto.service';
+import { CryptoService, randomToken, sha256Hex, type ProtectedNationalId } from '../crypto/crypto.service';
 import { emails } from '../notifications/email-templates';
 import { MailService } from '../notifications/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { USER_DTO_SELECT, auditUser, toUserDto, type UserRow } from '../users/user-dto';
 import { AccessTokenService } from './access-token.service';
+import { LoginThrottleService } from './login-throttle';
 import { PasswordService } from './password.service';
 import { RefreshTokenService } from './refresh-tokens';
 
@@ -33,6 +34,8 @@ const STATUS_ERRORS: Record<string, ErrorCode> = {
   REJECTED: 'ACCOUNT_REJECTED',
   SUSPENDED: 'ACCOUNT_SUSPENDED',
 };
+
+const DUPLICATE_CODES = new Set<ErrorCode>(['EMAIL_TAKEN', 'MOBILE_TAKEN', 'NATIONAL_ID_TAKEN']);
 
 export interface RegisterData {
   accountType: 'SUPERVISOR' | 'MONITOR';
@@ -64,6 +67,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
+    private readonly throttle: LoginThrottleService,
   ) {}
 
   // ─────────────────────────────────────────── sessions
@@ -94,8 +98,17 @@ export class AuthService {
     return toUserDto(user, { fullNationalId: can(subject, 'nationalIds.readFull'), crypto: this.crypto });
   }
 
+  /**
+   * Security review M5 (ADR-062): progressive per-IP / per-identifier delays (429 while cooling
+   * down), then a short account lock. Unknown accounts, wrong passwords and locked accounts all
+   * answer INVALID_CREDENTIALS, so neither the lock nor the existence of an account leaks.
+   * A successful password reset lifts the lock.
+   */
   async login(identifier: string, password: string, ctx: RequestContext): Promise<IssuedSession> {
     const where = identifierToWhere(identifier);
+    // One bucket per account whatever the spelling (0551… / +966551…, upper/lower case e-mail).
+    const tkey = where ? String(where.email ?? where.mobile) : identifier.trim().toLowerCase();
+    this.throttle.assertAllowed(tkey, ctx.ip);
     const user = where
       ? await this.prisma.user.findUnique({
           where,
@@ -105,30 +118,22 @@ export class AuthService {
 
     if (!user) {
       await this.passwords.verify(null, password);
+      this.throttle.recordFailure(tkey, ctx.ip);
       throw new AppError('INVALID_CREDENTIALS');
     }
     const now = new Date();
-    if (user.lockedUntil && user.lockedUntil > now) throw new AppError('ACCOUNT_LOCKED');
-
+    // The hash is always checked, so a locked account answers at the same speed as any other.
     const ok = await this.passwords.verify(user.passwordHash, password);
-    if (!ok) {
-      const updated = await this.prisma.user.update({
-        where: { id: user.id },
-        data: { failedLoginCount: { increment: 1 } },
-        select: { failedLoginCount: true },
-      });
-      if (updated.failedLoginCount >= this.cfg.LOGIN_MAX_FAILURES) {
-        await this.prisma.user.update({
-          where: { id: user.id },
-          data: {
-            failedLoginCount: 0,
-            lockedUntil: new Date(now.getTime() + this.cfg.LOGIN_LOCK_MINUTES * 60_000),
-          },
-        });
-        throw new AppError('ACCOUNT_LOCKED');
-      }
+    if (user.lockedUntil && user.lockedUntil > now) {
+      this.throttle.recordFailure(tkey, ctx.ip);
       throw new AppError('INVALID_CREDENTIALS');
     }
+    if (!ok) {
+      this.throttle.recordFailure(tkey, ctx.ip);
+      await this.registerFailure(user, now, ctx);
+      throw new AppError('INVALID_CREDENTIALS');
+    }
+    this.throttle.recordSuccess(tkey, ctx.ip);
 
     // Status is revealed only to someone who knows the password.
     const statusError = STATUS_ERRORS[user.status];
@@ -140,6 +145,43 @@ export class AuthService {
       select: USER_DTO_SELECT,
     });
     return this.issueSession(fresh, ctx);
+  }
+
+  /**
+   * Counts one failed password check against the account; at LOGIN_MAX_FAILURES the account is
+   * locked for LOGIN_LOCK_MINUTES, audited, and the owner gets an e-mail with a reset link.
+   */
+  private async registerFailure(
+    user: { id: string; email: string; fullName: string },
+    now: Date,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginCount: { increment: 1 } },
+      select: { failedLoginCount: true },
+    });
+    if (updated.failedLoginCount < this.cfg.LOGIN_MAX_FAILURES) return;
+    const lockedUntil = new Date(now.getTime() + this.cfg.LOGIN_LOCK_MINUTES * 60_000);
+    await this.prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil } });
+    await this.audit
+      .log({
+        actorId: null,
+        action: AuditAction.ACCOUNT_LOCKED,
+        entityType: 'user',
+        entityId: user.id,
+        after: { lockedUntil: lockedUntil.toISOString(), failures: updated.failedLoginCount },
+        ip: ctx.ip,
+        requestId: ctx.requestId,
+      })
+      .catch((err: unknown) => this.logger.warn(`Lock audit failed: ${(err as Error).message}`));
+    const web = this.cfg.PUBLIC_WEB_URL.replace(/\/$/, '');
+    this.mail
+      .send({
+        to: user.email,
+        ...emails.accountLocked({ name: user.fullName, minutes: this.cfg.LOGIN_LOCK_MINUTES, url: `${web}/forgot-password` }),
+      })
+      .catch((err: unknown) => this.logger.warn(`Lock e-mail failed: ${(err as Error).message}`));
   }
 
   async refresh(presented: string | undefined, ctx: RequestContext): Promise<IssuedSession> {
@@ -180,10 +222,74 @@ export class AuthService {
 
   // ─────────────────────────────────────────── registration
 
+  /**
+   * Security review M4 (ADR-063): the anonymous caller always gets 201 `{ status: 'PENDING' }`.
+   * When the e-mail, mobile or national ID already belongs to an account, nothing is created,
+   * the existing owner(s) get an e-mail ("someone tried to register with your details") and the
+   * attempt is audited without personal data. The unique indexes still guard the race; a P2002
+   * there is answered the same way.
+   */
   async register(input: RegisterData, ctx: RequestContext): Promise<{ status: 'PENDING' }> {
     const nid = this.crypto.protectNationalId(input.nationalId);
     const passwordHash = await this.passwords.hash(input.password);
-    const user = await withPrismaErrors(() =>
+    const owners = () =>
+      this.prisma.user.findMany({
+        where: { OR: [{ email: input.email }, { mobile: input.mobile }, { nationalIdHash: nid.hash }] },
+        select: { id: true, email: true, fullName: true },
+        take: 3,
+      });
+    const existing = await owners();
+    if (existing.length) {
+      this.duplicateRegistration(existing, ctx);
+      return { status: 'PENDING' };
+    }
+    let user: UserRow;
+    try {
+      user = await this.createRegistration(input, nid, passwordHash, ctx);
+    } catch (err) {
+      const mapped = err instanceof AppError ? err : mapPrismaError(err);
+      if (mapped && DUPLICATE_CODES.has(mapped.code)) {
+        this.duplicateRegistration(await owners(), ctx);
+        return { status: 'PENDING' };
+      }
+      throw mapped ?? err;
+    }
+    await this.notifications
+      .notifyAdmins('REGISTRATION_REQUESTED', {
+        applicantId: user.id,
+        fullName: user.fullName,
+        requestedRole: user.requestedRole,
+      })
+      .catch((err) => this.logger.warn(`Admin notification failed: ${(err as Error).message}`));
+    return { status: 'PENDING' };
+  }
+
+  /** After the response: audit the attempt (no PII) and e-mail each existing owner once. */
+  private duplicateRegistration(owners: Array<{ id: string; email: string; fullName: string }>, ctx: RequestContext): void {
+    const web = this.cfg.PUBLIC_WEB_URL.replace(/\/$/, '');
+    const run = async () => {
+      for (const owner of owners) {
+        await this.audit.log({
+          actorId: null,
+          action: AuditAction.REGISTRATION_DUPLICATE,
+          entityType: 'user',
+          entityId: owner.id,
+          ip: ctx.ip,
+          requestId: ctx.requestId,
+        });
+        await this.mail.send({ to: owner.email, ...emails.registrationAttempt({ name: owner.fullName, url: `${web}/login` }) });
+      }
+    };
+    run().catch((err: unknown) => this.logger.warn(`Duplicate-registration notice failed: ${(err as Error).message}`));
+  }
+
+  private createRegistration(
+    input: RegisterData,
+    nid: ProtectedNationalId,
+    passwordHash: string,
+    ctx: RequestContext,
+  ): Promise<UserRow> {
+    return withPrismaErrors(() =>
       this.prisma.$transaction(async (tx) => {
         const created = await tx.user.create({
           data: {
@@ -217,14 +323,6 @@ export class AuthService {
         return created;
       }),
     );
-    await this.notifications
-      .notifyAdmins('REGISTRATION_REQUESTED', {
-        applicantId: user.id,
-        fullName: user.fullName,
-        requestedRole: user.requestedRole,
-      })
-      .catch((err) => this.logger.warn(`Admin notification failed: ${(err as Error).message}`));
-    return { status: 'PENDING' };
   }
 
   // ─────────────────────────────────────────── passwords
@@ -333,6 +431,10 @@ export class AuthService {
       );
     });
     await this.refreshTokens.revokeAllForUser(found.userId);
+    // Review M5: the reset proved control of the mailbox — lift the lock (done above in the
+    // same transaction) and the login delays for this account's identifiers.
+    const owner = await this.prisma.user.findUnique({ where: { id: found.userId }, select: { email: true, mobile: true } });
+    if (owner) for (const id of [owner.email, owner.mobile, `user:${found.userId}`]) this.throttle.clearIdentifier(id);
   }
 
   async changePassword(
@@ -341,16 +443,22 @@ export class AuthService {
     newPassword: string,
     ctx: RequestContext,
   ): Promise<IssuedSession> {
+    // Security review L8: a stolen access token must not become an unthrottled password oracle.
+    const throttleKey = `user:${userId}`;
+    this.throttle.assertAllowed(throttleKey, ctx.ip);
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, passwordHash: true },
+      select: { id: true, email: true, fullName: true, passwordHash: true },
     });
     if (!user) throw new AppError('UNAUTHENTICATED');
     if (!(await this.passwords.verify(user.passwordHash, currentPassword))) {
+      this.throttle.recordFailure(throttleKey, ctx.ip);
+      await this.registerFailure(user, new Date(), ctx);
       throw new AppError('VALIDATION_FAILED', {
         fieldErrors: { currentPassword: ['كلمة المرور الحالية غير صحيحة'] },
       });
     }
+    this.throttle.recordSuccess(throttleKey, ctx.ip);
     if (currentPassword === newPassword) {
       throw new AppError('VALIDATION_FAILED', {
         fieldErrors: { newPassword: ['اختر كلمة مرور مختلفة عن الحالية'] },

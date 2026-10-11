@@ -12,7 +12,7 @@ import { mapPrismaError } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { ColorsService } from '../colors/colors.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { insertMembers, moveMembersInTx, type MemberInputData } from '../members/member-writes';
+import { hideDuplicateNationalId, insertMembers, moveMembersInTx, type MemberInputData } from '../members/member-writes';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -132,7 +132,8 @@ export class TeamsService {
         : 'ACTIVE';
     const allowMultiple = await this.settings.get('ALLOW_MULTIPLE_TEAMS_PER_SUPERVISOR');
 
-    const result = await this.guard(() =>
+    const result = await hideDuplicateNationalId(viewer, this.audit, ctx, { via: 'teams.create' }, () =>
+      this.guard(() =>
       this.prisma.$transaction(async (tx) => {
         const t = new Date();
         let newSupervisor: { user: UserRow; token: string } | null = null;
@@ -198,6 +199,7 @@ export class TeamsService {
         const row = await tx.team.findUniqueOrThrow({ where: { id: team.id }, select: TEAM_SELECT });
         return { row, newSupervisor };
       }),
+      ),
     );
 
     if (result.newSupervisor) {

@@ -26,6 +26,8 @@ export const ERRORS = {
   EMAIL_TAKEN: 'هذا البريد مسجّل لحساب آخر.',
   MOBILE_TAKEN: 'رقم الجوال هذا مسجّل لحساب آخر.',
   NATIONAL_ID_TAKEN: 'رقم الهوية هذا مسجّل مسبقًا.',
+  /** Shown to non-admins instead of NATIONAL_ID_TAKEN, so it never confirms that an ID exists (review L7). */
+  NATIONAL_ID_NOT_ACCEPTED: 'تعذّر حفظ رقم الهوية هذا. تحقّق منه، وإن تكرّر فتواصل مع مدير النظام.',
   LAST_ADMIN: 'لا يمكن تنفيذ هذا الإجراء: هذا آخر مدير نظام نشط. أضف مديرًا آخر أولًا.',
   REJECTION_REASON_REQUIRED: 'اكتب سبب الرفض؛ سيُرسل إلى مقدّم الطلب.',
   INVALID_STATE: 'لا يمكن تنفيذ هذا الإجراء على الحساب في حالته الحالية.',

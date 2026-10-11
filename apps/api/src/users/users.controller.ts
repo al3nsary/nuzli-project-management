@@ -8,12 +8,14 @@ import {
   rejectRegistrationSchema,
   roleSchema,
   suspendUserSchema,
+  userSearchSchema,
   type UserDto,
 } from '@nuzli/shared';
 import { z } from 'zod';
 import { CurrentUser, ReqCtx, RequirePermission } from '../common/decorators';
 import type { AuthUser, RequestContext } from '../common/request';
 import { UuidPipe } from '../common/uuid.pipe';
+import { assertNoNationalIdInQuery } from '../common/search-term';
 import { ZodBody, ZodQuery } from '../common/zod-openapi';
 import { UsersService } from './users.service';
 
@@ -33,7 +35,17 @@ export class UsersController {
   @RequirePermission('users.read')
   @ApiOperation({ summary: 'المستخدمون' })
   list(@ZodQuery(userListQuery) q: z.output<typeof userListQuery>, @CurrentUser() viewer: AuthUser) {
+    assertNoNationalIdInQuery(q.q, '/api/v1/users/search');
     return this.users.list(q, viewer);
+  }
+
+  /** GET /users filters in the body: the only way to search by a full national ID (review L4). */
+  @Post('search')
+  @HttpCode(200)
+  @RequirePermission('users.read')
+  @ApiOperation({ summary: 'بحث المستخدمين (يقبل رقم الهوية كاملًا في جسم الطلب)' })
+  search(@ZodBody(userSearchSchema) body: z.output<typeof userSearchSchema>, @CurrentUser() viewer: AuthUser) {
+    return this.users.list(body, viewer);
   }
 
   /** Declared before `:id` so the literal path wins. */
@@ -41,6 +53,7 @@ export class UsersController {
   @RequirePermission('users.read')
   @ApiOperation({ summary: 'المشرفون النشطون (للقوائم المنسدلة)' })
   supervisors(@ZodQuery(searchQuery) q: z.output<typeof searchQuery>, @CurrentUser() viewer: AuthUser) {
+    assertNoNationalIdInQuery(q.q, '/api/v1/users/search');
     return this.users.supervisors(q.q, viewer);
   }
 

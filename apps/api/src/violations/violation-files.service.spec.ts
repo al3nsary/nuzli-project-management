@@ -25,7 +25,9 @@ async function expectCode(p: Promise<unknown>, code: string) {
 // JPEG magic bytes followed by padding.
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60)]);
 
-function setup(opts: { settings?: Partial<Settings>; linked?: number; inFlight?: number; existingLink?: boolean } = {}) {
+function setup(
+  opts: { settings?: Partial<Settings>; linked?: number; inFlight?: number; existingLink?: boolean; violation?: Record<string, unknown> } = {},
+) {
   const all = { ...DEFAULT_SETTINGS, ...opts.settings };
   const settings = { get: jest.fn((k: keyof Settings) => Promise.resolve(all[k])) };
   const tx = {
@@ -38,7 +40,7 @@ function setup(opts: { settings?: Partial<Settings>; linked?: number; inFlight?:
   };
   const fileRow = {
     id: 'f1',
-    storageKey: 'violations/2026/10/f1.jpg',
+    storageKey: 'pending/f1.jpg',
     bucket: 'b',
     mimeType: 'image/jpeg',
     sizeBytes: JPEG.length,
@@ -54,7 +56,17 @@ function setup(opts: { settings?: Partial<Settings>; linked?: number; inFlight?:
   };
   const prisma = {
     ...tx,
-    violation: { findUnique: jest.fn().mockResolvedValue({ id: V, recordedById: MONITOR.id }) },
+    violation: {
+      findUnique: jest.fn().mockResolvedValue({
+        id: V,
+        recordedById: MONITOR.id,
+        status: 'SUBMITTED',
+        receivedAt: new Date(),
+        expectedIdPhotos: 1,
+        expectedEvidence: 2,
+        ...opts.violation,
+      }),
+    },
     violationFile: { ...tx.violationFile },
     file: {
       count: jest.fn().mockResolvedValue(opts.inFlight ?? 0),
@@ -72,6 +84,8 @@ function setup(opts: { settings?: Partial<Settings>; linked?: number; inFlight?:
     presignPut: jest.fn().mockResolvedValue('https://put'),
     head: jest.fn().mockResolvedValue({ exists: true, size: JPEG.length, contentType: 'image/jpeg' }),
     readRange: jest.fn().mockResolvedValue(new Uint8Array(JPEG)),
+    readAll: jest.fn().mockResolvedValue(new Uint8Array(JPEG)),
+    copy: jest.fn().mockResolvedValue(undefined),
     delete: jest.fn().mockResolvedValue(undefined),
   };
   const audit = new AuditService(prisma as never);
@@ -96,7 +110,8 @@ describe('violation photo presign (brief §7.2)', () => {
     const out = await s.files.presign(presign(), MONITOR);
     expect(out.url).toBe('https://put');
     const data = s.prisma.file.create.mock.calls[0]![0].data;
-    expect(data.storageKey).toMatch(/^violations\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.jpg$/);
+    // Uploads land under pending/; confirm copies them to violations/{yyyy}/{mm}/ (review M1).
+    expect(data.storageKey).toMatch(/^pending\/[0-9a-f-]{36}\.jpg$/);
     expect(data).toMatchObject({ entityType: 'violation', entityId: V, kind: 'EVIDENCE' });
   });
 
@@ -154,8 +169,35 @@ describe('violation photo confirm links the file idempotently', () => {
   it('over the limit at confirm time → TOO_MANY_PHOTOS, the object is deleted and the row marked deleted', async () => {
     const s = setup({ settings: { VIOLATION_MAX_PHOTOS: 2 }, linked: 2 });
     await expectCode(s.files.confirm('f1', MONITOR), 'TOO_MANY_PHOTOS');
-    expect(s.storage.delete).toHaveBeenCalledWith('violations/2026/10/f1.jpg');
+    expect(s.storage.delete).toHaveBeenCalledWith(expect.stringMatching(/^violations\/\d{4}\/\d{2}\/f1\.jpg$/));
     expect(s.prisma.file.update).toHaveBeenCalledWith({ where: { id: 'f1' }, data: { deletedAt: expect.any(Date) } });
+    expect(s.tx.violationFile.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('upload window and status (security review L2)', () => {
+  const late = { receivedAt: new Date(Date.now() - 60 * 60_000) }; // 60 min > 15 min window
+
+  it('a CANCELLED violation takes no photos, even from an admin', async () => {
+    const s = setup({ violation: { status: 'CANCELLED' } });
+    await expectCode(s.files.presign(presign(), MONITOR), 'INVALID_STATE');
+    await expectCode(s.files.presign(presign(), ADMIN), 'INVALID_STATE');
+  });
+
+  it('after the edit window the recorder may only finish the expected photos of the original sync', async () => {
+    await expect(setup({ violation: late, linked: 1 }).files.presign(presign(), MONITOR)).resolves.toBeDefined();
+    await expectCode(setup({ violation: late, linked: 2 }).files.presign(presign(), MONITOR), 'EDIT_WINDOW_CLOSED');
+    await expectCode(setup({ violation: { ...late, expectedIdPhotos: 0 } }).files.presign(presign({ kind: 'ID_CARD' }), MONITOR), 'EDIT_WINDOW_CLOSED');
+  });
+
+  it('inside the window the configured limit applies; violations.manage is never limited by the window', async () => {
+    await expect(setup({ linked: 3 }).files.presign(presign(), MONITOR)).resolves.toBeDefined();
+    await expect(setup({ violation: late, linked: 3 }).files.presign(presign(), ADMIN)).resolves.toBeDefined();
+  });
+
+  it('a late confirm beyond the expected count is discarded', async () => {
+    const s = setup({ violation: late, linked: 2 });
+    await expectCode(s.files.confirm('f1', MONITOR), 'TOO_MANY_PHOTOS');
     expect(s.tx.violationFile.create).not.toHaveBeenCalled();
   });
 });

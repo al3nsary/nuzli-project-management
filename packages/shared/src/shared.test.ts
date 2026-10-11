@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   can,
   isClockDriftSuspect,
+  isFullNationalIdTerm,
+  memberSearchSchema,
+  userSearchSchema,
   isValidNationalId,
   maskNationalId,
   maskNationalIdParts,
@@ -158,5 +161,24 @@ describe('register schema', () => {
   it('rejects ADMIN self-registration', () => {
     const r = registerSchema.safeParse({ accountType: 'ADMIN' });
     expect(r.success).toBe(false);
+  });
+});
+
+describe('national-ID search terms stay out of URLs (security review L4)', () => {
+  it('flags a full 10-digit ID (Western or Arabic-Indic digits, with spaces) but not last-4 or names', () => {
+    expect(isFullNationalIdTerm('1234567890')).toBe(true);
+    expect(isFullNationalIdTerm('١٢٣٤٥٦٧٨٩٠')).toBe(true);
+    expect(isFullNationalIdTerm('12345 67890')).toBe(true);
+    expect(isFullNationalIdTerm('7890')).toBe(false);
+    expect(isFullNationalIdTerm('0551234567')).toBe(false);
+    expect(isFullNationalIdTerm('+966512345678')).toBe(false);
+    expect(isFullNationalIdTerm('محمد')).toBe(false);
+    expect(isFullNationalIdTerm(undefined)).toBe(false);
+  });
+
+  it('POST search bodies accept the list filters', () => {
+    expect(memberSearchSchema.parse({ q: '1234567890' })).toMatchObject({ page: 1, pageSize: 25, unassigned: false });
+    expect(userSearchSchema.parse({ q: 'x', role: 'ADMIN' }).role).toBe('ADMIN');
+    expect(userSearchSchema.safeParse({ role: 'ROOT' }).success).toBe(false);
   });
 });

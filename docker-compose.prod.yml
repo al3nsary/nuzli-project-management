@@ -1,7 +1,11 @@
-# Production override: no MinIO (OCI Object Storage via S3_* in .env), resource limits,
+# Production override: no MinIO (OCI Object Storage via S3_* in env/api.env), resource limits,
 # restart policies, rotated logs.
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 # Certificates: point CERTS_DIR at the Let's Encrypt live directory or provided certificates.
+# Secrets: env/api.env, env/db.env, env/backup.env (ADR-068). Swagger stays off unless
+# env/api.env sets SWAGGER_ENABLED=true explicitly (security review L5).
+# Off-site backups: set BACKUP_S3_ENABLED=true and the BACKUP_S3_* values in env/backup.env
+# (a separate bucket with write-only keys) — the upload is off by default.
 
 x-restart: &restart
   restart: unless-stopped
@@ -22,7 +26,6 @@ services:
     <<: *restart
     environment:
       NODE_ENV: production
-      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
       MAIL_TRANSPORT: smtp
     deploy:
       resources:
@@ -40,8 +43,6 @@ services:
 
   backup:
     <<: *restart
-    environment:
-      BACKUP_S3_ENABLED: ${BACKUP_S3_ENABLED:-true}
     deploy:
       resources:
         limits: { cpus: "0.50", memory: 512M }

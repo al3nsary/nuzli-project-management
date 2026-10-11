@@ -1,18 +1,26 @@
 # Nuzli — base stack (brief §3.1). Combine with an override:
 #   dev : docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 #   prod: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-# Configuration comes from .env (copy .env.example). HTTPS certificates: infra/certs/README.md.
+# Compose settings (ports, image tag, certificates) come from .env (copy .env.example).
+# Secrets come from ONE FILE PER SERVICE under env/ (security review M6, ADR-068): the API
+# never sees the backup passphrase, the backup container never sees the national-ID keys.
+# HTTPS certificates: infra/certs/README.md.
+#
+# Hardening (security review L9): read-only root filesystems with a tmpfs for /tmp, all
+# Linux capabilities dropped, no privilege escalation. Postgres keeps its defaults (it needs
+# to own and write its data directory and switches user at start-up).
 
 name: nuzli
 
-x-db-env: &db-env
-  POSTGRES_DB: ${POSTGRES_DB:-nuzli}
-  POSTGRES_USER: ${POSTGRES_USER:-nuzli}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
 
 services:
   # ───────────────────────────── Nginx: TLS, the built React app, /api → api
   proxy:
+    <<: *hardened
     build:
       context: .
       dockerfile: apps/web/Dockerfile
@@ -22,6 +30,9 @@ services:
       - "${HTTPS_PORT:-443}:8443"
     volumes:
       - ${CERTS_DIR:-./infra/certs}:/etc/nginx/certs:ro
+    # nginx.conf keeps its pid file and every temp path under /tmp.
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     depends_on:
       api:
         condition: service_healthy
@@ -29,18 +40,22 @@ services:
 
   # ───────────────────────────── NestJS API (migrate → seed → serve)
   api:
+    <<: *hardened
     build:
       context: .
       dockerfile: apps/api/Dockerfile
       target: runtime
     image: nuzli/api:${NUZLI_VERSION:-latest}
-    env_file: .env
+    env_file:
+      - env/api.env
     environment:
       NODE_ENV: production
       PORT: 3000
       TRUST_PROXY: 1
-      # Keep POSTGRES_PASSWORD URL-safe (letters, digits, - _ .) or set DATABASE_URL in .env.
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-nuzli}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nuzli}?schema=public}
+      CHECKPOINT_DISABLE: 1
+      PRISMA_HIDE_UPDATE_MESSAGE: 1
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     expose: ["3000"]
     depends_on:
       db:
@@ -50,10 +65,12 @@ services:
   # ───────────────────────────── PostgreSQL 16
   db:
     image: postgres:16-alpine
+    env_file:
+      - env/db.env
     environment:
-      <<: *db-env
       TZ: UTC
       PGTZ: UTC
+    security_opt: ["no-new-privileges:true"]
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -64,20 +81,19 @@ services:
       start_period: 30s
     networks: [backend]
 
-  # ───────────────────────────── Encrypted daily pg_dump (infra/backup)
+  # ───────────────────────────── Encrypted daily pg_dump (infra/backup, docs/backup-restore.md)
   backup:
+    <<: *hardened
     build:
       context: infra/backup
     image: nuzli/backup:${NUZLI_VERSION:-latest}
-    env_file: .env
-    environment:
-      PGHOST: db
-      PGPORT: 5432
-      PGDATABASE: ${POSTGRES_DB:-nuzli}
-      PGUSER: ${POSTGRES_USER:-nuzli}
-      PGPASSWORD: ${POSTGRES_PASSWORD}
+    env_file:
+      - env/backup.env
+    # Upload stays off unless env/backup.env sets BACKUP_S3_ENABLED=true with its own bucket/keys.
     volumes:
       - backups:/backups
+    tmpfs:
+      - /tmp:size=32m,mode=1777
     depends_on:
       db:
         condition: service_healthy
@@ -89,4 +105,6 @@ volumes:
 
 networks:
   edge:
+  # Internal services only. An optional PDF renderer (ADR-024/073) joins this network and
+  # nothing else, and checks X-Pdf-Service-Token on every request.
   backend:

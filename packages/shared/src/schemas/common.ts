@@ -72,6 +72,18 @@ export const paginationQuery = z.object({
 });
 export type PaginationQuery = z.infer<typeof paginationQuery>;
 
+/**
+ * True when a search term contains a full national ID / Iqama number (10 digits starting with 1 or 2).
+ * Saudi mobile numbers (05…, +9665…) do not match.
+ * Such terms must go in a POST body (`POST /members/search`, `POST /users/search`), never in a
+ * URL (brief §13, security review L4). Last-4 and name searches stay on GET.
+ */
+export function isFullNationalIdTerm(term: string | null | undefined): boolean {
+  if (!term) return false;
+  const western = term.replace(/[٠-٩]/g, (ch) => String(ch.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (ch) => String(ch.charCodeAt(0) - 0x06f0));
+  return /(?<!\d)[12]\d{9}(?!\d)/.test(western.replace(/[\s-]/g, ''));
+}
+
 export interface Paginated<T> {
   items: T[];
   total: number;

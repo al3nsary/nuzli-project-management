@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { email, fullName, hexColor, nationalId, optionalText, reason, saudiMobile, uuid } from './common';
+import { email, fullName, hexColor, nationalId, optionalText, paginationQuery, reason, saudiMobile, uuid } from './common';
 import type { MemberStatus, TeamStatus } from '../enums';
 
 export const memberInputSchema = z.object({
@@ -162,3 +162,13 @@ export interface ImportMembersResultDto {
   /** Rows inserted (0 for a preview). */
   committed: number;
 }
+
+/**
+ * `POST /members/search` — the same filters as `GET /members`, in the body, so a full national
+ * ID never travels in a URL (security review L4).
+ */
+export const memberSearchSchema = paginationQuery.extend({
+  teamId: uuid.optional(),
+  unassigned: z.boolean().optional().default(false),
+});
+export type MemberSearchInput = z.input<typeof memberSearchSchema>;

@@ -8,6 +8,7 @@ import {
   type CardSizeDto,
   type CardTemplateConfig,
   type CardTemplateDto,
+  type NationalIdPrinted,
 } from '@nuzli/shared';
 import type { CryptoService } from '../crypto/crypto.service';
 import { memberDepartment, memberJobTitle, type MemberRow } from '../teams/team-dto';
@@ -75,15 +76,19 @@ export function cardNationalId(
   return decrypt();
 }
 
-/** What is persisted in `card_print_items.rendered_data`: masked unless printed in full. */
-export function storedCardData(config: CardTemplateConfig, data: CardData): CardData {
+/** Whether this template prints the full national ID (brief §8.2). */
+export function nationalIdPrintedFor(config: CardTemplateConfig): NationalIdPrinted {
+  return config.fields.nationalId && !config.maskNationalId ? 'FULL' : 'MASKED';
+}
+
+/**
+ * What is persisted in `card_print_items.rendered_data` (security review M2): the national ID
+ * is ALWAYS masked; `national_id_printed` records whether the card carried it in full, and the
+ * full value is decrypted from `team_members` / `users` only when a print run needs it.
+ */
+export function storedCardData(data: CardData): CardData {
   const parsed = cardDataSchema.parse(data);
-  const nationalId = !parsed.nationalId
-    ? ''
-    : config.maskNationalId || !config.fields.nationalId
-      ? maskNationalId(parsed.nationalId)
-      : parsed.nationalId;
-  return { ...parsed, nationalId };
+  return { ...parsed, nationalId: parsed.nationalId ? maskNationalId(parsed.nationalId) : '' };
 }
 
 export interface CardTeam {

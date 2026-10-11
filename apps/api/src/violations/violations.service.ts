@@ -17,6 +17,7 @@ import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import { paginate, parseSort } from '../common/pagination';
+import { pdfServiceHeaders } from '../common/pdf-service';
 import { mapPrismaError, targetText } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { AppConfig } from '../config/app-config';
@@ -591,7 +592,7 @@ export class ViolationsService {
     try {
       upstream = await fetch(`${base.replace(/\/$/, '')}/render/violations-dashboard`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/pdf' },
+        headers: pdfServiceHeaders(this.cfg.PDF_SERVICE_TOKEN),
         body: JSON.stringify({ kind: 'violations-dashboard', filters: f, stats, generatedAt: now.toISOString() }),
         signal: AbortSignal.timeout(this.cfg.PDF_SERVICE_TIMEOUT_MS),
       });

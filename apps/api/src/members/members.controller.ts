@@ -1,7 +1,9 @@
 import { Controller, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   importMembersSchema,
+  memberSearchSchema,
   moveMembersSchema,
   paginationQuery,
   updateMemberSchema,
@@ -15,6 +17,7 @@ import { z } from 'zod';
 import { CurrentUser, ReqCtx, RequireAnyPermission, RequirePermission } from '../common/decorators';
 import type { AuthUser, RequestContext } from '../common/request';
 import { UuidPipe } from '../common/uuid.pipe';
+import { assertNoNationalIdInQuery } from '../common/search-term';
 import { ZodBody, ZodQuery } from '../common/zod-openapi';
 import { MembersService } from './members.service';
 
@@ -34,12 +37,25 @@ export class MembersController {
 
   @Get()
   @RequireAnyPermission('teams.readAll', 'teams.readOwn', 'members.manage')
-  @ApiOperation({ summary: 'الأعضاء: بحث بالاسم أو رقم الهوية كاملًا أو آخر ٤ أرقام' })
+  @ApiOperation({ summary: 'الأعضاء: بحث بالاسم أو آخر ٤ أرقام من الهوية (الرقم الكامل عبر POST /members/search)' })
   list(
     @ZodQuery(memberListQuery) q: z.output<typeof memberListQuery>,
     @CurrentUser() viewer: AuthUser,
   ): Promise<Paginated<MemberDto>> {
+    assertNoNationalIdInQuery(q.q, '/api/v1/members/search');
     return this.members.list(q, viewer);
+  }
+
+  /** Same filters as GET /members, in the body, so a full national ID stays out of URLs. */
+  @Post('search')
+  @HttpCode(200)
+  @RequireAnyPermission('teams.readAll', 'teams.readOwn', 'members.manage')
+  @ApiOperation({ summary: 'بحث الأعضاء (يقبل رقم الهوية كاملًا في جسم الطلب)' })
+  search(
+    @ZodBody(memberSearchSchema) body: z.output<typeof memberSearchSchema>,
+    @CurrentUser() viewer: AuthUser,
+  ): Promise<Paginated<MemberDto>> {
+    return this.members.list(body, viewer);
   }
 
   @Post('move')
@@ -74,6 +90,7 @@ export class MembersController {
   }
 
   @Patch(':id')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @RequireAnyPermission('members.manage', 'members.manageOwn')
   @ApiOperation({ summary: 'تعديل بيانات عضو' })
   update(

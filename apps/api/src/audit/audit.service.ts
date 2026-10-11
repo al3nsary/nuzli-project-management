@@ -82,6 +82,12 @@ export const AuditAction = {
   CALENDAR_UPDATED: 'calendar.updated',
   CALENDAR_EXCEPTION_CREATED: 'calendar_exception.created',
   CALENDAR_EXCEPTION_DELETED: 'calendar_exception.deleted',
+  // Security review 2026-10 (ADR-061…070):
+  ACCOUNT_LOCKED: 'auth.account_locked',
+  REGISTRATION_DUPLICATE: 'registration.duplicate_attempt',
+  MEMBER_DUPLICATE_REJECTED: 'member.duplicate_rejected',
+  CARDS_PREVIEW_FULL_IDS: 'cards.preview_full_ids',
+  CARDS_PRINT_DATA_REISSUED: 'cards.print_data_reissued',
 } as const;
 
 export interface AuditEntryInput {

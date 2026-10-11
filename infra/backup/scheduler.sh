@@ -3,15 +3,18 @@
 # so the container needs no root. BACKUP_ON_START=true also takes one backup at start-up.
 set -eu
 
+. /usr/local/bin/common.sh
 : "${BACKUP_TIME:=02:00}"
-: "${BACKUP_ENCRYPTION_PASSPHRASE:?BACKUP_ENCRYPTION_PASSPHRASE is required (see .env.example)}"
+# Refuse to run at all with the example placeholder or a weak passphrase (security review H1).
+check_passphrase
+if [ "${BACKUP_S3_ENABLED:-false}" = "true" ]; then (s3_setup) || exit 1; fi
 
 case "$BACKUP_TIME" in
   [0-2][0-9]:[0-5][0-9]) ;;
   *) echo "[backup] BACKUP_TIME must be HH:MM (UTC), got '$BACKUP_TIME'" >&2; exit 1 ;;
 esac
 
-echo "[backup] scheduler started — daily at ${BACKUP_TIME} UTC, retention ${BACKUP_RETENTION_DAYS:-14} days"
+echo "[backup] scheduler started — daily at ${BACKUP_TIME} UTC, retention ${BACKUP_RETENTION_DAYS:-14} days, upload ${BACKUP_S3_ENABLED:-false}"
 
 if [ "${BACKUP_ON_START:-false}" = "true" ]; then
   /usr/local/bin/backup.sh || echo "[backup] start-up backup FAILED" >&2

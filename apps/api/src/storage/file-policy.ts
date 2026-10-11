@@ -10,12 +10,17 @@ export const ENTITY_FOLDERS: Record<FileEntity, string> = {
   member_photo: 'member-photos',
 };
 
-/** Who may upload a file for each entity type. */
+/**
+ * Who may upload a file for each entity type.
+ * Security review L3 (ADR-066): logos are admin-only (`logos.manage`). Member photos are closed
+ * until a member-photo route exists that validates the member scope and links the file at
+ * confirm; until then nobody can presign one (the enum value stays for compatibility).
+ */
 const UPLOAD_PERMISSIONS: Record<FileEntity, Permission[]> = {
   violation: ['violations.create', 'violations.manage'],
   task: ['tasks.manage', 'tasks.comment'],
   logo: ['logos.manage'],
-  member_photo: ['members.manage', 'members.manageOwn'],
+  member_photo: [],
 };
 
 /**
@@ -29,8 +34,10 @@ const READ_PERMISSIONS: Record<FileEntity, Permission[]> = {
   member_photo: ['teams.readAll', 'members.manage', 'cards.print'],
 };
 
-export function canUpload(user: PermissionSubject, entity: FileEntity, kind?: string): boolean {
+export function canUpload(user: PermissionSubject, entity: FileEntity, kind?: string, entityId?: string): boolean {
   if (kind === 'ID_CARD' && entity !== 'violation') return false;
+  // A logo belongs to no entity; an entityId there would only be an untracked label.
+  if (entity === 'logo' && entityId) return false;
   return canAny(user, UPLOAD_PERMISSIONS[entity]);
 }
 

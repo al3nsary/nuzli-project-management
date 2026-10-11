@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -87,6 +88,22 @@ export class StorageService implements OnModuleDestroy {
   async readAll(key: string): Promise<Uint8Array> {
     const res = await this.internal.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
     return res.Body ? await res.Body.transformToByteArray() : new Uint8Array();
+  }
+
+  /**
+   * Server-side copy inside the bucket (S3 CopyObject; supported by OCI Object Storage and
+   * MinIO). Used to move a verified upload from its `pending/` key to a key that never had a
+   * presigned PUT (security review M1).
+   */
+  async copy(fromKey: string, toKey: string): Promise<void> {
+    await this.internal.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: toKey,
+        CopySource: encodeURI(`${this.bucket}/${fromKey}`),
+        MetadataDirective: 'COPY',
+      }),
+    );
   }
 
   async delete(key: string): Promise<void> {

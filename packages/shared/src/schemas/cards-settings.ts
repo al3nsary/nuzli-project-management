@@ -146,13 +146,38 @@ export interface PrintBatchDto {
   cardCount: number;
 }
 
+/** Whether the card was printed with the full national ID or the masked form. */
+export type NationalIdPrinted = 'FULL' | 'MASKED';
+
 export interface PrintBatchItemDto {
   id: string;
   memberId: string | null;
   userId: string | null;
-  /** As printed; the national ID is masked unless the template printed it in full. */
+  /**
+   * As printed, except the national ID: it is ALWAYS stored and returned masked (security
+   * review M2). `nationalIdPrinted` says whether the physical card carried the full ID.
+   */
   data: CardData;
+  nationalIdPrinted: NationalIdPrinted;
   savedBack: boolean;
+}
+
+/** One card to print, as answered by `POST /cards/batches` only (never by list/get). */
+export interface PrintRunCardDto {
+  memberId: string | null;
+  userId: string | null;
+  /** Server-derived: `nationalId` from the DB per template (full when FULL), `qrValue` = UUID. */
+  data: CardData;
+  nationalIdPrinted: NationalIdPrinted;
+}
+
+/**
+ * `POST /cards/batches` answer: the batch plus the cards for this print run. The full national
+ * IDs (when the template prints them) appear only here; keep them in memory for the print
+ * dialog and drop them afterwards.
+ */
+export interface PrintBatchCreatedDto extends PrintBatchDto {
+  cards: PrintRunCardDto[];
 }
 
 export interface PrintBatchDetailDto extends PrintBatchDto {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { email, fullName, nationalId, optionalText, password, reason, saudiMobile } from './common';
+import { email, fullName, nationalId, optionalText, paginationQuery, password, reason, saudiMobile } from './common';
 import type { Role, UserStatus } from '../enums';
 
 export const roleSchema = z.enum(['ADMIN', 'SUPERVISOR', 'MONITOR']);
@@ -97,3 +97,10 @@ export interface AuthSession {
   expiresIn: number;
   user: UserDto;
 }
+
+/** `POST /users/search` — `GET /users` filters in the body (full national IDs stay out of URLs). */
+export const userSearchSchema = paginationQuery.extend({
+  role: roleSchema.optional(),
+  status: z.enum(['PENDING', 'ACTIVE', 'REJECTED', 'SUSPENDED']).optional(),
+});
+export type UserSearchInput = z.input<typeof userSearchSchema>;

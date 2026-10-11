@@ -18,6 +18,7 @@ import {
 } from '@nuzli/shared';
 import { z } from 'zod';
 import { AuditAction } from '../audit/audit.service';
+import { isPlaceholder } from '../config/secret-strength';
 import { CryptoService } from '../crypto/crypto.service';
 import { BUILTIN_CARD_SIZES, BUILTIN_CARD_TEMPLATES, DEFAULT_CALENDAR, TEAM_PALETTE } from './seed-data';
 
@@ -117,7 +118,7 @@ export async function seedCardTemplates(prisma: PrismaClient): Promise<number> {
   return created;
 }
 
-async function bootstrapAdmin(prisma: PrismaClient, env: SeedEnv, log: Log): Promise<boolean> {
+export async function bootstrapAdmin(prisma: PrismaClient, env: SeedEnv, log: Log): Promise<boolean> {
   const admins = await prisma.user.count({ where: { role: 'ADMIN' } });
   if (admins > 0) return false;
 
@@ -133,6 +134,13 @@ async function bootstrapAdmin(prisma: PrismaClient, env: SeedEnv, log: Log): Pro
     const fields = [...new Set(parsed.error.issues.map((i) => `BOOTSTRAP_ADMIN_${String(i.path[0]).toUpperCase()}`))];
     throw new Error(
       `[seed] No admin exists and the bootstrap admin settings are missing or invalid: ${fields.join(', ')}`,
+    );
+  }
+  // Security review H1: the example value is public, so whoever logs in first would own the
+  // admin (mustChangePassword lets them pick the new password). Refused in every environment.
+  if (isPlaceholder(parsed.data.password)) {
+    throw new Error(
+      '[seed] BOOTSTRAP_ADMIN_PASSWORD is still the CHANGE_ME placeholder from .env.example; set a real one-time password.',
     );
   }
   const crypto = new CryptoService({

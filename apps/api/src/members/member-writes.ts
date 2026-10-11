@@ -1,6 +1,9 @@
 import type { Prisma } from '@prisma/client';
-import { ERRORS } from '@nuzli/shared';
+import { can, ERRORS, type PermissionSubject } from '@nuzli/shared';
+import { AuditAction, type AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
+import { mapPrismaError } from '../common/prisma-errors';
+import type { RequestContext } from '../common/request';
 import type { CryptoService } from '../crypto/crypto.service';
 
 /** A member as accepted by `memberInputSchema` (after zod transforms). */
@@ -152,4 +155,31 @@ export async function moveMembersInTx(
     })),
   });
   return moving.map((memberId) => ({ memberId, fromTeamId: openByMember.get(memberId)?.teamId ?? null }));
+}
+
+/**
+ * Security review L7 (ADR-067): to anyone without `members.manage` (supervisors), a duplicate
+ * national ID answers NATIONAL_ID_NOT_ACCEPTED with a generic message, never "already
+ * registered", and the attempt is audited so an admin can spot probing. Admins keep
+ * NATIONAL_ID_TAKEN with the exact rows. The routes are also rate limited per IP.
+ */
+export async function hideDuplicateNationalId<T>(
+  viewer: PermissionSubject & { id: string },
+  audit: AuditService,
+  ctx: RequestContext,
+  scope: Record<string, unknown>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const mapped = err instanceof AppError ? err : mapPrismaError(err);
+    if (mapped?.code !== 'NATIONAL_ID_TAKEN' || can(viewer, 'members.manage')) throw mapped ?? err;
+    const keys = Object.keys((mapped.details as { fieldErrors?: Record<string, string[]> } | undefined)?.fieldErrors ?? {});
+    await audit
+      .logCtx(ctx, { action: AuditAction.MEMBER_DUPLICATE_REJECTED, entityType: 'member', after: { ...scope, rows: keys.length || 1 } })
+      .catch(() => undefined);
+    const fieldErrors = Object.fromEntries((keys.length ? keys : ['nationalId']).map((k) => [k, [ERRORS.NATIONAL_ID_NOT_ACCEPTED]]));
+    throw new AppError('NATIONAL_ID_NOT_ACCEPTED', { fieldErrors });
+  }
 }

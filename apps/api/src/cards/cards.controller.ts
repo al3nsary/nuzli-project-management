@@ -1,4 +1,5 @@
 import { Controller, Delete, Get, HttpCode, Param, Patch, Post, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   cardPreviewSchema,
@@ -13,6 +14,7 @@ import {
   type CardTemplateDto,
   type LogoDto,
   type Paginated,
+  type PrintBatchCreatedDto,
   type PrintBatchDetailDto,
   type PrintBatchDto,
 } from '@nuzli/shared';
@@ -103,24 +105,30 @@ export class CardsController {
 
   @Post('preview')
   @HttpCode(200)
+  // Security review M3: a preview may decrypt up to 1,000 full IDs — rate limited and audited.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @RequirePermission('cards.print')
   @ApiOperation({ summary: 'معاينة الكروت لفرق أو أعضاء (مع المشرفين)' })
   preview(
     @ZodBody(cardPreviewSchema) body: z.output<typeof cardPreviewSchema>,
     @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
   ): Promise<CardPreviewDto> {
-    return this.print.preview(body, viewer);
+    return this.print.preview(body, viewer, ctx);
   }
 
   @Post('batches')
   @RequirePermission('cards.print')
-  @ApiOperation({ summary: 'تسجيل دفعة طباعة (تكرار المفتاح نفسه يعيد الدفعة الأصلية بـ 200)' })
+  @ApiOperation({
+    summary: 'تسجيل دفعة طباعة (تكرار المفتاح نفسه يعيد الدفعة الأصلية بـ 200)',
+    description: 'The answer carries `cards` for this print run (full national IDs only here, when the template prints them).',
+  })
   async createBatch(
     @ZodBody(printBatchSchema) body: z.output<typeof printBatchSchema>,
     @CurrentUser() viewer: AuthUser,
     @ReqCtx() ctx: RequestContext,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<PrintBatchDto> {
+  ): Promise<PrintBatchCreatedDto> {
     const { created, batch } = await this.print.createBatch(body, viewer, ctx);
     res.status(created ? 201 : 200);
     return batch;

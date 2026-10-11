@@ -4,6 +4,7 @@ import { AccessTokenService } from './access-token.service';
 import { AuthController, MeController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CsrfGuard, JwtAuthGuard, PermissionsGuard, PrismaUserLoader } from './guards';
+import { LoginThrottleService } from './login-throttle';
 import { PasswordService } from './password.service';
 import {
   PrismaRefreshTokenRepo,
@@ -20,6 +21,7 @@ import {
     AccessTokenService,
     PasswordService,
     PrismaUserLoader,
+    { provide: LoginThrottleService, useFactory: () => new LoginThrottleService() },
     JwtAuthGuard,
     PermissionsGuard,
     CsrfGuard,

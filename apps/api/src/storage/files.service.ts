@@ -14,12 +14,21 @@ import { detectFileType, EXTENSIONS, MAGIC_PROBE_BYTES, type DetectedType } from
 import { StorageService } from './storage.service';
 
 export const PENDING_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** READY logos / member photos that nothing links to are removed after this (review L3). */
+export const ORPHAN_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** Prefix of upload keys: the only keys that ever get a presigned PUT (review M1). */
+export const PENDING_PREFIX = 'pending/';
 
 /** `violations/2026/10/<uuid>.jpg` — never a name or a national ID (brief §3.2). */
 export function buildObjectKey(folder: string, contentType: DetectedType, id: string, at = new Date()): string {
   const yyyy = at.getUTCFullYear();
   const mm = String(at.getUTCMonth() + 1).padStart(2, '0');
   return `${folder}/${yyyy}/${mm}/${id}.${EXTENSIONS[contentType]}`;
+}
+
+/** `pending/<uuid>.jpg` — where the browser PUTs; copied to the final key on confirm. */
+export function buildPendingKey(contentType: DetectedType, id: string): string {
+  return `${PENDING_PREFIX}${id}.${EXTENSIONS[contentType]}`;
 }
 
 /**
@@ -54,10 +63,10 @@ export class FilesService {
 
   /** Step 1: register a PENDING file and hand out a short-lived PUT URL. */
   async presign(input: PresignUploadInput, user: AuthUser): Promise<PresignedUpload> {
-    if (!canUpload(user, input.entityType, input.kind)) throw new AppError('FORBIDDEN');
+    if (!canUpload(user, input.entityType, input.kind, input.entityId)) throw new AppError('FORBIDDEN');
     await this.hooks.get(input.entityType)?.beforePresign(input, user);
     const id = randomUUID();
-    const key = buildObjectKey(ENTITY_FOLDERS[input.entityType], input.contentType, id);
+    const key = buildPendingKey(input.contentType, id);
     const ttl = await this.settings.get('PRESIGNED_URL_TTL_SECONDS');
     await this.prisma.file.create({
       data: {
@@ -84,7 +93,13 @@ export class FilesService {
     };
   }
 
-  /** Step 2: HEAD + size + magic bytes (+ sha256 when declared) → READY, else delete. */
+  /**
+   * Step 2 (security review M1, ADR-065): the upload is copied server-side from its `pending/`
+   * key to the final key (`violations/yyyy/mm/<uuid>.jpg`), which never had a presigned PUT,
+   * and the COPY is verified (HEAD + size + magic bytes + sha256). The pending object is then
+   * deleted, so re-using the old PUT URL cannot change what was verified. The sha256 of the
+   * final bytes is always recorded. Any failure deletes both objects.
+   */
   async confirm(id: string, user: AuthUser): Promise<{ id: string; status: 'READY' }> {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.deletedAt || file.uploadedById !== user.id) throw new AppError('NOT_FOUND');
@@ -95,40 +110,82 @@ export class FilesService {
       return { id, status: 'READY' };
     }
 
-    const head = await this.storage.head(file.storageKey);
+    const pendingKey = file.storageKey;
+    const head = await this.storage.head(pendingKey);
     if (!head.exists) throw new AppError('FILE_NOT_UPLOADED');
+    // Cheap pre-checks on the pending object before copying anything.
+    if (head.size > MAX_UPLOAD_BYTES || head.size > file.sizeBytes) await this.reject(id, [pendingKey], 'FILE_TOO_LARGE');
 
-    const reject = async (code: 'FILE_TOO_LARGE' | 'FILE_TYPE_NOT_ALLOWED' | 'FILE_NOT_UPLOADED') => {
-      await this.storage.delete(file.storageKey).catch(() => undefined);
-      await this.prisma.file.update({ where: { id }, data: { deletedAt: new Date() } });
-      throw new AppError(code);
-    };
-
-    if (head.size > MAX_UPLOAD_BYTES || head.size > file.sizeBytes) await reject('FILE_TOO_LARGE');
-    if (head.size !== file.sizeBytes) await reject('FILE_NOT_UPLOADED');
-
-    const probe = await this.storage.readRange(file.storageKey, 0, MAGIC_PROBE_BYTES - 1);
-    const detected = detectFileType(probe);
-    if (!detected || detected !== file.mimeType) await reject('FILE_TYPE_NOT_ALLOWED');
-
-    if (file.sha256) {
-      const actual = sha256Hex(Buffer.from(await this.storage.readAll(file.storageKey)));
-      if (actual !== file.sha256) await reject('FILE_NOT_UPLOADED');
+    const finalKey = buildObjectKey(
+      ENTITY_FOLDERS[file.entityType as FileEntity] ?? 'files',
+      file.mimeType as DetectedType,
+      file.id,
+      file.createdAt,
+    );
+    try {
+      await this.storage.copy(pendingKey, finalKey);
+    } catch (err) {
+      // A concurrent confirm may have finished first and removed the pending object.
+      const again = await this.prisma.file.findUnique({ where: { id } });
+      if (again?.status === 'READY' && !again.deletedAt) {
+        await hook?.onConfirmed(again, user);
+        return { id, status: 'READY' };
+      }
+      throw err;
     }
+    const both = [finalKey, pendingKey];
 
-    await this.prisma.file.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'READY' } });
+    // Everything below reads the FINAL object: a PUT to the old URL cannot reach it.
+    const final = await this.storage.head(finalKey);
+    if (!final.exists) await this.reject(id, both, 'FILE_NOT_UPLOADED');
+    if (final.size > MAX_UPLOAD_BYTES || final.size > file.sizeBytes) await this.reject(id, both, 'FILE_TOO_LARGE');
+    if (final.size !== file.sizeBytes) await this.reject(id, both, 'FILE_NOT_UPLOADED');
+
+    const bytes = Buffer.from(await this.storage.readAll(finalKey));
+    const detected = detectFileType(bytes.subarray(0, MAGIC_PROBE_BYTES));
+    if (!detected || detected !== file.mimeType) await this.reject(id, both, 'FILE_TYPE_NOT_ALLOWED');
+    const actual = sha256Hex(bytes);
+    if (file.sha256 && actual !== file.sha256) await this.reject(id, both, 'FILE_NOT_UPLOADED');
+
+    await this.storage.delete(pendingKey).catch((err: unknown) =>
+      this.logger.warn(`Could not delete pending object of file ${id}: ${(err as Error).message}`),
+    );
+    const updated = await this.prisma.file.updateMany({
+      where: { id, status: 'PENDING' },
+      data: { status: 'READY', storageKey: finalKey, sha256: actual },
+    });
+    if (updated.count !== 1) {
+      // Lost a race with another confirm of the same file: keep the winner's state.
+      const again = await this.prisma.file.findUnique({ where: { id } });
+      if (again?.status === 'READY' && !again.deletedAt) {
+        await hook?.onConfirmed(again, user);
+        return { id, status: 'READY' };
+      }
+      throw new AppError('FILE_NOT_UPLOADED');
+    }
     if (hook) {
       try {
-        await hook.onConfirmed({ ...file, status: 'READY' }, user);
+        await hook.onConfirmed({ ...file, status: 'READY', storageKey: finalKey, sha256: actual }, user);
       } catch (err) {
         if (err instanceof AppError && err.code === 'TOO_MANY_PHOTOS') {
-          await this.storage.delete(file.storageKey).catch(() => undefined);
+          await this.storage.delete(finalKey).catch(() => undefined);
           await this.prisma.file.update({ where: { id }, data: { deletedAt: new Date() } });
         }
         throw err;
       }
     }
     return { id, status: 'READY' };
+  }
+
+  /** Deletes the objects, marks the row deleted and throws `code`. */
+  private async reject(
+    id: string,
+    keys: string[],
+    code: 'FILE_TOO_LARGE' | 'FILE_TYPE_NOT_ALLOWED' | 'FILE_NOT_UPLOADED',
+  ): Promise<never> {
+    for (const key of keys) await this.storage.delete(key).catch(() => undefined);
+    await this.prisma.file.update({ where: { id }, data: { deletedAt: new Date() } });
+    throw new AppError(code);
   }
 
   /** Short-lived GET URL after a permission check. ID-card photo views are audited (§13). */
@@ -172,6 +229,40 @@ export class FilesService {
       }
     }
     if (removed) this.logger.log(`Removed ${removed} unconfirmed uploads`);
+    return removed;
+  }
+
+  /**
+   * Security review L3: confirmed logos and member photos that nothing links to after 24 h
+   * (an upload whose `POST /logos` never came) are deleted. Violation and task files are
+   * linked by their hooks at confirm time.
+   */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'files-orphans' })
+  async cleanupOrphans(now = new Date()): Promise<number> {
+    const stale = await this.prisma.file.findMany({
+      where: {
+        status: 'READY',
+        deletedAt: null,
+        createdAt: { lt: new Date(now.getTime() - ORPHAN_FILE_MAX_AGE_MS) },
+        OR: [
+          { entityType: 'logo', logo: { is: null } },
+          { entityType: 'member_photo', memberPhotos: { none: {} } },
+        ],
+      },
+      select: { id: true, storageKey: true },
+      take: 500,
+    });
+    let removed = 0;
+    for (const f of stale) {
+      try {
+        await this.storage.delete(f.storageKey);
+        await this.prisma.file.update({ where: { id: f.id }, data: { deletedAt: now } });
+        removed++;
+      } catch (err) {
+        this.logger.warn(`Orphan cleanup failed for file ${f.id}: ${(err as Error).message}`);
+      }
+    }
+    if (removed) this.logger.log(`Removed ${removed} unlinked logo/photo files`);
     return removed;
   }
 }

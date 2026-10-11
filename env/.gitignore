@@ -1,0 +1,3 @@
+# Real per-service env files hold secrets and are never committed (security review M6).
+*.env
+!*.env.example

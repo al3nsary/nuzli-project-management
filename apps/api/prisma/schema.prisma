@@ -758,8 +758,10 @@ model CardPrintItem {
   batchId      String  @map("batch_id") @db.Uuid
   memberId     String? @map("member_id") @db.Uuid
   userId       String? @map("user_id") @db.Uuid
-  /// Rendered values; the national ID inside is stored masked unless the template printed it in full.
+  /// Rendered values. The national ID inside is ALWAYS masked (security review M2).
   renderedData Json    @map("rendered_data")
+  /// FULL when the physical card carried the full national ID (decrypted from the DB on demand), else MASKED.
+  nationalIdPrinted String @default("MASKED") @map("national_id_printed")
   savedBack    Boolean @default(false) @map("saved_back")
 
   batch  CardPrintBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)

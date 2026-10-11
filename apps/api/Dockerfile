@@ -32,6 +32,8 @@ COPY packages/scheduling/package.json packages/scheduling/
 # ─────────────────────────────────────────────────────────── all dependencies
 FROM manifests AS deps
 # ADR-022: frozen lockfile once pnpm-lock.yaml is committed; until then resolve fresh.
+# Known gap (security review L9, still open): without a committed pnpm-lock.yaml, builds resolve
+# dependency versions at build time. Committing the lockfile closes it; then drop the fallback.
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     if [ -f pnpm-lock.yaml ]; then LOCK=--frozen-lockfile; else LOCK=--no-frozen-lockfile; fi; \
     pnpm install $LOCK --filter "@nuzli/api..."
@@ -78,9 +80,15 @@ ENV NODE_ENV=production \
 RUN npm install -g prisma@${PRISMA_VERSION} && npm cache clean --force
 COPY --from=assemble /repo /repo
 # Generate the client into the production node_modules (engines for debian-openssl-3.0.x).
+# Security review L9: the code stays owned by root and only readable by the runtime user, so a
+# compromised process cannot rewrite dist/ or node_modules. Compose also mounts the root
+# filesystem read-only with a tmpfs /tmp (docker-compose.yml).
 RUN prisma generate --schema /repo/apps/api/prisma/schema.prisma \
- && chmod 0755 /repo/apps/api/docker-entrypoint.sh \
- && chown -R node:node /repo/apps/api
+ && chown -R root:root /repo \
+ && chmod -R a+rX,go-w /repo \
+ && chmod 0755 /repo/apps/api/docker-entrypoint.sh
+ENV CHECKPOINT_DISABLE=1 \
+    PRISMA_HIDE_UPDATE_MESSAGE=1
 USER node
 WORKDIR /repo/apps/api
 EXPOSE 3000

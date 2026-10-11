@@ -1,4 +1,5 @@
 import { Controller, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   archiveTeamSchema,
@@ -43,6 +44,7 @@ export class TeamsController {
   }
 
   @Post()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @RequireAnyPermission('teams.create', 'teams.createOwn')
   @ApiOperation({ summary: 'إنشاء فريق (المدير: نشط؛ المشرف: لنفسه، معلّق أو نشط حسب الإعداد)' })
   create(
@@ -145,6 +147,8 @@ export class TeamsController {
   }
 
   @Post(':id/members')
+  // Review L7: slows down probing for existing national IDs through member creation.
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @RequireAnyPermission('members.manage', 'members.manageOwn')
   @ApiOperation({ summary: 'إضافة عضو جديد إلى الفريق' })
   addMember(

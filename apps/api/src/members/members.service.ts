@@ -29,7 +29,13 @@ import {
   type MemberRow,
   type Viewer,
 } from '../teams/team-dto';
-import { assertReferencesExist, insertMembers, moveMembersInTx, type MemberInputData } from './member-writes';
+import {
+  assertReferencesExist,
+  hideDuplicateNationalId,
+  insertMembers,
+  moveMembersInTx,
+  type MemberInputData,
+} from './member-writes';
 import { candidateNationalIds, validateImportRows } from './members-import';
 
 export interface MemberListQuery {
@@ -129,7 +135,8 @@ export class MembersService {
 
   /** `POST /teams/:id/members` — a new member record with an open membership in the team. */
   async createInTeam(teamId: string, input: MemberInputData, viewer: Viewer, ctx: RequestContext): Promise<MemberDto> {
-    const row = await withPrismaErrors(() =>
+    const row = await hideDuplicateNationalId(viewer, this.audit, ctx, { teamId, via: 'members.create' }, () =>
+      withPrismaErrors(() =>
       this.prisma.$transaction(async (tx) => {
         const team = await tx.team.findUnique({ where: { id: teamId }, select: { supervisorId: true, status: true } });
         if (!team) throw new AppError('NOT_FOUND');
@@ -159,12 +166,14 @@ export class MembersService {
         );
         return created;
       }),
+      ),
     );
     return toMemberDto(row, { viewer, full: true, crypto: this.crypto });
   }
 
   async update(id: string, patch: MemberPatch, viewer: Viewer, ctx: RequestContext): Promise<MemberDto> {
-    const row = await withPrismaErrors(() =>
+    const row = await hideDuplicateNationalId(viewer, this.audit, ctx, { memberId: id, via: 'members.update' }, () =>
+      withPrismaErrors(() =>
       this.prisma.$transaction(async (tx) => {
         const before = await tx.teamMember.findFirst({ where: { id, archivedAt: null }, select: MEMBER_SELECT });
         if (!before) throw new AppError('NOT_FOUND');
@@ -185,6 +194,7 @@ export class MembersService {
         );
         return after;
       }),
+      ),
     );
     return toMemberDto(row, { viewer, full: true, crypto: this.crypto });
   }

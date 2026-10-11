@@ -211,3 +211,28 @@ describe('member search', () => {
     expect(svc.searchWhere('محمد')).toEqual({ fullName: { contains: 'محمد', mode: 'insensitive' } });
   });
 });
+
+describe('duplicate national ID on member create (security review L7)', () => {
+  const input = { fullName: 'عضو جديد', nationalId: nid('112233445') };
+  const existing = (tx: ReturnType<typeof setup>['tx']) =>
+    tx.teamMember.findMany.mockResolvedValue([{ nationalIdHash: crypto.blindIndex(input.nationalId) }]);
+
+  it('a supervisor gets the generic NATIONAL_ID_NOT_ACCEPTED (not "already registered") and the attempt is audited', async () => {
+    const { svc, tx } = setup();
+    existing(tx);
+    const err = (await svc.createInTeam(TEAM_A, input, SUP, ctx).catch((e: unknown) => e)) as AppError;
+    expect(err.code).toBe('NATIONAL_ID_NOT_ACCEPTED');
+    expect(err.status).toBe(400);
+    expect(JSON.stringify(err.details)).not.toContain('مسجّل');
+    const audit = tx.auditLog.create.mock.calls.map((c) => c[0].data);
+    expect(audit).toEqual([expect.objectContaining({ action: 'member.duplicate_rejected', after: { teamId: TEAM_A, via: 'members.create', rows: 1 } })]);
+    expect(JSON.stringify(audit)).not.toContain(input.nationalId);
+  });
+
+  it('an admin still gets NATIONAL_ID_TAKEN', async () => {
+    const { svc, tx } = setup();
+    existing(tx);
+    const err = (await svc.createInTeam(TEAM_A, input, ADMIN, ctx).catch((e: unknown) => e)) as AppError;
+    expect(err.code).toBe('NATIONAL_ID_TAKEN');
+  });
+});

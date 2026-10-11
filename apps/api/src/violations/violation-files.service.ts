@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { FilesService, type FileEntityHook } from '../storage/files.service';
 import { StorageService } from '../storage/storage.service';
+import { editableUntil } from './violation-dto';
 
 export const ID_CARD_LIMIT = 1;
 const RETENTION_BATCH = 500;
@@ -22,6 +23,9 @@ type Kind = 'ID_CARD' | 'EVIDENCE';
  *  - at most one ID-card photo and `VIOLATION_MAX_PHOTOS` evidence photos (`TOO_MANY_PHOTOS`);
  *  - confirm links the file to the violation (`violation_files`) idempotently, under a row
  *    lock on the violation so two concurrent confirms cannot exceed the limit.
+ *  - security review L2 (ADR-066): never on a CANCELLED violation; after the edit window
+ *    (`VIOLATION_EDIT_WINDOW_MINUTES` from `received_at`) the recorder may only finish the
+ *    original sync — up to the expected count of that kind — unless they hold `violations.manage`.
  * Plus the retention job for `VIOLATION_PHOTO_RETENTION_DAYS` (brief §13).
  */
 @Injectable()
@@ -45,10 +49,33 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
   }
 
   private async violationFor(id: string, user: AuthUser) {
-    const v = await this.prisma.violation.findUnique({ where: { id }, select: { id: true, recordedById: true } });
+    const v = await this.prisma.violation.findUnique({
+      where: { id },
+      select: { id: true, recordedById: true, status: true, receivedAt: true, expectedIdPhotos: true, expectedEvidence: true },
+    });
     // Someone else's violation answers 404, like every other out-of-scope read.
     if (!v || (v.recordedById !== user.id && !can(user, 'violations.manage'))) throw new AppError('NOT_FOUND');
+    if (v.status === 'CANCELLED') throw new AppError('INVALID_STATE', { status: v.status });
     return v;
+  }
+
+  /**
+   * Upper bound for photos of `kind` on this violation right now: the configured limit inside
+   * the edit window (or for `violations.manage`), else only the count announced at capture
+   * time (`expected_*`), so an offline device can still finish its original sync.
+   */
+  async allowanceFor(
+    v: { receivedAt: Date; expectedIdPhotos: number; expectedEvidence: number },
+    kind: Kind,
+    user: AuthUser,
+    now = new Date(),
+  ): Promise<{ limit: number; afterWindow: boolean }> {
+    const limit = await this.limitFor(kind);
+    if (can(user, 'violations.manage')) return { limit, afterWindow: false };
+    const window = await this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES');
+    if (now < editableUntil(v.receivedAt, window)) return { limit, afterWindow: false };
+    const expected = kind === 'ID_CARD' ? v.expectedIdPhotos : v.expectedEvidence;
+    return { limit: Math.min(limit, expected), afterWindow: true };
   }
 
   async beforePresign(input: PresignUploadInput, user: AuthUser): Promise<void> {
@@ -59,7 +86,7 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
     if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(input.contentType)) throw new AppError('FILE_TYPE_NOT_ALLOWED');
     const v = await this.violationFor(input.entityId!, user);
     const kind = input.kind as Kind;
-    const limit = await this.limitFor(kind);
+    const { limit, afterWindow } = await this.allowanceFor(v, kind, user);
     const ttl = await this.settings.get('PRESIGNED_URL_TTL_SECONDS');
     // Linked files plus uploads still in flight (URL not expired yet). An abandoned PENDING
     // upload stops counting once its URL expired, so an offline retry is never locked out.
@@ -76,15 +103,18 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
         },
       }),
     ]);
-    if (linked + inFlight >= limit) throw new AppError('TOO_MANY_PHOTOS', { kind, limit });
+    if (linked + inFlight >= limit) {
+      if (afterWindow) throw new AppError('EDIT_WINDOW_CLOSED');
+      throw new AppError('TOO_MANY_PHOTOS', { kind, limit });
+    }
   }
 
   async onConfirmed(file: FileRow, user: AuthUser): Promise<void> {
     if (!file.entityId || (file.kind !== 'ID_CARD' && file.kind !== 'EVIDENCE')) return;
     const kind = file.kind as Kind;
     const violationId = file.entityId;
-    await this.violationFor(violationId, user);
-    const limit = await this.limitFor(kind);
+    const v = await this.violationFor(violationId, user);
+    const { limit } = await this.allowanceFor(v, kind, user);
     await this.prisma.$transaction(async (tx) => {
       // Serialises confirms of the same violation (READ COMMITTED + row lock, like ADR-030).
       await tx.$queryRaw`SELECT id FROM violations WHERE id = ${violationId}::uuid FOR UPDATE`;

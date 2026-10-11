@@ -29,7 +29,7 @@ describeInt('presigned upload and confirm', () => {
   it('uploads a PNG, confirms it, and issues a short-lived GET URL', async () => {
     const p = await presign(PNG);
     const file = await ctx.prisma.file.findUniqueOrThrow({ where: { id: p.fileId } });
-    expect(file.storageKey).toMatch(/^logos\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.png$/);
+    expect(file.storageKey).toMatch(/^pending\/[0-9a-f-]{36}\.png$/);
     expect(file.status).toBe('PENDING');
 
     const early = await ctx.http().post(`/api/v1/files/${p.fileId}/confirm`).set(bearer(admin)).expect(409);
@@ -40,6 +40,11 @@ describeInt('presigned upload and confirm', () => {
 
     const ok = await ctx.http().post(`/api/v1/files/${p.fileId}/confirm`).set(bearer(admin)).expect(200);
     expect(ok.body).toEqual({ id: p.fileId, status: 'READY' });
+    const ready = await ctx.prisma.file.findUniqueOrThrow({ where: { id: p.fileId } });
+    expect(ready.storageKey).toMatch(/^logos\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.png$/);
+
+    // Security review M1: re-using the old PUT URL after confirm cannot replace the verified bytes.
+    await fetch(p.url, { method: 'PUT', headers: p.headers, body: Buffer.alloc(PNG.length, 0x41) });
 
     const url = await ctx.http().get(`/api/v1/files/${p.fileId}/url`).set(bearer(admin)).expect(200);
     const got = await fetch(url.body.url as string);

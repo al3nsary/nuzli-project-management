@@ -186,4 +186,29 @@ export const emails = {
       footnote: 'إن لم تطلب ذلك فتجاهل هذه الرسالة؛ كلمة مرورك الحالية لم تتغيّر.',
     });
   },
+
+  /** Security review M4: sent to the existing owner instead of telling the caller "already registered". */
+  registrationAttempt(p: { name: string; url: string }) {
+    return layout('محاولة تسجيل ببياناتك في نزلي', {
+      greeting: hello(p.name),
+      paragraphs: [
+        'حاول أحدهم إنشاء حساب جديد في نزلي ببيانات مسجّلة لحسابك (البريد أو الجوال أو رقم الهوية). لم يُنشأ أي حساب جديد.',
+        'إن كنت أنت من حاول، فحسابك موجود: سجّل الدخول، أو أعد تعيين كلمة المرور إن نسيتها.',
+      ],
+      action: { label: 'تسجيل الدخول', url: p.url },
+      footnote: 'إن لم تكن أنت، فلا حاجة لأي إجراء؛ حسابك لم يتغيّر.',
+    });
+  },
+
+  /** Security review M5: the owner learns about the lock; a password reset lifts it at once. */
+  accountLocked(p: { name: string; minutes: number; url: string }) {
+    return layout('أُقفل حسابك في نزلي مؤقتًا', {
+      greeting: hello(p.name),
+      paragraphs: [
+        `سُجّلت محاولات دخول فاشلة متكررة على حسابك، فأُقفل تسجيل الدخول ${p.minutes} دقائق.`,
+        'إن لم تكن أنت، فأعد تعيين كلمة المرور الآن: إعادة التعيين ترفع القفل فورًا وتُنهي كل الجلسات.',
+      ],
+      action: { label: 'إعادة تعيين كلمة المرور', url: p.url },
+    });
+  },
 };

@@ -47,10 +47,14 @@ describeInt('registration → approval → login', () => {
     const reg = await ctx.http().post('/api/v1/auth/register').send(applicant).expect(201);
     expect(reg.body).toEqual({ status: 'PENDING' });
 
-    // Duplicate national ID is caught by the blind-index unique constraint.
+    // Security review M4: a duplicate national ID answers exactly like a new registration,
+    // creates nothing, and the existing owner is told by e-mail.
     const dup = await ctx.http().post('/api/v1/auth/register')
-      .send({ ...applicant, email: 'other@nuzli.test', mobile: '0551234568' }).expect(409);
-    expect(dup.body.code).toBe('NATIONAL_ID_TAKEN');
+      .send({ ...applicant, email: 'other@nuzli.test', mobile: '0551234568' }).expect(201);
+    expect(dup.body).toEqual({ status: 'PENDING' });
+    expect(await ctx.prisma.user.count({ where: { email: 'other@nuzli.test' } })).toBe(0);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(ctx.sentMail.some((m) => m.to === applicant.email && /محاولة تسجيل/.test(m.subject))).toBe(true);
 
     const pending = await ctx.http().post('/api/v1/auth/login')
       .send({ identifier: applicant.email, password: applicant.password }).expect(403);
@@ -113,14 +117,16 @@ describeInt('registration → approval → login', () => {
     await ctx.http().post('/api/v1/auth/refresh').set('Cookie', next.cookie).set('X-CSRF-Token', next.csrf).expect(401);
   });
 
-  it('locks the account after 5 failed attempts', async () => {
+  it('progressive delay per identifier+IP answers 429, and a locked account never says so (review M5)', async () => {
     for (let i = 0; i < 4; i++) {
       const r = await ctx.http().post('/api/v1/auth/login').send({ identifier: 'khaled@nuzli.test', password: 'wrong-password-1' }).expect(401);
       expect(r.body.code).toBe('INVALID_CREDENTIALS');
     }
-    const locked = await ctx.http().post('/api/v1/auth/login').send({ identifier: 'khaled@nuzli.test', password: 'wrong-password-1' }).expect(423);
-    expect(locked.body.code).toBe('ACCOUNT_LOCKED');
-    const evenRight = await ctx.http().post('/api/v1/auth/login').send({ identifier: 'khaled@nuzli.test', password: 'Supervisor123' }).expect(423);
-    expect(evenRight.body.code).toBe('ACCOUNT_LOCKED');
+    const slowed = await ctx.http().post('/api/v1/auth/login').send({ identifier: 'khaled@nuzli.test', password: 'wrong-password-1' }).expect(429);
+    expect(slowed.body.code).toBe('RATE_LIMITED');
+
+    await ctx.prisma.user.update({ where: { email: 'sara@nuzli.test' }, data: { status: 'ACTIVE', lockedUntil: new Date(Date.now() + 5 * 60_000) } });
+    const evenRight = await ctx.http().post('/api/v1/auth/login').send({ identifier: 'sara@nuzli.test', password: 'Monitor12345' }).expect(401);
+    expect(evenRight.body.code).toBe('INVALID_CREDENTIALS');
   });
 });
