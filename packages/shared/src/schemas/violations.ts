@@ -98,6 +98,9 @@ export const violationTypeSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
+/** `PATCH /violation-types/:id` — any subset; omitted fields keep their value. */
+export const updateViolationTypeSchema = violationTypeSchema.partial();
+
 export const cancelReason = reason;
 
 export interface ViolationTypeDto {
@@ -135,6 +138,19 @@ export interface ViolationDto {
   files: ViolationFileDto[];
   responses: { id: string; supervisor: { id: string; fullName: string }; body: string; createdAt: string }[];
   editableUntil: string | null;
+  /** Photo counts announced by the client at create time (completeness check in the UI). */
+  expectedPhotos?: { idCard: number; evidence: number };
+  /** Device clock at sync time, when the client sent it (ADR-014). */
+  clientSentAt?: string | null;
+  /** UA / platform / app version only; returned to admins. */
+  deviceInfo?: Record<string, unknown>;
+}
+
+/** `GET /violations/roster`. */
+export interface RosterResponse {
+  items: RosterEntry[];
+  /** Server time the roster was built; shown as "last updated" on the device. */
+  generatedAt: string;
 }
 
 /** Minimal roster row cached on the monitor's device (brief §7.4). */
@@ -161,4 +177,8 @@ export interface ViolationStats {
   trend: { date: string; count: number }[];
   heatmap: { weekday: number; hour: number; count: number }[];
   points: { id: string; lat: number; lng: number; color: string | null }[];
+  /** True when more than the 5,000 newest points matched (the map shows only those). */
+  pointsTruncated?: boolean;
+  /** Server time the statistics were computed. */
+  generatedAt?: string;
 }

@@ -52,6 +52,16 @@ export const AuditAction = {
   LOGO_DEFAULT_SET: 'logo.default_set',
   CARDS_PRINTED: 'cards.printed',
   CARDS_PDF_EXPORTED: 'cards.pdf_exported',
+  // Phase 3 — violations (ADR-050):
+  VIOLATION_TYPE_CREATED: 'violation_type.created',
+  VIOLATION_TYPE_UPDATED: 'violation_type.updated',
+  VIOLATION_UPDATED: 'violation.updated',
+  VIOLATION_STATUS_CHANGED: 'violation.status_changed',
+  VIOLATION_RESPONSE_ADDED: 'violation.response_added',
+  VIOLATION_ID_PHOTO_VIEWED: 'violation.id_photo_viewed',
+  VIOLATIONS_EXPORTED: 'violations.exported',
+  VIOLATIONS_DASHBOARD_EXPORTED: 'violations.dashboard_exported',
+  VIOLATION_PHOTOS_PURGED: 'violations.photos_purged',
 } as const;
 
 export interface AuditEntryInput {

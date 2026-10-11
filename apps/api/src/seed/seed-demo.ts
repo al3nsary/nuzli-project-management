@@ -16,6 +16,8 @@
  *   reference.json { departments: [{ id, name }], jobTitles: [{ id, name }] } — created by name if missing
  *   users.json     { users: [...] } — a supervisor missing from the database is created from here
  *                  (ACTIVE, no password: use "forgot password").
+ *   violation-types.json { types: [{ name, severity? }] } — optional; without it the placeholder
+ *                  list below is used. Violation types are loaded even when teams/members are absent.
  */
 import { PrismaClient, type Prisma, type TeamStatus } from '@prisma/client';
 import { fullName as fullNameSchema, nationalId as nationalIdSchema } from '@nuzli/shared';
@@ -23,6 +25,18 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { CryptoService } from '../crypto/crypto.service';
 import type { SeedEnv } from './seed';
+
+/**
+ * DEMO PLACEHOLDERS — not business data. The real catalogue is entered by the owner in the
+ * admin screens (the system seed creates no violation types). Every name carries «(تجريبي)».
+ */
+export const DEMO_VIOLATION_TYPES: Array<{ name: string; severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | null }> = [
+  { name: 'نوع مخالفة تجريبي ١ (تجريبي)', severity: 'LOW' },
+  { name: 'نوع مخالفة تجريبي ٢ (تجريبي)', severity: 'MEDIUM' },
+  { name: 'نوع مخالفة تجريبي ٣ (تجريبي)', severity: 'HIGH' },
+];
+
+const SEVERITIES = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 
 type Json = Record<string, unknown>;
 type Log = (message: string) => void;
@@ -33,6 +47,7 @@ export interface DemoSeedResult {
   membersCreated: number;
   supervisorsCreated: number;
   referenceCreated: number;
+  violationTypesCreated: number;
 }
 
 export function demoDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -73,7 +88,9 @@ export async function runDemoSeed(
     membersCreated: 0,
     supervisorsCreated: 0,
     referenceCreated: 0,
+    violationTypesCreated: 0,
   };
+  result.violationTypesCreated = await seedDemoViolationTypes(prisma, dir);
   if (!teamsFile && !membersFile) {
     log(`[seed:demo] No seed/demo/teams.json or members.json in ${dir} — nothing to load.`);
     return { ...result, skipped: true };
@@ -293,6 +310,24 @@ export async function runDemoSeed(
   }
   log(`[seed:demo] ${JSON.stringify(result)}`);
   return result;
+}
+
+/** Placeholder violation types, created by name when missing (idempotent). */
+export async function seedDemoViolationTypes(prisma: PrismaClient, dir: string): Promise<number> {
+  const fromFile = list(readFile(dir, 'violation-types.json'), 'types')
+    .map((t) => ({
+      name: str(t.name),
+      severity: SEVERITIES.has(String(t.severity)) ? (t.severity as (typeof DEMO_VIOLATION_TYPES)[number]['severity']) : null,
+    }))
+    .filter((t): t is { name: string; severity: (typeof DEMO_VIOLATION_TYPES)[number]['severity'] } => !!t.name);
+  let created = 0;
+  for (const t of fromFile.length ? fromFile : DEMO_VIOLATION_TYPES) {
+    const exists = await prisma.violationType.findUnique({ where: { name: t.name }, select: { id: true } });
+    if (exists) continue;
+    await prisma.violationType.create({ data: { name: t.name, severity: t.severity } });
+    created++;
+  }
+  return created;
 }
 
 async function main(): Promise<void> {

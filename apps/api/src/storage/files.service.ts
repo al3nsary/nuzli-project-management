@@ -8,7 +8,8 @@ import type { AuthUser, RequestContext } from '../common/request';
 import { sha256Hex } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { canReadFile, canUpload, ENTITY_FOLDERS } from './file-policy';
+import type { File as FileRow } from '@prisma/client';
+import { canReadFile, canUpload, ENTITY_FOLDERS, type FileEntity } from './file-policy';
 import { detectFileType, EXTENSIONS, MAGIC_PROBE_BYTES, type DetectedType } from './magic-bytes';
 import { StorageService } from './storage.service';
 
@@ -21,9 +22,24 @@ export function buildObjectKey(folder: string, contentType: DetectedType, id: st
   return `${folder}/${yyyy}/${mm}/${id}.${EXTENSIONS[contentType]}`;
 }
 
+/**
+ * Entity-specific upload rules, registered by the module that owns the entity (violations
+ * register theirs on start-up), so StorageModule never imports a feature module.
+ */
+export interface FileEntityHook {
+  /** Runs before a PENDING row is created; throws an AppError to refuse the upload. */
+  beforePresign(input: PresignUploadInput, user: AuthUser): Promise<void>;
+  /**
+   * Runs after the bytes were verified and the file is READY, and again on a repeated
+   * confirm, so it must be idempotent. Throwing `TOO_MANY_PHOTOS` discards the upload.
+   */
+  onConfirmed(file: FileRow, user: AuthUser): Promise<void>;
+}
+
 @Injectable()
 export class FilesService {
   private readonly logger = new Logger(FilesService.name);
+  private readonly hooks = new Map<FileEntity, FileEntityHook>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -32,9 +48,14 @@ export class FilesService {
     private readonly audit: AuditService,
   ) {}
 
+  registerHook(entity: FileEntity, hook: FileEntityHook): void {
+    this.hooks.set(entity, hook);
+  }
+
   /** Step 1: register a PENDING file and hand out a short-lived PUT URL. */
   async presign(input: PresignUploadInput, user: AuthUser): Promise<PresignedUpload> {
     if (!canUpload(user, input.entityType, input.kind)) throw new AppError('FORBIDDEN');
+    await this.hooks.get(input.entityType)?.beforePresign(input, user);
     const id = randomUUID();
     const key = buildObjectKey(ENTITY_FOLDERS[input.entityType], input.contentType, id);
     const ttl = await this.settings.get('PRESIGNED_URL_TTL_SECONDS');
@@ -67,7 +88,12 @@ export class FilesService {
   async confirm(id: string, user: AuthUser): Promise<{ id: string; status: 'READY' }> {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.deletedAt || file.uploadedById !== user.id) throw new AppError('NOT_FOUND');
-    if (file.status === 'READY') return { id, status: 'READY' };
+    const hook = this.hooks.get(file.entityType as FileEntity);
+    if (file.status === 'READY') {
+      // A retried confirm (e.g. the client lost the first answer) still links the file.
+      await hook?.onConfirmed(file, user);
+      return { id, status: 'READY' };
+    }
 
     const head = await this.storage.head(file.storageKey);
     if (!head.exists) throw new AppError('FILE_NOT_UPLOADED');
@@ -91,6 +117,17 @@ export class FilesService {
     }
 
     await this.prisma.file.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'READY' } });
+    if (hook) {
+      try {
+        await hook.onConfirmed({ ...file, status: 'READY' }, user);
+      } catch (err) {
+        if (err instanceof AppError && err.code === 'TOO_MANY_PHOTOS') {
+          await this.storage.delete(file.storageKey).catch(() => undefined);
+          await this.prisma.file.update({ where: { id }, data: { deletedAt: new Date() } });
+        }
+        throw err;
+      }
+    }
     return { id, status: 'READY' };
   }
 

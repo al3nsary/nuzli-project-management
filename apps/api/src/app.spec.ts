@@ -169,6 +169,31 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
     expect(pdf.body).toMatchObject({ code: 'PDF_NOT_CONFIGURED', message_ar: expect.stringContaining('PDF') });
   });
 
+  it('Phase 3: stats/export are ADMIN-only, the dashboard PDF is 501 until configured, bad filters are 400', async () => {
+    const monitor = tokenFor('00000000-0000-4000-8000-0000000000a3', 'MONITOR');
+    const sup = tokenFor('00000000-0000-4000-8000-0000000000a4', 'SUPERVISOR');
+    await request(app.getHttpServer()).get('/api/v1/violations/stats').set('Authorization', `Bearer ${monitor}`).expect(403);
+    await request(app.getHttpServer()).get('/api/v1/violations/export.xlsx').set('Authorization', `Bearer ${sup}`).expect(403);
+    await request(app.getHttpServer()).get('/api/v1/violations/roster').set('Authorization', `Bearer ${sup}`).expect(403);
+    await request(app.getHttpServer())
+      .post('/api/v1/violation-types')
+      .set('Authorization', `Bearer ${monitor}`)
+      .send({ name: 'نوع' })
+      .expect(403);
+
+    const admin = tokenFor('00000000-0000-4000-8000-0000000000a5', 'ADMIN');
+    const pdf = await request(app.getHttpServer())
+      .get('/api/v1/violations/dashboard.pdf')
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(501);
+    expect(pdf.body.code).toBe('PDF_NOT_CONFIGURED');
+    const bad = await request(app.getHttpServer())
+      .get('/api/v1/violations/stats?from=12-10-2026&bbox=nope')
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(400);
+    expect(Object.keys(bad.body.details.fieldErrors)).toEqual(expect.arrayContaining(['from', 'bbox']));
+  });
+
   it('generates an OpenAPI document from the zod schemas', () => {
     const doc = SwaggerModule.createDocument(app, new DocumentBuilder().setTitle('t').build());
     expect(Object.keys(doc.paths)).toEqual(
@@ -177,6 +202,14 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
     // Phase 2 routes are documented from the same schemas.
     expect(Object.keys(doc.paths)).toEqual(
       expect.arrayContaining(['/api/v1/colors/available', '/api/v1/teams', '/api/v1/teams/{id}/members', '/api/v1/members/move', '/api/v1/members/import', '/api/v1/reference/{kind}', '/api/v1/cards/preview', '/api/v1/cards/batches/{id}/pdf', '/api/v1/logos']),
+    );
+    // Phase 3.
+    expect(Object.keys(doc.paths)).toEqual(
+      expect.arrayContaining(['/api/v1/violations', '/api/v1/violations/roster', '/api/v1/violations/mine', '/api/v1/violations/stats', '/api/v1/violations/export.xlsx', '/api/v1/violations/{id}/files/{fileId}/url', '/api/v1/violations/{id}/status', '/api/v1/violations/{id}/responses', '/api/v1/violation-types', '/api/v1/violation-types/{id}']),
+    );
+    const createViolation = doc.paths['/api/v1/violations']?.post?.requestBody as { content: Record<string, { schema: { required?: string[] } }> };
+    expect(createViolation.content['application/json']?.schema.required).toEqual(
+      expect.arrayContaining(['clientUuid', 'memberId', 'typeId', 'latitude', 'longitude', 'accuracyM', 'capturedAt']),
     );
     const login = doc.paths['/api/v1/auth/login']?.post?.requestBody as { content: Record<string, { schema: { required?: string[] } }> };
     expect(login.content['application/json']?.schema.required).toEqual(['identifier', 'password']);

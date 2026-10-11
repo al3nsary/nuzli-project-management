@@ -121,6 +121,17 @@ export const emails = {
     });
   },
 
+  violationObjection(p: { adminName: string; supervisorName: string; teamName: string; typeName: string; url: string }) {
+    return layout('ردّ أو اعتراض من مشرف على مخالفة', {
+      greeting: hello(p.adminName),
+      paragraphs: [
+        `أضاف المشرف ${p.supervisorName} ردًّا أو اعتراضًا على مخالفة «${p.typeName}» المسجّلة على فريق «${p.teamName}».`,
+        'افتح المخالفة لقراءة الرد واتخاذ ما يلزم.',
+      ],
+      action: { label: 'فتح المخالفة', url: p.url },
+    });
+  },
+
   setPassword(p: { name: string; url: string; hours: number }) {
     return layout('أنشئ كلمة المرور لحسابك في نزلي', {
       greeting: hello(p.name),

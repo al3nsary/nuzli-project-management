@@ -131,8 +131,16 @@ export class NotificationsService {
           teamName: String(payload.teamName ?? ''),
           reason: String(payload.reason ?? ''),
         });
+      case 'VIOLATION_OBJECTION':
+        return emails.violationObjection({
+          adminName: to.fullName,
+          supervisorName: String(payload.supervisorName ?? ''),
+          teamName: String(payload.teamName ?? ''),
+          typeName: String(payload.typeName ?? ''),
+          url: `${web}/violations/${String(payload.violationId ?? '')}`,
+        });
       default:
-        // Phase 3+ events get their templates with their modules.
+        // Phase 4 events get their templates with their modules.
         return null;
     }
   }
