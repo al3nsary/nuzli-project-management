@@ -11,7 +11,7 @@ WORK=${1:?work dir required}
 SRC="$WORK/source-mirror"; rm -rf "$SRC"
 git clone -q --no-local --branch main "$ROOT" "$SRC"
 cd "$SRC"
-FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f -q \
+FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f \
   --index-filter 'git rm -r -q --cached --ignore-unmatch .github/workflows' -- main >/dev/null
 git push -q "$REPO_URL" main 2>&1 | sed "s/${GH_TOKEN}/***/g"
 echo "source: pushed $(git rev-parse --short main)"
