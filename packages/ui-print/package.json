@@ -1,0 +1,17 @@
+{
+  "name": "@nuzli/ui-print",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" }, "./print.css": "./src/print.css" },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean --external react",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": { "@nuzli/shared": "*", "qrcode": "^1.5.4" },
+  "peerDependencies": { "react": "^18.3.1" },
+  "devDependencies": { "@types/qrcode": "^1.5.5", "@types/react": "^18.3.11", "react": "^18.3.1", "react-dom": "^18.3.1", "@types/react-dom": "^18.3.1", "tsup": "^8.3.0", "typescript": "~5.6.3", "vitest": "^2.1.3", "jsdom": "^25.0.1" }
+}

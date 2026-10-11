@@ -1,0 +1,811 @@
+// Nuzli data model (brief §11). Refined, never shrunk.
+// Anything Prisma cannot express (partial unique indexes, CHECK constraints, triggers)
+// lives as raw SQL in prisma/migrations/*/migration.sql — see the "raw SQL" comments below.
+//
+// Conventions: UUID ids (gen_random_uuid()), snake_case tables/columns, timestamptz in UTC,
+// created_at / updated_at / created_by on every business table, archived_at for soft delete.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────────────────────────────────────── enums
+
+enum Role {
+  ADMIN
+  SUPERVISOR
+  MONITOR
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  SUSPENDED
+}
+
+enum TeamStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  ARCHIVED
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum ProjectAccessLevel {
+  VIEW
+}
+
+enum TaskType {
+  TASK
+  GROUP
+  MILESTONE
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+  ON_HOLD
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum DependencyType {
+  FS
+  SS
+  FF
+  SF
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ViolationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  CONFIRMED
+  CANCELLED
+}
+
+enum ViolationFileKind {
+  ID_CARD
+  EVIDENCE
+}
+
+enum VisibilityMode {
+  INHERIT
+  SHOW
+  HIDE
+}
+
+enum FileStatus {
+  PENDING
+  READY
+}
+
+enum CardOrientation {
+  LANDSCAPE
+  PORTRAIT
+}
+
+enum CardLayoutKey {
+  CLASSIC_HORIZONTAL
+  VERTICAL_BADGE
+  COMPACT_LABEL
+}
+
+// ───────────────────────────────────────────────────────────── users & auth
+
+/// Registration requests are folded into users.status = PENDING (ADR-008).
+model User {
+  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName            String     @map("full_name")
+  email               String     @unique
+  /// E.164, e.g. +966512345678
+  mobile              String     @unique
+  /// AES-256-GCM ciphertext (iv|tag|data), see ADR-011.
+  nationalIdEnc       Bytes      @map("national_id_enc")
+  /// HMAC-SHA256 blind index for uniqueness and exact lookup.
+  nationalIdHash      String     @unique @map("national_id_hash")
+  /// Last two digits, kept for masking without decrypting.
+  nationalIdLast2     String     @map("national_id_last2") @db.Char(2)
+  nationalIdFirst     String     @map("national_id_first") @db.Char(1)
+  passwordHash        String?    @map("password_hash")
+  role                Role
+  requestedRole       Role?      @map("requested_role")
+  requestedTeamName   String?    @map("requested_team_name")
+  status              UserStatus @default(PENDING)
+  rejectionReason     String?    @map("rejection_reason")
+  mustChangePassword  Boolean    @default(false) @map("must_change_password")
+  failedLoginCount    Int        @default(0) @map("failed_login_count")
+  lockedUntil         DateTime?  @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  preferences         Json       @default("{}")
+  approvedAt          DateTime?  @map("approved_at") @db.Timestamptz(3)
+  approvedById        String?    @map("approved_by") @db.Uuid
+  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById         String?    @map("created_by") @db.Uuid
+  archivedAt          DateTime?  @map("archived_at") @db.Timestamptz(3)
+
+  refreshTokens       RefreshToken[]
+  actionTokens        ActionToken[]
+  ledTeams            Team[]                  @relation("TeamSupervisor")
+  supervisorHistory   TeamSupervisorHistory[]
+  member              TeamMember?             @relation("MemberUser")
+  assignedTasks       Task[]                  @relation("TaskAssignee")
+  ownedProjects       Project[]               @relation("ProjectOwner")
+  projectAccess       ProjectAccess[]
+  recordedViolations  Violation[]             @relation("ViolationRecorder")
+  snapshotViolations  Violation[]             @relation("ViolationSupervisorSnapshot")
+  violationResponses  ViolationResponse[]
+  notifications       Notification[]
+  auditEntries        AuditLog[]
+  taskComments        TaskComment[]
+  printBatches        CardPrintBatch[]
+  printItems          CardPrintItem[]
+  movedMemberships    TeamMembership[]        @relation("MembershipMovedBy")
+
+  @@index([role, status])
+  @@index([status])
+  @@map("users")
+}
+
+/// Rotating refresh tokens, stored hashed, with reuse detection by family (ADR-010).
+model RefreshToken {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  familyId     String    @map("family_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+  replacedById String?   @map("replaced_by") @db.Uuid
+  userAgent    String?   @map("user_agent")
+  ip           String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+/// One-time tokens for set-password (admin-created users) and password reset.
+model ActionToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  purpose   String // SET_PASSWORD | RESET_PASSWORD
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("action_tokens")
+}
+
+// ───────────────────────────────────────────────────────────── teams
+
+model TeamColor {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  hex       String   @unique @db.Char(7)
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String? @map("created_by") @db.Uuid
+
+  teams Team[]
+
+  @@map("team_colors")
+}
+
+/// raw SQL: CREATE UNIQUE INDEX teams_color_reserved_uq ON teams(color_id)
+///          WHERE status IN ('ACTIVE','PENDING_APPROVAL');
+model Team {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  colorId      String     @map("color_id") @db.Uuid
+  supervisorId String     @map("supervisor_id") @db.Uuid
+  status       TeamStatus @default(ACTIVE)
+  approvedAt   DateTime?  @map("approved_at") @db.Timestamptz(3)
+  approvedById String?    @map("approved_by") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById  String?    @map("created_by") @db.Uuid
+  archivedAt   DateTime?  @map("archived_at") @db.Timestamptz(3)
+
+  color             TeamColor               @relation(fields: [colorId], references: [id])
+  supervisor        User                    @relation("TeamSupervisor", fields: [supervisorId], references: [id])
+  supervisorHistory TeamSupervisorHistory[]
+  memberships       TeamMembership[]
+  violations        Violation[]             @relation("ViolationTeamSnapshot")
+  visibility        ViolationVisibility?
+
+  @@index([colorId])
+  @@index([supervisorId])
+  @@index([status])
+  @@map("teams")
+}
+
+/// raw SQL: partial unique index — one open row per team (valid_to IS NULL).
+model TeamSupervisorHistory {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId       String    @map("team_id") @db.Uuid
+  supervisorId String    @map("supervisor_id") @db.Uuid
+  validFrom    DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
+  validTo      DateTime? @map("valid_to") @db.Timestamptz(3)
+  changedById  String?   @map("changed_by") @db.Uuid
+  reason       String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  team       Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  supervisor User @relation(fields: [supervisorId], references: [id])
+
+  @@index([teamId, validFrom])
+  @@index([supervisorId])
+  @@map("team_supervisor_history")
+}
+
+/// Team members are records only. `user_id` is the future-login hook (brief §5.4).
+model TeamMember {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName        String       @map("full_name")
+  nationalIdEnc   Bytes        @map("national_id_enc")
+  nationalIdHash  String       @unique @map("national_id_hash")
+  nationalIdLast4 String       @map("national_id_last4") @db.Char(4)
+  nationalIdFirst String       @map("national_id_first") @db.Char(1)
+  jobTitleId      String?      @map("job_title_id") @db.Uuid
+  jobTitleText    String?      @map("job_title_text")
+  departmentId    String?      @map("department_id") @db.Uuid
+  departmentText  String?      @map("department_text")
+  photoFileId     String?      @map("photo_file_id") @db.Uuid
+  userId          String?      @unique @map("user_id") @db.Uuid
+  status          MemberStatus @default(ACTIVE)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById     String?      @map("created_by") @db.Uuid
+  archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
+
+  jobTitle    JobTitle?        @relation(fields: [jobTitleId], references: [id])
+  department  Department?      @relation(fields: [departmentId], references: [id])
+  photo       File?            @relation("MemberPhoto", fields: [photoFileId], references: [id])
+  user        User?            @relation("MemberUser", fields: [userId], references: [id])
+  memberships TeamMembership[]
+  violations  Violation[]
+  printItems  CardPrintItem[]
+
+  @@index([jobTitleId])
+  @@index([departmentId])
+  @@index([fullName])
+  @@map("team_members")
+}
+
+/// raw SQL: CREATE UNIQUE INDEX team_memberships_one_open_uq ON team_memberships(member_id)
+///          WHERE valid_to IS NULL;
+///          CHECK (valid_to IS NULL OR valid_to > valid_from)
+model TeamMembership {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId  String    @map("member_id") @db.Uuid
+  teamId    String    @map("team_id") @db.Uuid
+  validFrom DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
+  validTo   DateTime? @map("valid_to") @db.Timestamptz(3)
+  movedById String?   @map("moved_by") @db.Uuid
+  reason    String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  member  TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  team    Team       @relation(fields: [teamId], references: [id])
+  movedBy User?      @relation("MembershipMovedBy", fields: [movedById], references: [id])
+
+  @@index([memberId, validFrom])
+  @@index([teamId, validTo])
+  @@map("team_memberships")
+}
+
+model Department {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String       @unique
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?      @map("created_by") @db.Uuid
+  members     TeamMember[]
+
+  @@map("departments")
+}
+
+model JobTitle {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String       @unique
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?      @map("created_by") @db.Uuid
+  members     TeamMember[]
+
+  @@map("job_titles")
+}
+
+// ───────────────────────────────────────────────────────────── projects & tasks
+
+model Calendar {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  /// 0 = Sunday … 6 = Saturday. Default weekend Friday + Saturday.
+  weekendDays Int[]               @default([5, 6]) @map("weekend_days")
+  isDefault   Boolean             @default(false) @map("is_default")
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?             @map("created_by") @db.Uuid
+  exceptions  CalendarException[]
+  projects    Project[]
+
+  @@map("calendars")
+}
+
+model CalendarException {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  calendarId  String   @map("calendar_id") @db.Uuid
+  date        DateTime @db.Date
+  isWorking   Boolean  @default(false) @map("is_working")
+  name        String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?  @map("created_by") @db.Uuid
+
+  calendar Calendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, date])
+  @@map("calendar_exceptions")
+}
+
+model Project {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  description  String?
+  startDate    DateTime      @map("start_date") @db.Date
+  status       ProjectStatus @default(PLANNING)
+  calendarId   String        @map("calendar_id") @db.Uuid
+  autoSchedule Boolean       @default(true) @map("auto_schedule")
+  ownerId      String        @map("owner_id") @db.Uuid
+  /// Phase 5: created from a template.
+  templateOfId String?       @map("template_of_id") @db.Uuid
+  isTemplate   Boolean       @default(false) @map("is_template")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById  String?       @map("created_by") @db.Uuid
+  archivedAt   DateTime?     @map("archived_at") @db.Timestamptz(3)
+
+  calendar     Calendar         @relation(fields: [calendarId], references: [id])
+  owner        User             @relation("ProjectOwner", fields: [ownerId], references: [id])
+  access       ProjectAccess[]
+  tasks        Task[]
+  dependencies TaskDependency[]
+  baselines    Baseline[]
+
+  @@index([ownerId])
+  @@index([calendarId])
+  @@index([status])
+  @@map("projects")
+}
+
+model ProjectAccess {
+  projectId   String             @map("project_id") @db.Uuid
+  userId      String             @map("user_id") @db.Uuid
+  level       ProjectAccessLevel @default(VIEW)
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById String?            @map("created_by") @db.Uuid
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_access")
+}
+
+/// raw SQL: trigger tasks_assignee_supervisor_chk — assignee must be an ACTIVE SUPERVISOR.
+///          CHECK (progress BETWEEN 0 AND 100); CHECK (type <> 'MILESTONE' OR duration_days = 0)
+model Task {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId    String     @map("project_id") @db.Uuid
+  parentId     String?    @map("parent_id") @db.Uuid
+  sortOrder    Float      @default(0) @map("sort_order")
+  wbsCache     String     @default("") @map("wbs_cache")
+  name         String
+  type         TaskType   @default(TASK)
+  startDate    DateTime   @map("start_date") @db.Date
+  endDate      DateTime   @map("end_date") @db.Date
+  durationDays Int        @default(1) @map("duration_days")
+  progress     Decimal    @default(0) @db.Decimal(5, 2)
+  status       TaskStatus @default(NOT_STARTED)
+  priority     Priority   @default(MEDIUM)
+  assigneeId   String?    @map("assignee_id") @db.Uuid
+  description  String?
+  version      Int        @default(0)
+  dueSoonNotifiedAt DateTime? @map("due_soon_notified_at") @db.Timestamptz(3)
+  overdueNotifiedAt DateTime? @map("overdue_notified_at") @db.Timestamptz(3)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById  String?    @map("created_by") @db.Uuid
+  archivedAt   DateTime?  @map("archived_at") @db.Timestamptz(3)
+
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent        Task?            @relation("TaskTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Task[]           @relation("TaskTree")
+  assignee      User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  predecessors  TaskDependency[] @relation("DepSuccessor")
+  successors    TaskDependency[] @relation("DepPredecessor")
+  comments      TaskComment[]
+  baselineTasks BaselineTask[]
+
+  @@index([projectId, parentId, sortOrder])
+  @@index([assigneeId])
+  @@index([parentId])
+  @@index([endDate])
+  @@map("tasks")
+}
+
+/// raw SQL: CHECK (predecessor_id <> successor_id)
+model TaskDependency {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId     String         @map("project_id") @db.Uuid
+  predecessorId String         @map("predecessor_id") @db.Uuid
+  successorId   String         @map("successor_id") @db.Uuid
+  type          DependencyType @default(FS)
+  lagDays       Int            @default(0) @map("lag_days")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById   String?        @map("created_by") @db.Uuid
+
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  predecessor Task    @relation("DepPredecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successor   Task    @relation("DepSuccessor", fields: [successorId], references: [id], onDelete: Cascade)
+
+  @@unique([predecessorId, successorId])
+  @@index([projectId])
+  @@index([successorId])
+  @@map("task_dependencies")
+}
+
+model TaskComment {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  body      String
+  mentions  String[] @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@index([authorId])
+  @@map("task_comments")
+}
+
+/// Phase 5 (schema only).
+model Baseline {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String         @map("project_id") @db.Uuid
+  name        String
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById String?        @map("created_by") @db.Uuid
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks       BaselineTask[]
+
+  @@index([projectId])
+  @@map("baselines")
+}
+
+model BaselineTask {
+  baselineId String   @map("baseline_id") @db.Uuid
+  taskId     String   @map("task_id") @db.Uuid
+  startDate  DateTime @map("start_date") @db.Date
+  endDate    DateTime @map("end_date") @db.Date
+  baseline   Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([baselineId, taskId])
+  @@index([taskId])
+  @@map("baseline_tasks")
+}
+
+// ───────────────────────────────────────────────────────────── violations
+
+model ViolationType {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String      @unique
+  severity    Severity?
+  isActive    Boolean     @default(true) @map("is_active")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?     @map("created_by") @db.Uuid
+  violations  Violation[]
+
+  @@map("violation_types")
+}
+
+/// Append-only for monitors (edit window enforced in the service).
+/// team_id_snapshot / supervisor_id_snapshot are resolved from history at captured_at.
+model Violation {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientUuid           String          @unique @map("client_uuid") @db.Uuid
+  memberId             String          @map("member_id") @db.Uuid
+  teamIdSnapshot       String?         @map("team_id_snapshot") @db.Uuid
+  supervisorIdSnapshot String?         @map("supervisor_id_snapshot") @db.Uuid
+  recordedById         String          @map("recorded_by") @db.Uuid
+  typeId               String          @map("type_id") @db.Uuid
+  description          String
+  notes                String?
+  latitude             Float
+  longitude            Float
+  accuracyM            Float           @map("accuracy_m")
+  capturedAt           DateTime        @map("captured_at") @db.Timestamptz(3)
+  receivedAt           DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  clientSentAt         DateTime?       @map("client_sent_at") @db.Timestamptz(3)
+  clockDriftSuspect    Boolean         @default(false) @map("clock_drift_suspect")
+  deviceInfo           Json            @default("{}") @map("device_info")
+  expectedIdPhotos     Int             @default(1) @map("expected_id_photos")
+  expectedEvidence     Int             @default(1) @map("expected_evidence")
+  status               ViolationStatus @default(SUBMITTED)
+  cancelReason         String?         @map("cancel_reason")
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById          String?         @map("created_by") @db.Uuid
+
+  member     TeamMember          @relation(fields: [memberId], references: [id])
+  team       Team?               @relation("ViolationTeamSnapshot", fields: [teamIdSnapshot], references: [id])
+  supervisor User?               @relation("ViolationSupervisorSnapshot", fields: [supervisorIdSnapshot], references: [id])
+  recordedBy User                @relation("ViolationRecorder", fields: [recordedById], references: [id])
+  type       ViolationType       @relation(fields: [typeId], references: [id])
+  files      ViolationFile[]
+  responses  ViolationResponse[]
+
+  @@index([capturedAt])
+  @@index([teamIdSnapshot, capturedAt])
+  @@index([recordedById, capturedAt])
+  @@index([typeId])
+  @@index([memberId])
+  @@index([status])
+  @@index([latitude, longitude])
+  @@map("violations")
+}
+
+model ViolationFile {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  violationId String            @map("violation_id") @db.Uuid
+  fileId      String            @unique @map("file_id") @db.Uuid
+  kind        ViolationFileKind
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  violation Violation @relation(fields: [violationId], references: [id], onDelete: Cascade)
+  file      File      @relation(fields: [fileId], references: [id])
+
+  @@index([violationId])
+  @@map("violation_files")
+}
+
+model ViolationResponse {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  violationId  String   @map("violation_id") @db.Uuid
+  supervisorId String   @map("supervisor_id") @db.Uuid
+  body         String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  violation  Violation @relation(fields: [violationId], references: [id], onDelete: Cascade)
+  supervisor User      @relation(fields: [supervisorId], references: [id])
+
+  @@index([violationId])
+  @@index([supervisorId])
+  @@map("violation_responses")
+}
+
+model ViolationVisibility {
+  teamId    String         @id @map("team_id") @db.Uuid
+  mode      VisibilityMode @default(INHERIT)
+  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?      @map("updated_by") @db.Uuid
+  team      Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("violation_visibility")
+}
+
+// ───────────────────────────────────────────────────────────── files & cards
+
+/// The single registry of every stored object (brief §3.2).
+model File {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storageKey   String     @unique @map("storage_key")
+  bucket       String
+  mimeType     String     @map("mime_type")
+  sizeBytes    Int        @map("size_bytes")
+  sha256       String?
+  status       FileStatus @default(PENDING)
+  uploadedById String?    @map("uploaded_by") @db.Uuid
+  entityType   String     @map("entity_type")
+  entityId     String?    @map("entity_id") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(3)
+
+  violationFile ViolationFile?
+  logo          Logo?
+  memberPhotos  TeamMember[]   @relation("MemberPhoto")
+
+  @@index([entityType, entityId])
+  @@index([status, createdAt])
+  @@map("files")
+}
+
+model Logo {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  fileId      String   @unique @map("file_id") @db.Uuid
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?  @map("created_by") @db.Uuid
+  file        File     @relation(fields: [fileId], references: [id])
+  templates   CardTemplate[]
+
+  @@map("logos")
+}
+
+model CardSize {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String         @unique
+  widthMm     Decimal        @map("width_mm") @db.Decimal(6, 2)
+  heightMm    Decimal        @map("height_mm") @db.Decimal(6, 2)
+  isBuiltin   Boolean        @default(false) @map("is_builtin")
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?        @map("created_by") @db.Uuid
+  templates   CardTemplate[]
+
+  @@map("card_sizes")
+}
+
+model CardTemplate {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  sizeId      String           @map("size_id") @db.Uuid
+  orientation CardOrientation
+  layoutKey   CardLayoutKey    @map("layout_key")
+  config      Json             @default("{}")
+  isDefault   Boolean          @default(false) @map("is_default")
+  logoId      String?          @map("logo_id") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?          @map("created_by") @db.Uuid
+  archivedAt  DateTime?        @map("archived_at") @db.Timestamptz(3)
+
+  size    CardSize         @relation(fields: [sizeId], references: [id])
+  logo    Logo?            @relation(fields: [logoId], references: [id])
+  batches CardPrintBatch[]
+
+  @@index([sizeId])
+  @@map("card_templates")
+}
+
+model CardPrintBatch {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idempotencyKey String          @unique @map("idempotency_key") @db.Uuid
+  templateId     String          @map("template_id") @db.Uuid
+  printedById    String          @map("printed_by") @db.Uuid
+  printedAt      DateTime        @default(now()) @map("printed_at") @db.Timestamptz(3)
+  cardCount      Int             @map("card_count")
+  /// Template snapshot (size, layout, config) at print time.
+  templateSnapshot Json          @default("{}") @map("template_snapshot")
+
+  template CardTemplate    @relation(fields: [templateId], references: [id])
+  printedBy User           @relation(fields: [printedById], references: [id])
+  items    CardPrintItem[]
+
+  @@index([printedAt])
+  @@index([printedById])
+  @@index([templateId])
+  @@map("card_print_batches")
+}
+
+model CardPrintItem {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batchId      String  @map("batch_id") @db.Uuid
+  memberId     String? @map("member_id") @db.Uuid
+  userId       String? @map("user_id") @db.Uuid
+  /// Rendered values; the national ID inside is stored masked unless the template printed it in full.
+  renderedData Json    @map("rendered_data")
+  savedBack    Boolean @default(false) @map("saved_back")
+
+  batch  CardPrintBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  member TeamMember?    @relation(fields: [memberId], references: [id])
+  user   User?          @relation(fields: [userId], references: [id])
+
+  @@index([batchId])
+  @@index([memberId])
+  @@index([userId])
+  @@map("card_print_items")
+}
+
+// ───────────────────────────────────────────────────────────── platform
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  type      String
+  payload   Json      @default("{}")
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  emailedAt DateTime? @map("emailed_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model Setting {
+  key         String   @id
+  value       Json
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?  @map("updated_by") @db.Uuid
+
+  @@map("settings")
+}
+
+/// raw SQL: trigger audit_log_no_update — the audit log is append-only.
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id") @db.Uuid
+  before     Json?
+  after      Json?
+  ip         String?
+  requestId  String?  @map("request_id")
+  at         DateTime @default(now()) @db.Timestamptz(3)
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([actorId, at])
+  @@index([at])
+  @@index([action])
+  @@map("audit_log")
+}
