@@ -1,0 +1,86 @@
+{
+  "_note": "بيانات تجريبية لنسخة العرض فقط — ليست بيانات حقيقية، وتُستبدل ببيانات المالك.",
+  "audit": [
+    {
+      "id": "00000000-0000-4000-8000-000000000200",
+      "actorId": "00000000-0000-4000-8000-000000000001",
+      "action": "user.created",
+      "entityType": "user",
+      "entityId": "00000000-0000-4000-8000-000000000002",
+      "before": null,
+      "after": {
+        "fullName": "نورة بنت محمد العتيبي",
+        "role": "ADMIN",
+        "status": "ACTIVE"
+      },
+      "ip": null,
+      "at": "2026-10-01T07:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000201",
+      "actorId": "00000000-0000-4000-8000-000000000001",
+      "action": "registration.approved",
+      "entityType": "user",
+      "entityId": "00000000-0000-4000-8000-000000000003",
+      "before": {
+        "status": "PENDING",
+        "role": "SUPERVISOR"
+      },
+      "after": {
+        "status": "ACTIVE",
+        "role": "SUPERVISOR"
+      },
+      "ip": null,
+      "at": "2026-10-02T08:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000202",
+      "actorId": "00000000-0000-4000-8000-000000000002",
+      "action": "registration.approved",
+      "entityType": "user",
+      "entityId": "00000000-0000-4000-8000-000000000007",
+      "before": {
+        "status": "PENDING",
+        "role": "MONITOR"
+      },
+      "after": {
+        "status": "ACTIVE",
+        "role": "MONITOR"
+      },
+      "ip": null,
+      "at": "2026-10-03T10:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000203",
+      "actorId": "00000000-0000-4000-8000-000000000001",
+      "action": "registration.rejected",
+      "entityType": "user",
+      "entityId": "00000000-0000-4000-8000-000000000013",
+      "before": {
+        "status": "PENDING"
+      },
+      "after": {
+        "status": "REJECTED",
+        "rejectionReason": "بيانات الهوية لا تطابق المستند المرفق (سبب تجريبي)."
+      },
+      "ip": null,
+      "at": "2026-10-05T11:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000204",
+      "actorId": "00000000-0000-4000-8000-000000000001",
+      "action": "user.suspended",
+      "entityType": "user",
+      "entityId": "00000000-0000-4000-8000-000000000006",
+      "before": {
+        "status": "ACTIVE"
+      },
+      "after": {
+        "status": "SUSPENDED",
+        "reason": "إيقاف تجريبي لعرض إعادة التفعيل."
+      },
+      "ip": null,
+      "at": "2026-10-06T12:00:00.000Z"
+    }
+  ]
+}

@@ -28,6 +28,11 @@ Format: each ADR has **Context · Decision · Consequences**. Status is *Accepte
 | ADR-022 | Local toolchain: npm workspaces locally, pnpm in CI and Docker | Accepted |
 | ADR-023 | A supervisor may lead several teams (setting, default on) | Accepted (assumption §17.1) |
 | ADR-024 | Server-side PDF with Playwright Chromium in a separate `pdf` worker | Proposed (Phase 2) |
+| ADR-025 | Web forms: a tiny zod adapter instead of `@mantine/form` | Accepted |
+| ADR-026 | Flat i18n keys checked by a TypeScript-AST script | Accepted |
+| ADR-027 | DemoApi persistence, demo password and sessions | Accepted |
+| ADR-028 | Phase 1 audit action vocabulary | Accepted (API must match) |
+| ADR-029 | CI and Pages use `npm ci` until a pnpm lockfile exists | Accepted (amends ADR-022 for CI) |
 
 ---
 
@@ -126,3 +131,25 @@ Format: each ADR has **Context · Decision · Consequences**. Status is *Accepte
 
 ## ADR-024 — Server-side PDF (proposed)
 **Decision.** A separate `pdf` service (Playwright Chromium image) renders the same print page and returns a PDF with exact page sizes, so the API image stays small.
+
+## ADR-025 — Web forms: a tiny zod adapter instead of `@mantine/form`
+**Context.** The brief asks for forms validated by the shared zod schemas. `@mantine/form` is not installed, and adding a package while other agents work in the same `node_modules` is risky.
+**Decision.** `apps/web/src/forms/useZodForm.ts` (about 100 lines): `zodResolver(schema)` turns zod issues into `{ field: firstArabicMessage }`; `useZodForm` holds values and errors, validates on submit and then per field, and accepts server field errors (`ApiError.fieldErrors`, which also maps `EMAIL_TAKEN`/`MOBILE_TAKEN`/`NATIONAL_ID_TAKEN` to their field).
+**Consequences.** One source of validation rules (`@nuzli/shared`) and no new dependency. Moving to `@mantine/form` later only touches the hook.
+
+## ADR-026 — Flat i18n keys checked by a TypeScript-AST script
+**Decision.** `ar.ts` is one flat object (`'area.thing': '…'`) typed `as const`, so `t(key)` is checked by TypeScript. `en.ts` is `Record<MessageKey, string>` (a scaffold; most values empty). `scripts/check-i18n.mjs` parses both files and every `.tsx` with the TypeScript compiler API and fails on a missing key, an empty Arabic value, Latin JSX text, or a Latin string literal in a visible attribute (`label`, `placeholder`, `title`, `aria-label`, `alt`, `description`, `error`). Keys built at runtime (`role.${role}`) go through `tKey(key, fallback)`, so an unknown code never shows a raw Latin identifier.
+**Consequences.** No regex false positives on TypeScript generics. CI runs the check before building.
+
+## ADR-027 — DemoApi persistence, demo password and sessions
+**Decision.** `DemoApi` (GitHub Pages build only) keeps users, notifications, audit entries, sessions and settings in IndexedDB through Dexie (database `nuzli-demo`), seeded once from `seed/demo/*.json`. Every demo account shares one password (`NuzliDemo2026`, shown on the login page in demo mode). Passwords are stored as SHA-256 only to avoid plain text in the browser; the real API uses argon2id. The "access token" is a random id in the `sessions` table, and the current one is kept in IndexedDB so a reload restores the session (the HTTP adapter keeps its token in memory only and refreshes through the cookie, ADR-010). Users that an admin creates in the demo get the shared password with `mustChangePassword = true`, standing in for the set-password email. The demo never issues reset tokens, so "reset password" always answers `TOKEN_INVALID`; "forgot password" answers 204 like the API.
+**Consequences.** Data lives only in the visitor's browser; «إعادة ضبط بيانات العرض» clears it and reseeds. The real build loads the adapter through a dynamic import, so the DemoApi chunk and the seed are not shipped to production.
+
+## ADR-028 — Phase 1 audit action vocabulary
+**Decision.** Audit `action` values written in Phase 1: `registration.requested`, `registration.approved`, `registration.rejected`, `user.created`, `user.role_changed`, `user.suspended`, `user.reactivated`, `settings.updated`, `auth.password_changed`. `entityType` is `user` or `settings`. `before` and `after` hold only the changed fields (for example `{ role }` or `{ status }`). The web app labels these in Arabic and shows a field-level diff.
+**Consequences.** The API must write the same names. The list lives in `apps/web/src/pages/AuditPage.tsx` (`AUDIT_ACTIONS`) and should move to `@nuzli/shared` when the API adopts it. Unknown actions display as «إجراء آخر».
+
+## ADR-029 — CI and Pages use `npm ci` for now
+**Context.** ADR-022 plans pnpm in CI, but the repository only has an npm `package-lock.json`.
+**Decision.** `.github/workflows/ci.yml` and `pages.yml` run `npm ci` and `npm run … -w <workspace>`.
+**Consequences.** Switch both workflows to pnpm (corepack) in the same change that commits `pnpm-lock.yaml`.

@@ -1,0 +1,97 @@
+{
+  "_note": "بيانات تجريبية لنسخة العرض فقط — ليست بيانات حقيقية، وتُستبدل ببيانات المالك.",
+  "notifications": [
+    {
+      "id": "00000000-0000-4000-8000-000000000101",
+      "userId": "00000000-0000-4000-8000-000000000001",
+      "type": "REGISTRATION_REQUESTED",
+      "payload": {
+        "userId": "00000000-0000-4000-8000-000000000010",
+        "fullName": "سلمان بن عبدالرحمن العنزي",
+        "requestedRole": "SUPERVISOR"
+      },
+      "readAt": null,
+      "createdAt": "2026-10-04T15:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000102",
+      "userId": "00000000-0000-4000-8000-000000000001",
+      "type": "REGISTRATION_REQUESTED",
+      "payload": {
+        "userId": "00000000-0000-4000-8000-000000000011",
+        "fullName": "أمل بنت حمد السبيعي",
+        "requestedRole": "MONITOR"
+      },
+      "readAt": null,
+      "createdAt": "2026-10-05T00:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000103",
+      "userId": "00000000-0000-4000-8000-000000000001",
+      "type": "REGISTRATION_REQUESTED",
+      "payload": {
+        "userId": "00000000-0000-4000-8000-000000000012",
+        "fullName": "عمر فاروق عبدالله",
+        "requestedRole": "SUPERVISOR"
+      },
+      "readAt": null,
+      "createdAt": "2026-10-05T09:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000104",
+      "userId": "00000000-0000-4000-8000-000000000002",
+      "type": "REGISTRATION_REQUESTED",
+      "payload": {
+        "userId": "00000000-0000-4000-8000-000000000010",
+        "fullName": "سلمان بن عبدالرحمن العنزي",
+        "requestedRole": "SUPERVISOR"
+      },
+      "readAt": null,
+      "createdAt": "2026-10-04T15:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000105",
+      "userId": "00000000-0000-4000-8000-000000000002",
+      "type": "REGISTRATION_REQUESTED",
+      "payload": {
+        "userId": "00000000-0000-4000-8000-000000000011",
+        "fullName": "أمل بنت حمد السبيعي",
+        "requestedRole": "MONITOR"
+      },
+      "readAt": null,
+      "createdAt": "2026-10-05T00:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000106",
+      "userId": "00000000-0000-4000-8000-000000000002",
+      "type": "REGISTRATION_REQUESTED",
+      "payload": {
+        "userId": "00000000-0000-4000-8000-000000000012",
+        "fullName": "عمر فاروق عبدالله",
+        "requestedRole": "SUPERVISOR"
+      },
+      "readAt": null,
+      "createdAt": "2026-10-05T09:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000107",
+      "userId": "00000000-0000-4000-8000-000000000003",
+      "type": "REGISTRATION_APPROVED",
+      "payload": {
+        "role": "SUPERVISOR"
+      },
+      "readAt": "2026-10-02T09:00:00.000Z",
+      "createdAt": "2026-10-02T08:00:00.000Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000108",
+      "userId": "00000000-0000-4000-8000-000000000007",
+      "type": "REGISTRATION_APPROVED",
+      "payload": {
+        "role": "MONITOR"
+      },
+      "readAt": null,
+      "createdAt": "2026-10-03T10:00:00.000Z"
+    }
+  ]
+}
