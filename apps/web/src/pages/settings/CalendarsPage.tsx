@@ -35,7 +35,7 @@ export function CalendarsPage() {
   const calendars = useCalendars();
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  if (calendars.isLoading) return <LoadingBlock />;
+  if (calendars.isLoading) return <LoadingBlock variant="form" header />;
   if (calendars.isError) return <ErrorBlock error={calendars.error} onRetry={() => void calendars.refetch()} />;
   const list = calendars.data ?? [];
   const current = list.find((c) => c.id === selected) ?? list[0] ?? null;

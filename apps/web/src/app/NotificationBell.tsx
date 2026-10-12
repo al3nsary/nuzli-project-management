@@ -1,10 +1,8 @@
 import {
-  ActionIcon,
   Box,
   Button,
   Divider,
   Group,
-  Indicator,
   Popover,
   ScrollArea,
   Stack,
@@ -34,10 +32,10 @@ export function NotificationItem({
       onClick={() => onOpen(n)}
       p="sm"
       style={{
-        borderRadius: 8,
+        borderRadius: 12,
         display: 'block',
         width: '100%',
-        background: unread ? 'color-mix(in srgb, var(--field) 7%, transparent)' : undefined,
+        background: unread ? 'var(--sheen)' : undefined,
       }}
     >
       <Group gap="xs" wrap="nowrap" align="flex-start">
@@ -48,7 +46,7 @@ export function NotificationItem({
           style={{
             borderRadius: 99,
             flex: 'none',
-            background: unread ? 'var(--field)' : 'transparent',
+            background: unread ? 'var(--live)' : 'transparent',
           }}
           aria-label={unread ? t('notif.unread') : undefined}
         />
@@ -103,29 +101,19 @@ export function NotificationBell() {
       opened={opened}
       onChange={setOpened}
       position="bottom-end"
-      width={340}
+      width="min(340px, calc(100vw - 24px))"
       shadow="md"
       withinPortal
     >
       <Popover.Target>
-        <Indicator
-          disabled={!count}
-          label={formatNumber(Math.min(count, 99))}
-          size={18}
-          offset={6}
-          color="breach"
-          inline
-        >
-          <ActionIcon
-            variant="subtle"
-            color="slate"
-            size={44}
-            aria-label={label}
-            onClick={() => setOpened((o) => !o)}
-          >
-            <IconBell size={22} stroke={1.7} />
-          </ActionIcon>
-        </Indicator>
+        <button type="button" className="nz-iconbtn" aria-label={label} onClick={() => setOpened((o) => !o)}>
+          <IconBell size={19} stroke={1.8} aria-hidden />
+          {count ? (
+            <span className="nz-bdg" aria-hidden>
+              {formatNumber(Math.min(count, 99))}
+            </span>
+          ) : null}
+        </button>
       </Popover.Target>
       <Popover.Dropdown p={0}>
         <Group justify="space-between" px="md" py="sm">

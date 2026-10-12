@@ -68,7 +68,7 @@ function TeamsKpi() {
   const active = teams.data?.filter((x) => x.status === 'ACTIVE').length;
   const pending = teams.data?.filter((x) => x.status === 'PENDING_APPROVAL').length ?? 0;
   return (
-    <Card style={pending ? { borderColor: 'var(--signal)', borderWidth: 2 } : undefined}>
+    <Card className="nz-kpi-card" data-tone={pending ? 'wait' : undefined}>
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <SimpleGrid cols={2} spacing="md">
           <Kpi label={t('dash.activeTeams')} value={active} loading={teams.isLoading} />
@@ -76,7 +76,7 @@ function TeamsKpi() {
             label={t('dash.pendingTeams')}
             value={pending}
             loading={teams.isLoading}
-            tone={pending ? 'var(--ink)' : 'dimmed'}
+            tone={pending ? 'var(--amber)' : 'dimmed'}
           />
         </SimpleGrid>
         <ThemeIcon size={40} radius="xl" variant="light" color={pending ? 'signal' : 'field'} aria-hidden>
@@ -158,13 +158,13 @@ function AdminDashboard() {
   return (
     <Stack gap="lg">
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-        <Card style={pendingCount ? { borderColor: 'var(--signal)', borderWidth: 2 } : undefined}>
+        <Card className="nz-kpi-card" data-tone={pendingCount ? 'wait' : undefined}>
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <Kpi
               label={t('dash.pendingRegistrations')}
               value={pendingCount}
               loading={pending.isLoading}
-              tone={pendingCount ? 'var(--ink)' : 'dimmed'}
+              tone={pendingCount ? 'var(--amber)' : 'dimmed'}
             />
             <ThemeIcon
               size={40}
@@ -190,7 +190,7 @@ function AdminDashboard() {
 
         <ProjectsKpi />
 
-        <Card>
+        <Card className="nz-kpi-card">
           <Group justify="space-between" align="flex-start" wrap="nowrap" mb="sm">
             <Text fw={600}>{t('dash.activeByRole')}</Text>
             <ThemeIcon size={40} radius="xl" variant="light" color="field" aria-hidden>
@@ -204,7 +204,7 @@ function AdminDashboard() {
           </SimpleGrid>
         </Card>
 
-        <Card>
+        <Card className="nz-kpi-card">
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <Kpi
               label={t('dash.suspended')}

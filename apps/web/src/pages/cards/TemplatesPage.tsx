@@ -140,7 +140,7 @@ function TemplateEditor() {
       ? logos.data?.find((l) => l.id === form.logoId)
       : logos.data?.find((l) => l.isDefault))?.url ?? null;
 
-  if (templates.isLoading || sizes.isLoading) return <LoadingBlock />;
+  if (templates.isLoading || sizes.isLoading) return <LoadingBlock variant="cards" />;
   if (templates.isError) return <ErrorBlock error={templates.error} />;
   if (!form) return null;
 
@@ -475,7 +475,7 @@ function SizesPanel() {
     }
   };
 
-  if (sizes.isLoading) return <LoadingBlock />;
+  if (sizes.isLoading) return <LoadingBlock variant="table" />;
   if (sizes.isError) return <ErrorBlock error={sizes.error} />;
 
   return (
@@ -639,7 +639,7 @@ function LogosPanel() {
     }
   };
 
-  if (logos.isLoading) return <LoadingBlock />;
+  if (logos.isLoading) return <LoadingBlock variant="cards" rows={3} />;
   if (logos.isError) return <ErrorBlock error={logos.error} />;
 
   return (

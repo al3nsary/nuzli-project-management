@@ -1,0 +1,280 @@
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Tooltip } from '@mantine/core';
+import { useFocusTrap, useMergedRef } from '@mantine/hooks';
+import {
+  IconChevronDown,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconLayoutSidebarRightCollapse,
+  IconLayoutSidebarRightExpand,
+  IconX,
+} from '@tabler/icons-react';
+import { NAV_GROUPS, type BadgeKind, type NavNode } from '../nav';
+import { formatNumber, t } from '../../i18n';
+import { MuhsenMarkTile, NozolyCredit, brandUrl } from '../../components/Brand';
+import { useShellStore } from './store';
+import { sumBadges } from './useNavModel';
+import { dirSign } from '../../lib/direction';
+
+/** Waiting work is amber (sync), work to act on is red (design skill pills). */
+const QUIET: BadgeKind[] = ['outbox'];
+
+function Count({ node, n }: { node: NavNode; n: number }) {
+  if (!n) return null;
+  const quiet = node.badge ? QUIET.includes(node.badge) : node.children?.every((c) => !c.badge || QUIET.includes(c.badge));
+  return (
+    <span className={quiet ? 'n q' : 'n'} aria-label={t('nav.countAria', { n })}>
+      {formatNumber(n)}
+    </span>
+  );
+}
+
+/** Hover nudge toward the reading direction: physical translateX × dirSign (skill RTL rule). */
+function nudge(e: MouseEvent<HTMLElement>, on: boolean) {
+  e.currentTarget.style.setProperty('--nudge', on ? `${2 * dirSign(e.currentTarget)}px` : '0px');
+}
+
+const tipSide = () => (dirSign() < 0 ? 'left' : 'right') as 'left' | 'right';
+
+interface ItemCtx {
+  chain: string[];
+  badges: Record<BadgeKind, number>;
+  mini: boolean;
+  onPick(): void;
+}
+
+function NavLeaf({ n, kid, ctx }: { n: NavNode; kid?: boolean; ctx: ItemCtx }) {
+  const active = ctx.chain[ctx.chain.length - 1] === n.id;
+  const count = sumBadges(n, ctx.badges);
+  const link = (
+    <Link
+      to={n.path!}
+      className={[kid ? 'nz-kid' : 'nz-nav', active ? 'on' : '', count ? 'hasn' : ''].filter(Boolean).join(' ')}
+      aria-current={active ? 'page' : undefined}
+      aria-label={ctx.mini ? `${t(n.label)}${count ? ` — ${t('nav.countAria', { n: count })}` : ''}` : undefined}
+      onMouseEnter={(e) => !ctx.mini && nudge(e, true)}
+      onMouseLeave={(e) => nudge(e, false)}
+      onClick={ctx.onPick}
+    >
+      <n.icon className="ic" size={kid ? 16 : 18} stroke={1.7} aria-hidden />
+      <b>{t(n.label)}</b>
+      <Count node={n} n={count} />
+    </Link>
+  );
+  return ctx.mini ? (
+    <Tooltip label={t(n.label)} position={tipSide()}>
+      {link}
+    </Tooltip>
+  ) : (
+    link
+  );
+}
+
+function NavContainer({
+  n,
+  ctx,
+  isOpen,
+  onToggle,
+}: {
+  n: NavNode;
+  ctx: ItemCtx;
+  isOpen: boolean;
+  onToggle(): void;
+}) {
+  const id = useId();
+  const navigate = useNavigate();
+  const inChain = ctx.chain[0] === n.id;
+  const count = sumBadges(n, ctx.badges);
+  const first = n.children!.find((c) => c.path);
+  const btn = (
+    <button
+      type="button"
+      className={['nz-nav', 'nz-parent', inChain ? 'on-parent' : '', count ? 'hasn' : '', ctx.mini && inChain ? 'on' : '']
+        .filter(Boolean)
+        .join(' ')}
+      aria-expanded={ctx.mini ? undefined : isOpen}
+      aria-controls={ctx.mini ? undefined : id}
+      aria-label={ctx.mini ? t(n.label) : undefined}
+      onMouseEnter={(e) => !ctx.mini && nudge(e, true)}
+      onMouseLeave={(e) => nudge(e, false)}
+      onClick={() => {
+        // On the rail a container goes to its first page; on the full side it folds and unfolds.
+        if (ctx.mini) {
+          if (first?.path) navigate(first.path);
+          return;
+        }
+        onToggle();
+      }}
+    >
+      <n.icon className="ic" size={18} stroke={1.7} aria-hidden />
+      <b>{t(n.label)}</b>
+      {!isOpen || ctx.mini ? <Count node={n} n={count} /> : null}
+      <IconChevronDown className="chev" size={15} stroke={1.8} aria-hidden data-open={isOpen || undefined} />
+    </button>
+  );
+  return (
+    <div className="nz-parent-wrap">
+      {ctx.mini ? (
+        <Tooltip label={t(n.label)} position={tipSide()}>
+          {btn}
+        </Tooltip>
+      ) : (
+        btn
+      )}
+      <div className="nz-kids" id={id} hidden={ctx.mini || !isOpen}>
+        {n.children!.map((c) => (
+          <NavLeaf key={c.id} n={c} kid ctx={ctx} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The side navigation (Muhsen Control `.side`): green gradient with a gold hairline, the Muhsen
+ * mark, role-grouped items with count pills, sub-items on a gold spine and «تطوير نُزلي» at the
+ * foot. Desktop: 276px or the 74px rail (Ctrl+B). Phones: a drawer from the inline start.
+ */
+export function Sidebar({
+  tree,
+  chain,
+  badges,
+  mobile,
+  footer,
+}: {
+  tree: NavNode[];
+  chain: string[];
+  badges: Record<BadgeKind, number>;
+  mobile: boolean;
+  footer?: ReactNode;
+}) {
+  const mini = useShellStore((s) => s.mini) && !mobile;
+  const drawer = useShellStore((s) => s.drawer);
+  const setDrawer = useShellStore((s) => s.setDrawer);
+  const toggleMini = useShellStore((s) => s.toggleMini);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const navRef = useRef<HTMLElement | null>(null);
+  const trapRef = useFocusTrap(mobile && drawer);
+  // One stable ref: an inline callback would re-arm the focus trap on every render.
+  const sideRef = useMergedRef(navRef, trapRef);
+
+  // A parent with the active child expands automatically (rule 2); the user can still fold it.
+  const top = chain.length > 1 ? chain[0] : undefined;
+  useEffect(() => {
+    if (top) setOpen((o) => ({ ...o, [top]: true }));
+  }, [top, chain.join('/')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A closed phone drawer is out of the tab order and the accessibility tree. Open, it takes
+  // the focus (the active item, else the close button), Esc closes it from anywhere, and the
+  // focus returns to whatever opened it.
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const hidden = mobile && !drawer;
+    el.toggleAttribute('inert', hidden);
+    if (hidden) el.setAttribute('aria-hidden', 'true');
+    else el.removeAttribute('aria-hidden');
+    if (!(mobile && drawer)) {
+      if (opener.current && document.contains(opener.current)) opener.current.focus({ preventScroll: true });
+      opener.current = null;
+      return;
+    }
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // After the focus trap's own first focus (a timeout), so the active item wins.
+    const timer = window.setTimeout(() => {
+      const target = el.querySelector<HTMLElement>('[aria-current="page"]') ?? el.querySelector<HTMLElement>('.nz-fold');
+      target?.focus({ preventScroll: true });
+    }, 30);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setDrawer(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [mobile, drawer, setDrawer]);
+
+  const ctx: ItemCtx = { chain, badges, mini, onPick: () => mobile && setDrawer(false) };
+  const rtl = dirSign() < 0;
+  const FoldIcon = mini
+    ? rtl
+      ? IconLayoutSidebarRightExpand
+      : IconLayoutSidebarLeftExpand
+    : rtl
+      ? IconLayoutSidebarRightCollapse
+      : IconLayoutSidebarLeftCollapse;
+
+  return (
+    <nav
+      ref={sideRef}
+      id="nz-side"
+      className={['nz-side', mini ? 'mini' : '', mobile ? 'is-mobile' : '', mobile && drawer ? 'open' : ''].filter(Boolean).join(' ')}
+      aria-label={t('nav.main')}
+    >
+      <div className="nz-side-head">
+        <Link to="/" className="nz-mark-link" aria-label={t('nav.homeAria')} onClick={ctx.onPick}>
+          <MuhsenMarkTile />
+        </Link>
+        <div className="nz-brandtxt">
+          <b>{t('app.name')}</b>
+          <span>{t('brand.system')}</span>
+        </div>
+        {mobile ? (
+          <button type="button" className="nz-fold" onClick={() => setDrawer(false)} aria-label={t('common.closeMenu')}>
+            <IconX size={18} stroke={1.8} />
+          </button>
+        ) : (
+          <Tooltip label={`${mini ? t('shell.expandSide') : t('shell.foldSide')} · Ctrl+B`} position={tipSide()}>
+            <button
+              type="button"
+              className="nz-fold"
+              onClick={toggleMini}
+              aria-label={mini ? t('shell.expandSide') : t('shell.foldSide')}
+              aria-pressed={mini}
+              aria-keyshortcuts="Control+B"
+            >
+              <FoldIcon size={18} stroke={1.7} />
+            </button>
+          </Tooltip>
+        )}
+      </div>
+
+      <div className="nz-side-scroll">
+        {NAV_GROUPS.map((g) => {
+          const items = tree.filter((n) => n.group === g.id);
+          if (!items.length) return null;
+          return (
+            <div key={g.id} role="group" aria-label={t(g.label)} className="nz-grp-wrap">
+              <div className="nz-grp" data-label={t(g.label)} aria-hidden />
+              {items.map((n) =>
+                n.children ? (
+                  <NavContainer
+                    key={n.id}
+                    n={n}
+                    ctx={ctx}
+                    isOpen={open[n.id] ?? chain[0] === n.id}
+                    onToggle={() => setOpen((o) => ({ ...o, [n.id]: !(o[n.id] ?? chain[0] === n.id) }))}
+                  />
+                ) : (
+                  <NavLeaf key={n.id} n={n} ctx={ctx} />
+                ),
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="nz-side-foot">
+        {footer}
+        <NozolyCredit variant="light" width={mini ? 52 : 96} />
+      </div>
+      <img className="nz-side-pattern" src={brandUrl('muhsen-pattern.png')} alt="" aria-hidden draggable={false} />
+    </nav>
+  );
+}

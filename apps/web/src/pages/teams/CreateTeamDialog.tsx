@@ -156,8 +156,8 @@ export function CreateTeamDialog({ opened, onClose }: { opened: boolean; onClose
   };
 
   const finish = (team: TeamDto) => {
-    onClose();
-    navigate(`/teams/${team.id}`);
+    // Replace the ?create=1 entry: back from the new team returns to the list, not the dialog.
+    navigate(`/teams/${team.id}`, { replace: true });
   };
 
   const pickerColors = colorOverride ?? colors.data;

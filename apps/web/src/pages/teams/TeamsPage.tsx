@@ -26,6 +26,7 @@ import { VestBand } from '../../theme/VestBand';
 import { formatDate, formatNumber, t } from '../../i18n';
 import { TeamStatusBadge } from './shared';
 import { CreateTeamDialog } from './CreateTeamDialog';
+import { useOverlayParam } from '../../lib/useUrlState';
 
 type Filter = 'ALL' | TeamStatus;
 const FILTERS: Filter[] = ['ALL', 'ACTIVE', 'PENDING_APPROVAL', 'ARCHIVED'];
@@ -77,7 +78,10 @@ export function TeamsPage() {
   const [filter, setFilter] = useState<Filter>(FILTERS.includes(initial) ? initial : 'ALL');
   const [search, setSearch] = useState('');
   const [q] = useDebouncedValue(search, 250);
-  const [creating, setCreating] = useState(false);
+  // «إنشاء» is a URL (?create=1): the command palette opens it, and back closes it.
+  const create = useOverlayParam('create');
+  const creating = create.value === '1';
+  const setCreating = (on: boolean) => (on ? create.open('1') : create.close());
   const teams = useTeams({ status: filter, q: q || undefined });
   const all = useTeams({ status: 'ALL' });
   const canCreate = canAny(user, ['teams.create', 'teams.createOwn']);
@@ -136,7 +140,7 @@ export function TeamsPage() {
           />
         </Group>
         {teams.isLoading ? (
-          <LoadingBlock />
+          <LoadingBlock variant="cards" />
         ) : teams.isError ? (
           <ErrorBlock error={teams.error} onRetry={() => void teams.refetch()} />
         ) : !teams.data?.length ? (

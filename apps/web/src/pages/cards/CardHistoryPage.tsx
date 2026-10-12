@@ -25,7 +25,7 @@ export function CardHistoryPage() {
         }
       />
       {batches.isLoading ? (
-        <LoadingBlock />
+        <LoadingBlock variant="table" />
       ) : batches.isError ? (
         <ErrorBlock error={batches.error} onRetry={() => void batches.refetch()} />
       ) : !batches.data?.items.length ? (

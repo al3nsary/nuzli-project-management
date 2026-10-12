@@ -27,15 +27,15 @@ import {
 import { dayLabel, gregorianRows, headerRowCount, hijriRows } from './timeHeader';
 
 const C = {
-  ink: '#14232B',
-  ground: '#EEF1F1',
+  ink: '#0D1A13',
+  ground: '#EDF4EF',
   surface: '#FFFFFF',
-  line: '#D3DBDC',
-  field: '#1D5C63',
-  signal: '#E8A317',
-  breach: '#B42318',
-  ok: '#2E7D4F',
-  muted: '#5B6B72',
+  line: '#DDE9E1',
+  field: '#14593F',
+  signal: '#B8791A',
+  breach: '#C0392B',
+  ok: '#0B8A4B',
+  muted: '#4C635A',
 };
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

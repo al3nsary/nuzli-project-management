@@ -6,14 +6,14 @@ import {
   Button,
   Code,
   Group,
+  Loader,
   Paper,
   PasswordInput,
-  SimpleGrid,
   Stack,
   Text,
   TextInput,
 } from '@mantine/core';
-import { IconLogin2 } from '@tabler/icons-react';
+import { IconCamera, IconLogin2, IconShieldCheck, IconUser, IconUsersGroup, type Icon } from '@tabler/icons-react';
 import { loginSchema, type AuthSession, type Role } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { ApiError } from '../../api/errors';
@@ -22,6 +22,12 @@ import { useZodForm } from '../../forms/useZodForm';
 import { FormError, roleLabel } from '../../components/ui';
 import { t } from '../../i18n';
 import { AuthLayout } from './AuthLayout';
+
+const ROLE_ICON: Partial<Record<Role, Icon>> = {
+  ADMIN: IconShieldCheck,
+  SUPERVISOR: IconUsersGroup,
+  MONITOR: IconCamera,
+};
 
 export function LoginPage() {
   const api = useApi();
@@ -134,32 +140,45 @@ export function LoginPage() {
       </Paper>
 
       {api.demo ? (
-        <Paper p="lg" withBorder style={{ borderStyle: 'dashed', borderColor: 'var(--signal)' }}>
+        <section className="nz-demo" aria-labelledby="nz-demo-title">
           <Stack gap="sm">
-            <Text fw={600}>{t('login.demoTitle')}</Text>
-            <Text size="sm">
-              {t('login.demoBody')} <Code className="ltr">{api.demo.password}</Code>
-            </Text>
-            <SimpleGrid cols={1} spacing="xs">
-              {api.demo.accounts.map((a) => (
-                <Button
-                  key={a.role}
-                  variant="light"
-                  loading={demoBusy === a.role}
-                  disabled={demoBusy !== null && demoBusy !== a.role}
-                  onClick={() => void demoLogin(a.role, a.identifier)}
-                >
-                  {t('login.demoAs', { role: roleLabel(a.role) })}
-                </Button>
-              ))}
-            </SimpleGrid>
+            <div>
+              <Text fw={700} id="nz-demo-title">
+                {t('login.demoTitle')}
+              </Text>
+              <Text size="xs" c="dimmed" mt={2}>
+                {t('login.demoBody')} <Code className="ltr">{api.demo.password}</Code>
+              </Text>
+            </div>
+            <div className="nz-demo-roles">
+              {api.demo.accounts.map((a) => {
+                const RoleIcon = ROLE_ICON[a.role] ?? IconUser;
+                return (
+                  <button
+                    key={a.role}
+                    type="button"
+                    className="nz-rolebtn"
+                    data-busy={demoBusy === a.role || undefined}
+                    disabled={demoBusy !== null}
+                    aria-label={t('login.demoAs', { role: roleLabel(a.role) })}
+                    onClick={() => void demoLogin(a.role, a.identifier)}
+                  >
+                    <span className="ci">
+                      {demoBusy === a.role ? <Loader size={16} color="currentColor" /> : <RoleIcon size={19} stroke={1.7} />}
+                    </span>
+                    <b>{roleLabel(a.role)}</b>
+                    <span>{t('login.demoEnter')}</span>
+                  </button>
+                );
+              })}
+            </div>
             {api.demo.pendingExample ? (
               <Text size="xs" c="dimmed">
                 {t('login.demoPendingHint', { email: api.demo.pendingExample })}
               </Text>
             ) : null}
           </Stack>
-        </Paper>
+        </section>
       ) : null}
     </AuthLayout>
   );

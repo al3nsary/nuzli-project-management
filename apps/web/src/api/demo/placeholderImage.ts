@@ -52,7 +52,7 @@ export async function drawPlaceholder(opts: {
     ctx.fillStyle = `hsl(${opts.hue} 25% 70%)`;
     ctx.fillRect(w - 260, 90, 180, 220);
   }
-  ctx.fillStyle = '#14232B';
+  ctx.fillStyle = '#0D1A13';
   ctx.direction = 'rtl';
   ctx.textAlign = 'center';
   ctx.font = `600 ${opts.idCard ? 44 : 56}px "IBM Plex Sans Arabic", system-ui, sans-serif`;

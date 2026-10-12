@@ -40,15 +40,16 @@ import { formatDate, formatDateTime, formatNumber, t, tKey } from '../../i18n';
 import { calendarOf } from '../../features/gantt/batch';
 import { linkMessage } from '../../features/gantt/Gantt';
 import { checkNewLink, engineState } from '../../features/gantt/batch';
+import { useTabParam } from '../../lib/useUrlState';
 import { AssigneeChip, PRIORITIES, TASK_STATUSES, TaskStatusBadge, priorityLabel, taskStatusLabel, taskTypeLabel } from './parts';
 
 type Writes = ReturnType<typeof useProjectWrites>;
 
 export function TaskDrawer({ data, taskId, writes, onClose }: { data: GanttDto; taskId: string | null; writes: Writes; onClose(): void }) {
   const task = data.tasks.find((x) => x.id === taskId) ?? null;
-  const [tab, setTab] = useState<string | null>('details');
+  // The tab is in the URL (?ttab=) so a link can open a task on its comments.
+  const [tab, setTab] = useTabParam('ttab', ['details', 'comments', 'files', 'activity'] as const, 'details');
   const { dir } = useDirection();
-  useEffect(() => setTab('details'), [taskId]);
   return (
     <Drawer
       opened={Boolean(task)}

@@ -59,7 +59,7 @@ export function SettingsPage() {
     if (q.data) setValues(q.data);
   }, [q.data]);
 
-  if (q.isLoading || (!values && !q.isError)) return <LoadingBlock />;
+  if (q.isLoading || (!values && !q.isError)) return <LoadingBlock variant="form" header />;
   if (q.isError || !values) return <ErrorBlock error={q.error} onRetry={() => void q.refetch()} />;
 
   const dirty = q.data

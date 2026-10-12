@@ -405,7 +405,7 @@ export function ViolationDrawer({ id, onClose }: { id: string | null; onClose: (
       title={t('vdetail.title')}
       classNames={{ body: 'nz-drawer-body' }}
     >
-      {q.isLoading ? <LoadingBlock /> : null}
+      {q.isLoading ? <LoadingBlock variant="detail" rows={3} /> : null}
       {q.isError ? <ErrorBlock error={q.error} onRetry={() => void q.refetch()} /> : null}
       {v ? (
         <Stack gap="md">
@@ -480,7 +480,7 @@ export function ViolationDrawer({ id, onClose }: { id: string | null; onClose: (
             ) : null}
           </Box>
 
-          <LocationMap lat={v.latitude} lng={v.longitude} accuracyM={v.accuracyM} color={v.team?.color.hex ?? '#B42318'} />
+          <LocationMap lat={v.latitude} lng={v.longitude} accuracyM={v.accuracyM} color={v.team?.color.hex ?? '#C0392B'} />
 
           <Divider label={t('vdetail.photos')} labelPosition="right" />
           {readyEvidence < expected ? (

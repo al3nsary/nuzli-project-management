@@ -42,6 +42,7 @@ import {
 import { useOnline } from '../../lib/useOnline';
 import { OutboxProgress, OutboxStatusBadge, SnapshotTeam, ViolationStatusBadge } from './parts';
 import { ViolationDrawer } from './ViolationDrawer';
+import { useOverlayParam } from '../../lib/useUrlState';
 
 /** One server violation as a tappable card (phones first). */
 export function ViolationRowCard({ v, onOpen }: { v: ViolationDto; onOpen: () => void }) {
@@ -147,7 +148,7 @@ export function PendingList() {
   const [toDelete, setToDelete] = useState<OutboxItem | null>(null);
   const unsynced = (items ?? []).filter((i) => i.status !== 'synced');
 
-  if (!items) return <LoadingBlock />;
+  if (!items) return <LoadingBlock variant="list" />;
   return (
     <Stack gap="md">
       <Card padding="sm">
@@ -218,11 +219,11 @@ export function PendingList() {
 
 function SentList() {
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState<string | null>(null);
+  const overlay = useOverlayParam('open');
   const online = useOnline();
   const navigate = useNavigate();
   const q = useMyViolations({ page, pageSize: 20 });
-  if (q.isLoading) return <LoadingBlock />;
+  if (q.isLoading) return <LoadingBlock variant="list" />;
   if (q.isError) {
     if (!online) {
       return (
@@ -248,10 +249,10 @@ function SentList() {
   return (
     <Stack gap="sm">
       {data.items.map((v) => (
-        <ViolationRowCard key={v.id} v={v} onOpen={() => setOpen(v.id)} />
+        <ViolationRowCard key={v.id} v={v} onOpen={() => overlay.open(v.id)} />
       ))}
       {pages > 1 ? <Pagination value={page} onChange={setPage} total={pages} mt="sm" /> : null}
-      <ViolationDrawer id={open} onClose={() => setOpen(null)} />
+      <ViolationDrawer id={overlay.value} onClose={overlay.close} />
     </Stack>
   );
 }

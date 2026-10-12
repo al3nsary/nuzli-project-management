@@ -1,28 +1,105 @@
 /*
- * Nuzli design tokens — the source of truth is .claude/skills/nuzli-design-system/SKILL.md.
- * The nine colour tokens are copied exactly. The --sidebar-* tokens are derived:
- * the sidebar is --ink in light mode (per the skill); in dark mode --ink is a light text
- * colour, so the sidebar uses a deeper shade of --ground instead.
+ * Nuzli design tokens — owner request A7: aligned with the Muhsen system.
+ * Source of truth: .claude/skills/nuzli-design-system/SKILL.md, whose values are copied
+ * literally from Muhsen Control (Desktop/Muhsen-Control/app/01-style.html, lines 14–107).
+ * Light = Muhsen "day", dark = Muhsen "night".
+ *
+ * The legacy names (--ground, --surface, --field, --signal, --breach, --ok, --muted…) are kept
+ * as aliases of the new tokens so every screen follows the palette; new code uses the new names.
  */
 :root {
-  --ink: #14232b;
-  --ground: #eef1f1;
-  --surface: #ffffff;
-  --line: #d3dbdc;
-  --field: #1d5c63;
-  --signal: #e8a317;
-  --breach: #b42318;
-  --ok: #2e7d4f;
-  --muted: #5b6b72;
+  /* Surfaces */
+  --void: #edf4ef;
+  --deep: #f7fbf8;
+  --panel: #ffffff;
+  --panel2: #f2f9f4;
+  --raise: #e7f1ea;
+  --line: #dde9e1;
+  --line2: #c6dace;
+  --hair: rgba(20, 89, 63, 0.2);
 
-  --sidebar: var(--ink);
-  --sidebar-text: #eef1f1;
-  --sidebar-muted: #9fb0b6;
-  --sidebar-hover: rgb(255 255 255 / 0.07);
-  --sidebar-active: rgb(255 255 255 / 0.12);
-  --on-field: #ffffff;
+  /* Brand */
+  --g: #14593f;
+  --g2: #0c3a29;
+  --g3: #1d7452;
+  --live: #0b8a4b;
+  --gold: #a8875a;
+  --gold2: #b4935f;
+  --gold3: #8a6c3c;
+  --amber: #b8791a;
+  --red: #c0392b;
+  --blue: #1b6e9c;
 
-  --font-body: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  /* Text */
+  --ink: #0d1a13;
+  --dim: #4c635a;
+  --dim2: #7a8f84;
+  --faint: #9ab0a3;
+  --on-g: #ffffff;
+  --link: var(--g);
+
+  --sheen: rgba(20, 89, 63, 0.045);
+  --sheen2: rgba(20, 89, 63, 0.09);
+  --shadow: 0 1px 2px rgba(11, 53, 39, 0.05), 0 4px 10px -4px rgba(11, 53, 39, 0.07),
+    0 18px 34px -22px rgba(11, 53, 39, 0.3);
+  --lift: 0 2px 6px rgba(11, 53, 39, 0.07), 0 18px 34px -14px rgba(11, 53, 39, 0.22);
+  --scrim: rgba(16, 25, 20, 0.42);
+
+  /* Side navigation: deep Muhsen green by day (the app header's identity). */
+  --nav-bg: linear-gradient(168deg, #1a6b4c 0%, #12513a 52%, #0d3e2c 100%);
+  --nav-ink: #f4faf6;
+  --nav-dim: rgba(244, 250, 246, 0.82);
+  --nav-dim2: rgba(244, 250, 246, 0.62);
+  --nav-faint: rgba(244, 250, 246, 0.44);
+  --nav-line: rgba(255, 255, 255, 0.11);
+  --nav-sheen: rgba(255, 255, 255, 0.08);
+  --nav-sheen2: rgba(255, 255, 255, 0.15);
+  --nav-on-bg: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.03));
+  --nav-on-ring: rgba(231, 209, 162, 0.55);
+  --nav-on-ink: #ffffff;
+  --mark-bg: linear-gradient(150deg, #e7d1a2, #a8875a);
+
+  /* Status pills (background / text), literal from the Muhsen app. */
+  --p-live-b: #e4f2e9;
+  --p-live-t: #0b6540;
+  --p-wait-b: #fbf1de;
+  --p-wait-t: #7f5310;
+  --p-no-b: #fbe9e7;
+  --p-no-t: #93261c;
+  --p-blue-b: #e7eef6;
+  --p-blue-t: #2a4a73;
+  --p-gold-b: #f5eddf;
+  --p-gold-t: #6e5729;
+  --p-grey-b: #eff1ed;
+  --p-grey-t: #5a6c63;
+
+  /* Bottom tab bar (Muhsen app). */
+  --tabs-bg: #ffffff;
+  --tabs-ink: #8c9b92;
+  --tabs-shadow: 0 -1px 0 rgba(20, 89, 63, 0.07), 0 -16px 34px -26px rgba(11, 53, 39, 0.55);
+
+  /* Scale */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --r: 16px;
+  --r2: 22px;
+  --r3: 12px;
+  --r4: 9px;
+  --e: cubic-bezier(0.22, 0.7, 0.2, 1);
+  --e2: cubic-bezier(0.34, 1.4, 0.44, 1);
+  --e3: cubic-bezier(0.16, 1, 0.3, 1);
+  --side-w: 276px;
+  --side-mini: 74px;
+  --top-h: 66px;
+  /* Physical offsets are multiplied by this (skill nuzli-arabic-rtl): -1 in RTL. */
+  --ds: -1;
+
+  --font-body: 'IBM Plex Sans Arabic', 'Segoe UI', system-ui, sans-serif;
   --font-display: 'Readex Pro Variable', 'IBM Plex Sans Arabic', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
@@ -34,56 +111,143 @@
   --fs-2xl: 1.75rem;
   --fs-3xl: 2.25rem;
 
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-5: 24px;
-  --sp-6: 32px;
-  --sp-7: 48px;
-
-  --radius-card: 10px;
-  --radius-input: 8px;
+  /* Legacy aliases (phases 1–4). */
+  --ground: var(--void);
+  --surface: var(--panel);
+  --field: var(--g);
+  --signal: var(--amber);
+  --breach: var(--red);
+  --ok: var(--live);
+  --muted: var(--dim);
+  --on-field: var(--on-g);
+  --sp-1: var(--s1);
+  --sp-2: var(--s2);
+  --sp-3: var(--s3);
+  --sp-4: var(--s4);
+  --sp-5: var(--s5);
+  --sp-6: var(--s6);
+  --sp-7: var(--s7);
+  --radius-card: var(--r);
+  --radius-input: var(--r3);
   --radius-chip: 999px;
-  --shadow: 0 1px 2px rgb(20 35 43 / 0.06), 0 4px 12px rgb(20 35 43 / 0.05);
-  --sidebar-width: 248px;
-  --motion: 150ms ease-out;
+  --motion: 180ms var(--e);
 
   color-scheme: light;
 }
 
+[dir='ltr'] {
+  --ds: 1;
+}
+
+/* Dark = Muhsen "night". Applied for the dark scheme, and for "auto" on a dark system. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-mantine-color-scheme='light']) {
-    --ink: #e6ecee;
-    --ground: #0e171c;
-    --surface: #16232a;
-    --line: #2a3a42;
-    --field: #5fb3b8;
-    --signal: #f2b84b;
-    --breach: #f06a5e;
-    --ok: #5cc48a;
-    --muted: #93a4ab;
-    --sidebar: #0a1216;
-    --sidebar-text: #e6ecee;
-    --sidebar-muted: #93a4ab;
-    --on-field: #0e171c;
+    --void: #060c09;
+    --deep: #0a140f;
+    --panel: #0f1c16;
+    --panel2: #14261f;
+    --raise: #183026;
+    --line: #1c3128;
+    --line2: #27473a;
+    --hair: rgba(198, 168, 111, 0.16);
+    --live: #14c273;
+    --gold2: #c6a86f;
+    --gold3: #e7d1a2;
+    --amber: #e5a62f;
+    --red: #ec4f54;
+    --blue: #3fa3dc;
+    --ink: #edf5f0;
+    --dim: #9fb6a9;
+    --dim2: #6b857a;
+    --faint: #405549;
+    --link: #4fe49f;
+    --sheen: rgba(255, 255, 255, 0.045);
+    --sheen2: rgba(255, 255, 255, 0.08);
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 20px 52px -30px rgba(0, 0, 0, 0.95);
+    --lift: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 30px 64px -32px rgba(0, 0, 0, 1);
+    --scrim: rgba(4, 9, 7, 0.72);
+    --nav-bg: linear-gradient(180deg, var(--deep), var(--void));
+    --nav-ink: #edf5f0;
+    --nav-dim: #9fb6a9;
+    --nav-dim2: #6b857a;
+    --nav-faint: #405549;
+    --nav-line: #1c3128;
+    --nav-sheen: rgba(255, 255, 255, 0.045);
+    --nav-sheen2: rgba(255, 255, 255, 0.09);
+    --nav-on-bg: linear-gradient(90deg, color-mix(in srgb, #14c273 18%, transparent), transparent);
+    --nav-on-ring: color-mix(in srgb, #14c273 26%, transparent);
+    --nav-on-ink: #edf5f0;
+    --mark-bg: linear-gradient(150deg, #e7d1a2, #a8875a);
+    --p-live-b: rgba(20, 194, 115, 0.15);
+    --p-live-t: #4fe49f;
+    --p-wait-b: rgba(229, 166, 47, 0.16);
+    --p-wait-t: #f2c069;
+    --p-no-b: rgba(236, 79, 84, 0.16);
+    --p-no-t: #ff8e91;
+    --p-blue-b: rgba(63, 163, 220, 0.16);
+    --p-blue-t: #82c8ed;
+    --p-gold-b: rgba(198, 168, 111, 0.16);
+    --p-gold-t: #e7d1a2;
+    --p-grey-b: rgba(255, 255, 255, 0.07);
+    --p-grey-t: #9fb6a9;
+    --tabs-bg: #0f1c16;
+    --tabs-ink: #6b857a;
+    --tabs-shadow: 0 -1px 0 #1c3128, 0 -16px 34px -26px rgba(0, 0, 0, 0.9);
     color-scheme: dark;
   }
 }
 
 :root[data-mantine-color-scheme='dark'] {
-  --ink: #e6ecee;
-  --ground: #0e171c;
-  --surface: #16232a;
-  --line: #2a3a42;
-  --field: #5fb3b8;
-  --signal: #f2b84b;
-  --breach: #f06a5e;
-  --ok: #5cc48a;
-  --muted: #93a4ab;
-  --sidebar: #0a1216;
-  --sidebar-text: #e6ecee;
-  --sidebar-muted: #93a4ab;
-  --on-field: #0e171c;
+  --void: #060c09;
+  --deep: #0a140f;
+  --panel: #0f1c16;
+  --panel2: #14261f;
+  --raise: #183026;
+  --line: #1c3128;
+  --line2: #27473a;
+  --hair: rgba(198, 168, 111, 0.16);
+  --live: #14c273;
+  --gold2: #c6a86f;
+  --gold3: #e7d1a2;
+  --amber: #e5a62f;
+  --red: #ec4f54;
+  --blue: #3fa3dc;
+  --ink: #edf5f0;
+  --dim: #9fb6a9;
+  --dim2: #6b857a;
+  --faint: #405549;
+  --link: #4fe49f;
+  --sheen: rgba(255, 255, 255, 0.045);
+  --sheen2: rgba(255, 255, 255, 0.08);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 20px 52px -30px rgba(0, 0, 0, 0.95);
+  --lift: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 30px 64px -32px rgba(0, 0, 0, 1);
+  --scrim: rgba(4, 9, 7, 0.72);
+  --nav-bg: linear-gradient(180deg, var(--deep), var(--void));
+  --nav-ink: #edf5f0;
+  --nav-dim: #9fb6a9;
+  --nav-dim2: #6b857a;
+  --nav-faint: #405549;
+  --nav-line: #1c3128;
+  --nav-sheen: rgba(255, 255, 255, 0.045);
+  --nav-sheen2: rgba(255, 255, 255, 0.09);
+  --nav-on-bg: linear-gradient(90deg, color-mix(in srgb, #14c273 18%, transparent), transparent);
+  --nav-on-ring: color-mix(in srgb, #14c273 26%, transparent);
+  --nav-on-ink: #edf5f0;
+  --mark-bg: linear-gradient(150deg, #e7d1a2, #a8875a);
+  --p-live-b: rgba(20, 194, 115, 0.15);
+  --p-live-t: #4fe49f;
+  --p-wait-b: rgba(229, 166, 47, 0.16);
+  --p-wait-t: #f2c069;
+  --p-no-b: rgba(236, 79, 84, 0.16);
+  --p-no-t: #ff8e91;
+  --p-blue-b: rgba(63, 163, 220, 0.16);
+  --p-blue-t: #82c8ed;
+  --p-gold-b: rgba(198, 168, 111, 0.16);
+  --p-gold-t: #e7d1a2;
+  --p-grey-b: rgba(255, 255, 255, 0.07);
+  --p-grey-t: #9fb6a9;
+  --tabs-bg: #0f1c16;
+  --tabs-ink: #6b857a;
+  --tabs-shadow: 0 -1px 0 #1c3128, 0 -16px 34px -26px rgba(0, 0, 0, 0.9);
   color-scheme: dark;
 }

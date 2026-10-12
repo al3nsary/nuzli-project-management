@@ -58,7 +58,7 @@ export function NotificationsPage() {
         />
       </Group>
       {q.isLoading ? (
-        <LoadingBlock />
+        <LoadingBlock variant="list" />
       ) : q.isError ? (
         <ErrorBlock error={q.error} onRetry={() => void q.refetch()} />
       ) : !q.data?.items.length ? (

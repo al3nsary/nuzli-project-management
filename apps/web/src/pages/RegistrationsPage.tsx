@@ -211,7 +211,7 @@ export function RegistrationsPage() {
     <>
       <PageHeader title={t('reg.title')} lead={t('reg.lead')} />
       {q.isLoading ? (
-        <LoadingBlock />
+        <LoadingBlock variant="list" rows={3} />
       ) : q.isError ? (
         <ErrorBlock error={q.error} onRetry={() => void q.refetch()} />
       ) : !q.data?.items.length ? (

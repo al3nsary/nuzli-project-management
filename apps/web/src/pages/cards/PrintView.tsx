@@ -75,7 +75,7 @@ export function PrintView() {
     }
   };
 
-  if (batch.isLoading || templates.isLoading) return <LoadingBlock />;
+  if (batch.isLoading || templates.isLoading) return <LoadingBlock variant="cards" />;
   if (batch.isError || !batch.data)
     return <ErrorBlock error={batch.error} onRetry={() => void batch.refetch()} />;
 

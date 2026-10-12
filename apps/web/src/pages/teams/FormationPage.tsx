@@ -58,6 +58,7 @@ import { VestBand } from '../../theme/VestBand';
 import { scrollInline } from '../../lib/direction';
 import { formatNumber, localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
+import { useOverlayParam } from '../../lib/useUrlState';
 
 /** Column id of people without an open membership. Moves into it are not part of the API. */
 export const UNASSIGNED = 'unassigned';
@@ -283,7 +284,7 @@ export function FormationPage() {
   const [pending, setPending] = useState<PendingMove | null>(null);
   const [reason, setReason] = useState('');
   const [bulkTarget, setBulkTarget] = useState<string | null>(null);
-  const [drawer, setDrawer] = useState<string | null>(null);
+  const drawer = useOverlayParam('member');
   const boardRef = useRef<HTMLDivElement>(null);
   const pointerX = useRef<number | null>(null);
   const raf = useRef<number | null>(null);
@@ -450,7 +451,7 @@ export function FormationPage() {
       t('formation.a11y.cancel', { name: memberById.get(String(active.id))?.fullName ?? '' }),
   };
 
-  if (teamsQ.isLoading || membersQ.isLoading) return <LoadingBlock />;
+  if (teamsQ.isLoading || membersQ.isLoading) return <LoadingBlock variant="board" header />;
   if (teamsQ.isError) return <ErrorBlock error={teamsQ.error} onRetry={() => void teamsQ.refetch()} />;
   if (membersQ.isError)
     return <ErrorBlock error={membersQ.error} onRetry={() => void membersQ.refetch()} />;
@@ -534,7 +535,7 @@ export function FormationPage() {
                 selected={selected}
                 onToggle={toggle}
                 onToggleAll={toggleAll}
-                onOpen={setDrawer}
+                onOpen={drawer.open}
                 dragging={Boolean(activeId)}
               />
             ))}
@@ -648,7 +649,7 @@ export function FormationPage() {
           </Stack>
         ) : null}
       </Modal>
-      <MemberDrawer memberId={drawer} onClose={() => setDrawer(null)} />
+      <MemberDrawer memberId={drawer.value} onClose={drawer.close} />
       {teams.length === 0 ? (
         <Group mt="md" gap="xs" c="dimmed">
           <IconUserOff size={18} />

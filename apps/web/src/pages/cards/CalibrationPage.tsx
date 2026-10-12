@@ -35,7 +35,7 @@ export function CalibrationPage() {
     };
   }, [size, orientation]);
 
-  if (sizes.isLoading) return <LoadingBlock />;
+  if (sizes.isLoading) return <LoadingBlock variant="form" header />;
   if (sizes.isError) return <ErrorBlock error={sizes.error} />;
 
   const update = (patch: Record<string, string>) =>

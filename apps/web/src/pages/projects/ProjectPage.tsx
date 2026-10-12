@@ -1,9 +1,8 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   ActionIcon,
   Alert,
-  Anchor,
   Button,
   Group,
   Loader,
@@ -19,7 +18,6 @@ import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
   IconChartBar,
-  IconChevronRight,
   IconDownload,
   IconFileSpreadsheet,
   IconFileTypePdf,
@@ -49,20 +47,22 @@ import { ConflictAlert, TaskDrawer } from './TaskDrawer';
 import { ProjectSettingsDrawer } from './ProjectSettingsDrawer';
 import { ProgressLine, ProjectStatusBadge } from './parts';
 import './projects.css';
+import { useOverlayParam, useTabParam } from '../../lib/useUrlState';
 
 type View = 'gantt' | 'list' | 'board';
 
 export function ProjectPage() {
   const { id = '' } = useParams();
-  const [params, setParams] = useSearchParams();
-  const view = (['gantt', 'list', 'board'].includes(params.get('view') ?? '') ? params.get('view') : 'gantt') as View;
+  const [view, setView] = useTabParam<View>('view', ['gantt', 'list', 'board'], 'gantt');
   const user = useAuthStore((s) => s.user);
   const gantt = useGantt(id);
   const writes = useProjectWrites(id);
-  const [openTask, setOpenTask] = useState<string | null>(null);
-  const [settings, setSettings] = useState(false);
+  // Drawers live in the URL (?task=, ?panel=settings): deep links work and back closes them.
+  const task = useOverlayParam('task', { drop: ['ttab'] });
+  const panel = useOverlayParam('panel');
+  const setOpenTask = (taskId: string | null) => (taskId ? task.open(taskId) : task.close());
 
-  if (gantt.isLoading) return <LoadingBlock />;
+  if (gantt.isLoading) return <LoadingBlock variant="gantt" header />;
   if (gantt.isError || !gantt.data) return <ErrorBlock error={gantt.error} onRetry={() => void gantt.refetch()} />;
   const data = gantt.data;
   const admin = can(user, 'projects.manage');
@@ -71,14 +71,8 @@ export function ProjectPage() {
     <div className="nz-project-shell">
       <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
         <div style={{ minWidth: 0, flex: '1 1 320px' }}>
-          <Anchor component={Link} to="/projects" size="sm">
-            <Group gap={4} component="span" wrap="nowrap">
-              <IconChevronRight size={14} aria-hidden />
-              {t('nav.projects')}
-            </Group>
-          </Anchor>
-          <Group gap="sm" wrap="wrap" mt={2}>
-            <Title order={1} fz="xl">
+          <Group gap="sm" wrap="wrap">
+            <Title order={1} fz="xl" tabIndex={-1}>
               {data.project.name}
             </Title>
             <ProjectStatusBadge status={data.project.status} />
@@ -99,13 +93,13 @@ export function ProjectPage() {
           </Group>
         </div>
         {admin ? (
-          <Button variant="default" leftSection={<IconSettings size={18} />} onClick={() => setSettings(true)}>
+          <Button variant="default" leftSection={<IconSettings size={18} />} onClick={() => panel.open('settings')}>
             {t('projects.settings')}
           </Button>
         ) : null}
       </Group>
 
-      <Tabs value={view} onChange={(v) => setParams(v === 'gantt' ? {} : { view: v ?? 'gantt' }, { replace: true })} keepMounted={false}>
+      <Tabs value={view} onChange={setView} keepMounted={false}>
         <Tabs.List>
           <Tabs.Tab value="gantt" leftSection={<IconChartBar size={16} />}>
             {t('projects.view.gantt')}
@@ -129,8 +123,8 @@ export function ProjectPage() {
         )}
       </div>
 
-      <TaskDrawer data={data} taskId={openTask} writes={writes} onClose={() => setOpenTask(null)} />
-      {admin ? <ProjectSettingsDrawer opened={settings} onClose={() => setSettings(false)} project={data.project} /> : null}
+      <TaskDrawer data={data} taskId={task.value} writes={writes} onClose={task.close} />
+      {admin ? <ProjectSettingsDrawer opened={panel.value === 'settings'} onClose={panel.close} project={data.project} /> : null}
     </div>
   );
 }

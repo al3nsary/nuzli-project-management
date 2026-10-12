@@ -34,15 +34,15 @@ function readPalette(): Palette {
   const cs = typeof window !== 'undefined' ? getComputedStyle(document.documentElement) : null;
   const v = (name: string, fallback: string) => cs?.getPropertyValue(name).trim() || fallback;
   return {
-    ink: v('--ink', '#14232B'),
-    muted: v('--muted', '#5B6B72'),
-    line: v('--line', '#D3DBDC'),
+    ink: v('--ink', '#0D1A13'),
+    muted: v('--muted', '#4C635A'),
+    line: v('--line', '#DDE9E1'),
     surface: v('--surface', '#FFFFFF'),
-    ground: v('--ground', '#EEF1F1'),
-    field: v('--field', '#1D5C63'),
-    signal: v('--signal', '#E8A317'),
-    breach: v('--breach', '#B42318'),
-    ok: v('--ok', '#2E7D4F'),
+    ground: v('--ground', '#EDF4EF'),
+    field: v('--field', '#14593F'),
+    signal: v('--signal', '#B8791A'),
+    breach: v('--breach', '#C0392B'),
+    ok: v('--ok', '#0B8A4B'),
   };
 }
 

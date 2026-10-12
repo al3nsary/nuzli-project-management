@@ -19,6 +19,7 @@ import { EmptyState, ErrorBlock, Ltr, LoadingBlock, PageHeader } from '../../com
 import { TeamBadge } from '../../theme/TeamBadge';
 import { localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from './MemberDrawer';
+import { useOverlayParam } from '../../lib/useUrlState';
 
 const PAGE_SIZE = 25;
 
@@ -32,7 +33,7 @@ export function MembersPage() {
   const [teamId, setTeamId] = useState<string | null>(null);
   const [unassigned, setUnassigned] = useState(false);
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState<string | null>(null);
+  const member = useOverlayParam('member');
   const teams = useTeams({ status: 'ALL' });
   const members = useMembers({
     q: q || undefined,
@@ -85,7 +86,7 @@ export function MembersPage() {
           />
         </Group>
         {members.isLoading ? (
-          <LoadingBlock />
+          <LoadingBlock variant="table" />
         ) : members.isError ? (
           <ErrorBlock error={members.error} onRetry={() => void members.refetch()} />
         ) : !members.data?.items.length ? (
@@ -108,7 +109,7 @@ export function MembersPage() {
                     <Table.Tr key={m.id}>
                       <Table.Td>
                         <UnstyledButton
-                          onClick={() => setOpen(m.id)}
+                          onClick={() => member.open(m.id)}
                           fw={600}
                           c="var(--field)"
                           style={{ minHeight: 32 }}
@@ -146,7 +147,7 @@ export function MembersPage() {
           </Group>
         ) : null}
       </Stack>
-      <MemberDrawer memberId={open} onClose={() => setOpen(null)} />
+      <MemberDrawer memberId={member.value} onClose={member.close} />
     </>
   );
 }

@@ -173,7 +173,7 @@ export function CardsPage() {
     }
   };
 
-  if (templates.isLoading || teams.isLoading) return <LoadingBlock />;
+  if (templates.isLoading || teams.isLoading) return <LoadingBlock variant="cards" header />;
   if (templates.isError) return <ErrorBlock error={templates.error} onRetry={() => void templates.refetch()} />;
 
   const nothingChosen = teamIds.length === 0 && memberIds.length === 0;

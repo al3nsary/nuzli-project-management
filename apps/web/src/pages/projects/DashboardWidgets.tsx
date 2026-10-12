@@ -27,7 +27,7 @@ export function ProjectsKpi() {
     return n + tasks.filter((x) => !parents.has(x.id) && x.status !== 'DONE' && x.endDate < today).length;
   }, 0);
   return (
-    <Card style={overdue ? { borderColor: 'var(--breach)', borderWidth: 2 } : undefined}>
+    <Card className="nz-kpi-card" data-tone={overdue ? 'no' : undefined}>
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <SimpleGrid cols={2} spacing="md">
           <Stack gap={2}>

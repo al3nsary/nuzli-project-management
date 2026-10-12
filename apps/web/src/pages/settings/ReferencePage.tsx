@@ -161,7 +161,7 @@ function ReferenceList({ kind }: { kind: ReferenceKind }) {
     }
   };
 
-  if (items.isLoading) return <LoadingBlock />;
+  if (items.isLoading) return <LoadingBlock variant="table" />;
   if (items.isError) return <ErrorBlock error={items.error} />;
   return (
     <Stack gap="md">
@@ -253,7 +253,7 @@ function PalettePanel() {
     }
   };
 
-  if (palette.isLoading) return <LoadingBlock />;
+  if (palette.isLoading) return <LoadingBlock variant="cards" />;
   if (palette.isError) return <ErrorBlock error={palette.error} />;
   return (
     <Stack gap="md">

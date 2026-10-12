@@ -58,6 +58,7 @@ import {
   roleLabel,
 } from '../components/ui';
 import { formatDateTime, t, tKey } from '../i18n';
+import { useOverlayParam } from '../lib/useUrlState';
 
 const STATUSES: UserStatus[] = ['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED'];
 
@@ -378,7 +379,7 @@ function UserDetail({ id, onClose }: { id: string | null; onClose: () => void })
       size="md"
     >
       {q.isLoading ? (
-        <LoadingBlock />
+        <LoadingBlock variant="detail" rows={3} />
       ) : q.isError ? (
         <ErrorBlock error={q.error} />
       ) : u ? (
@@ -428,7 +429,7 @@ export function UsersPage() {
   const [page, setPage] = useState(1);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [creating, setCreating] = useState(false);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const detail = useOverlayParam('user');
 
   const query = useUsers({
     q: q || undefined,
@@ -450,7 +451,7 @@ export function UsersPage() {
 
   const nameButton = (u: UserDto) => (
     <UnstyledButton
-      onClick={() => setDetailId(u.id)}
+      onClick={() => detail.open(u.id)}
       style={{ fontWeight: 600, color: 'var(--field)' }}
     >
       {u.fullName}
@@ -519,7 +520,7 @@ export function UsersPage() {
       </Card>
 
       {query.isLoading ? (
-        <LoadingBlock />
+        <LoadingBlock variant="table" />
       ) : query.isError ? (
         <ErrorBlock error={query.error} onRetry={() => void query.refetch()} />
       ) : !query.data?.items.length ? (
@@ -634,7 +635,7 @@ export function UsersPage() {
         <SuspendDialog user={dialog.user} onClose={() => setDialog(null)} />
       ) : null}
       <CreateUserDialog opened={creating} onClose={() => setCreating(false)} />
-      <UserDetail id={detailId} onClose={() => setDetailId(null)} />
+      <UserDetail id={detail.value} onClose={detail.close} />
     </>
   );
 }

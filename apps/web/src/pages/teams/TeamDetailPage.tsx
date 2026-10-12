@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   Alert,
-  Anchor,
   Box,
   Button,
   Card,
@@ -59,6 +58,7 @@ import { formatDate, formatDateTime, formatNumber, localizeDigits, t } from '../
 import { MemberDrawer } from '../members/MemberDrawer';
 import { ColorPicker, ReferenceInput, TeamStatusBadge, refFields } from './shared';
 import { MembersImporter } from './MembersImporter';
+import { useOverlayParam } from '../../lib/useUrlState';
 
 type Dialog =
   | 'rename'
@@ -430,7 +430,7 @@ function ImportDialog({ team, opened, onClose }: { team: TeamDetailDto; opened: 
 
 function SupervisorHistory({ teamId }: { teamId: string }) {
   const history = useSupervisorHistory(teamId);
-  if (history.isLoading) return <LoadingBlock />;
+  if (history.isLoading) return <LoadingBlock variant="list" rows={3} />;
   if (history.isError) return <ErrorBlock error={history.error} />;
   return (
     <Table.ScrollContainer minWidth={520}>
@@ -470,10 +470,10 @@ export function TeamDetailPage() {
   const user = useAuthStore((s) => s.user);
   const team = useTeam(id);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [memberId, setMemberId] = useState<string | null>(null);
+  const member = useOverlayParam('member');
   const action = useTeamAction();
 
-  if (team.isLoading) return <LoadingBlock />;
+  if (team.isLoading) return <LoadingBlock variant="detail" header />;
   if (team.isError || !team.data) return <ErrorBlock error={team.error} onRetry={() => void team.refetch()} />;
   const tm = team.data;
   const isAdmin = can(user, 'teams.manageAll');
@@ -485,14 +485,13 @@ export function TeamDetailPage() {
 
   return (
     <>
-      <Anchor component={Link} to="/teams" size="sm" mb="xs" display="inline-block">
-        {t('teams.backToList')}
-      </Anchor>
       <VestBand color={tm.color.hex} className="surface-card nz-team-header">
         <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
           <Box style={{ minWidth: 0, flex: '1 1 280px' }}>
             <Group gap="sm" wrap="wrap">
-              <Title order={1}>{tm.name}</Title>
+              <Title order={1} tabIndex={-1}>
+                {tm.name}
+              </Title>
               <TeamStatusBadge status={tm.status} />
             </Group>
             <Group gap="lg" mt={6} wrap="wrap">
@@ -651,7 +650,7 @@ export function TeamDetailPage() {
                         variant="subtle"
                         size="compact-sm"
                         leftSection={<IconHistory size={16} />}
-                        onClick={() => setMemberId(m.id)}
+                        onClick={() => member.open(m.id)}
                         aria-label={t('members.historyOf', { name: m.fullName })}
                       >
                         {t('members.history')}
@@ -703,7 +702,7 @@ export function TeamDetailPage() {
           action.run(() => api.teams.reject(tm.id, { reason }), t('teams.rejected', { name: tm.name }))
         }
       />
-      <MemberDrawer memberId={memberId} onClose={() => setMemberId(null)} />
+      <MemberDrawer memberId={member.value} onClose={member.close} />
     </>
   );
 }

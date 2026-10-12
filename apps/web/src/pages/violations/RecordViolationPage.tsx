@@ -71,6 +71,7 @@ import { registerBackgroundSync } from '../../features/violations/offline/sync';
 import { uuidv4 } from '../../lib/uuid';
 import { useOnline } from '../../lib/useOnline';
 import { SeverityBadge, metres, useObjectUrl } from './parts';
+import { useStepParam } from '../../lib/useUrlState';
 
 // ---------------------------------------------------------------- hooks
 
@@ -437,7 +438,8 @@ export function RecordViolationPage() {
   const geo = useGeo();
   const now = useNow(1000);
   const online = useOnline();
-  const [step, setStep] = useState(0);
+  // The step is in the URL (?step=2…4): the browser back button returns to the previous step.
+  const wizard = useStepParam('step', STEPS.length);
   const [phase, setPhase] = useState<Phase>({ kind: 'form' });
   const [member, setMember] = useState<RosterRow | null>(null);
   const [idPhoto, setIdPhoto] = useState<Photo | null>(null);
@@ -454,7 +456,7 @@ export function RecordViolationPage() {
   const device = useMemo(() => deviceInfo(), []);
 
   const reset = () => {
-    setStep(0);
+    wizard.reset();
     setPhase({ kind: 'form' });
     setMember(null);
     setIdPhoto(null);
@@ -481,6 +483,13 @@ export function RecordViolationPage() {
       setBusy(null);
     }
   };
+
+  // A step can only be shown once the steps before it are complete (deep links, back/forward).
+  const reachable = !member ? 0 : !idPhoto ? 1 : evidence.length === 0 ? 2 : 3;
+  const step = Math.min(wizard.step, reachable);
+  useEffect(() => {
+    if (phase.kind === 'form' && wizard.step > reachable) wizard.go(reachable, 'replace');
+  }, [wizard.step, reachable, phase.kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const geoBlocked = geo.status === 'error' && (geo.error === 'denied' || geo.error === 'insecure');
   const canNext = [Boolean(member), Boolean(idPhoto), evidence.length > 0, true][step];
@@ -736,13 +745,13 @@ export function RecordViolationPage() {
         <Group justify="space-between" wrap="nowrap" gap="sm">
           <Button
             variant="default"
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            onClick={wizard.back}
             disabled={step === 0 || busy === 'save'}
           >
             {t('record.back')}
           </Button>
           {step < 3 ? (
-            <Button onClick={() => setStep((s) => s + 1)} disabled={!canNext || busy !== null} style={{ flex: 1 }}>
+            <Button onClick={wizard.next} disabled={!canNext || busy !== null} style={{ flex: 1 }}>
               {t('record.next')}
             </Button>
           ) : (

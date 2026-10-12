@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -38,6 +37,7 @@ import { ClusterMap } from './maps';
 import { SeverityBadge, SnapshotTeam, ViolationStatusBadge } from './parts';
 import { ViolationDrawer } from './ViolationDrawer';
 import { ViolationRowCard } from './MyViolationsPage';
+import { useOverlayParam } from '../../lib/useUrlState';
 
 const PAGE_SIZE = 25;
 
@@ -62,7 +62,6 @@ export function ViolationsListPage() {
   const api = useApi();
   const user = useAuthStore((s) => s.user);
   const { filter, set, reset } = useViolationFilters();
-  const [params, setParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [view, setView] = useState<'table' | 'cards'>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'cards' : 'table',
@@ -70,8 +69,10 @@ export function ViolationsListPage() {
   // Phones get the list first; the map is one tap away.
   const [showMap, setShowMap] = useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
   const [exporting, setExporting] = useState(false);
-  const openId = params.get('open');
-  const setOpen = (id: string | null) => setParams(id ? { open: id } : {}, { replace: true });
+  // The drawer is in the URL (?open=): deep-linkable, and back closes it.
+  const overlay = useOverlayParam('open');
+  const openId = overlay.value;
+  const setOpen = (id: string | null) => (id ? overlay.open(id) : overlay.close());
 
   useEffect(() => setPage(1), [filter]);
   const query = useMemo(() => ({ ...filter, page, pageSize: PAGE_SIZE }), [filter, page]);
@@ -172,7 +173,7 @@ export function ViolationsListPage() {
         />
       </Group>
 
-      {list.isLoading ? <LoadingBlock /> : null}
+      {list.isLoading ? <LoadingBlock variant="table" /> : null}
       {list.isError ? <ErrorBlock error={list.error} onRetry={() => void list.refetch()} /> : null}
       {data && data.total === 0 ? (
         <EmptyState

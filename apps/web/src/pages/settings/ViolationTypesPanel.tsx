@@ -140,7 +140,7 @@ export function ViolationTypesPanel() {
     }
   };
 
-  if (q.isLoading) return <LoadingBlock />;
+  if (q.isLoading) return <LoadingBlock variant="table" />;
   if (q.isError) return <ErrorBlock error={q.error} onRetry={() => void q.refetch()} />;
   const items = q.data ?? [];
   return (

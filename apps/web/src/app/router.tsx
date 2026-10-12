@@ -1,15 +1,17 @@
 import { Suspense, lazy, type ComponentType } from 'react';
 import { createBrowserRouter, createMemoryRouter, type RouteObject } from 'react-router-dom';
-import { LoadingBlock } from '../components/ui';
+import { LoadingBlock, type SkeletonVariant } from '../components/ui';
 
+/** Lazy route with a skeleton shaped like the page (rule 9), never a lone spinner. */
 function lazyPage<K extends string>(
   load: () => Promise<{ [P in K]: ComponentType }>,
   name: K,
+  variant: SkeletonVariant = 'list',
 ): ComponentType {
   const Page = lazy(() => load().then((m) => ({ default: m[name] as ComponentType })));
   return function LazyPage() {
     return (
-      <Suspense fallback={<LoadingBlock />}>
+      <Suspense fallback={<LoadingBlock variant={variant} header />}>
         <Page />
       </Suspense>
     );
@@ -33,41 +35,45 @@ import { SettingsPage } from '../pages/SettingsPage';
 
 
 // Phase 2 screens are split out of the main bundle (dnd-kit, exceljs, card templates).
-const TeamsPage = lazyPage(() => import('../pages/teams/TeamsPage'), 'TeamsPage');
-const TeamDetailPage = lazyPage(() => import('../pages/teams/TeamDetailPage'), 'TeamDetailPage');
-const FormationPage = lazyPage(() => import('../pages/teams/FormationPage'), 'FormationPage');
-const MembersPage = lazyPage(() => import('../pages/members/MembersPage'), 'MembersPage');
-const CardsPage = lazyPage(() => import('../pages/cards/CardsPage'), 'CardsPage');
-const CardHistoryPage = lazyPage(() => import('../pages/cards/CardHistoryPage'), 'CardHistoryPage');
-const TemplatesPage = lazyPage(() => import('../pages/cards/TemplatesPage'), 'TemplatesPage');
-const PrintView = lazyPage(() => import('../pages/cards/PrintView'), 'PrintView');
-const CalibrationPage = lazyPage(() => import('../pages/cards/CalibrationPage'), 'CalibrationPage');
-const ReferencePage = lazyPage(() => import('../pages/settings/ReferencePage'), 'ReferencePage');
+const TeamsPage = lazyPage(() => import('../pages/teams/TeamsPage'), 'TeamsPage', 'cards');
+const TeamDetailPage = lazyPage(() => import('../pages/teams/TeamDetailPage'), 'TeamDetailPage', 'detail');
+const FormationPage = lazyPage(() => import('../pages/teams/FormationPage'), 'FormationPage', 'board');
+const MembersPage = lazyPage(() => import('../pages/members/MembersPage'), 'MembersPage', 'table');
+const CardsPage = lazyPage(() => import('../pages/cards/CardsPage'), 'CardsPage', 'cards');
+const CardHistoryPage = lazyPage(() => import('../pages/cards/CardHistoryPage'), 'CardHistoryPage', 'table');
+const TemplatesPage = lazyPage(() => import('../pages/cards/TemplatesPage'), 'TemplatesPage', 'cards');
+const PrintView = lazyPage(() => import('../pages/cards/PrintView'), 'PrintView', 'cards');
+const CalibrationPage = lazyPage(() => import('../pages/cards/CalibrationPage'), 'CalibrationPage', 'form');
+const ReferencePage = lazyPage(() => import('../pages/settings/ReferencePage'), 'ReferencePage', 'table');
 // Phase 3: violations (Leaflet, ECharts and image compression stay out of the main bundle).
 const RecordViolationPage = lazyPage(
   () => import('../pages/violations/RecordViolationPage'),
   'RecordViolationPage',
+  'form',
 );
-const MyViolationsPage = lazyPage(() => import('../pages/violations/MyViolationsPage'), 'MyViolationsPage');
-const PendingSyncPage = lazyPage(() => import('../pages/violations/MyViolationsPage'), 'PendingSyncPage');
+const MyViolationsPage = lazyPage(() => import('../pages/violations/MyViolationsPage'), 'MyViolationsPage', 'list');
+const PendingSyncPage = lazyPage(() => import('../pages/violations/MyViolationsPage'), 'PendingSyncPage', 'list');
 const ViolationsListPage = lazyPage(
   () => import('../pages/violations/ViolationsListPage'),
   'ViolationsListPage',
+  'table',
 );
 const ViolationsDashboardPage = lazyPage(
   () => import('../pages/violations/ViolationsDashboardPage'),
   'ViolationsDashboardPage',
+  'dashboard',
 );
 const TeamViolationsPage = lazyPage(
   () => import('../pages/violations/TeamViolationsPage'),
   'TeamViolationsPage',
+  'list',
 );
 
 // Phase 4: projects and the Gantt (dnd-kit, exceljs and the scheduling engine stay lazy).
-const ProjectsPage = lazyPage(() => import('../pages/projects/ProjectsPage'), 'ProjectsPage');
-const ProjectPage = lazyPage(() => import('../pages/projects/ProjectPage'), 'ProjectPage');
-const MyTasksPage = lazyPage(() => import('../pages/projects/MyTasksPage'), 'MyTasksPage');
-const CalendarsPage = lazyPage(() => import('../pages/settings/CalendarsPage'), 'CalendarsPage');
+const ProjectsPage = lazyPage(() => import('../pages/projects/ProjectsPage'), 'ProjectsPage', 'cards');
+const ProjectPage = lazyPage(() => import('../pages/projects/ProjectPage'), 'ProjectPage', 'gantt');
+const MyTasksPage = lazyPage(() => import('../pages/projects/MyTasksPage'), 'MyTasksPage', 'tasks');
+const CalendarsPage = lazyPage(() => import('../pages/settings/CalendarsPage'), 'CalendarsPage', 'form');
 
 export const routes: RouteObject[] = [
   {

@@ -6,6 +6,7 @@ import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../componen
 import { t } from '../../i18n';
 import { ViolationRowCard } from './MyViolationsPage';
 import { ViolationDrawer } from './ViolationDrawer';
+import { useOverlayParam } from '../../lib/useUrlState';
 
 /**
  * «مخالفات فرقي» (brief §7.6): read-only, own teams only, with responses/objections. The API
@@ -15,10 +16,10 @@ import { ViolationDrawer } from './ViolationDrawer';
 export function TeamViolationsPage() {
   const { visible, loading } = useTeamViolationsVisible();
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState<string | null>(null);
+  const overlay = useOverlayParam('open');
   const list = useViolations({ page, pageSize: 20 }, visible);
 
-  if (loading) return <LoadingBlock />;
+  if (loading) return <LoadingBlock variant="list" header />;
   if (!visible) {
     return (
       <>
@@ -35,7 +36,7 @@ export function TeamViolationsPage() {
       <Alert color="slate" variant="light" mb="md" icon={<IconShieldCheck size={18} />}>
         <Text size="sm">{t('teamv.readOnly')}</Text>
       </Alert>
-      {list.isLoading ? <LoadingBlock /> : null}
+      {list.isLoading ? <LoadingBlock variant="cards" rows={4} /> : null}
       {list.isError ? <ErrorBlock error={list.error} onRetry={() => void list.refetch()} /> : null}
       {data && data.total === 0 ? (
         <EmptyState icon={IconShieldCheck} title={t('teamv.emptyTitle')} body={t('teamv.emptyBody')} />
@@ -44,13 +45,13 @@ export function TeamViolationsPage() {
         <Stack gap="sm">
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
             {data.items.map((v) => (
-              <ViolationRowCard key={v.id} v={v} onOpen={() => setOpen(v.id)} />
+              <ViolationRowCard key={v.id} v={v} onOpen={() => overlay.open(v.id)} />
             ))}
           </SimpleGrid>
           {pages > 1 ? <Pagination value={page} onChange={setPage} total={pages} mt="sm" /> : null}
         </Stack>
       ) : null}
-      <ViolationDrawer id={open} onClose={() => setOpen(null)} />
+      <ViolationDrawer id={overlay.value} onClose={overlay.close} />
     </Box>
   );
 }

@@ -29,6 +29,7 @@ import { formatDate, formatNumber, t } from '../../i18n';
 import { riyadhToday } from '../../features/projects/engine';
 import './projects.css';
 import { ProgressLine, ProjectStatusBadge, PROJECT_STATUSES, projectStatusLabel } from './parts';
+import { useOverlayParam } from '../../lib/useUrlState';
 
 type Filter = 'OPEN' | 'ALL' | NonNullable<ProjectListQuery['status']>;
 
@@ -67,7 +68,10 @@ export function ProjectsPage() {
   const [filter, setFilter] = useState<Filter>('OPEN');
   const [search, setSearch] = useState('');
   const [q] = useDebouncedValue(search, 250);
-  const [creating, setCreating] = useState(false);
+  // «إنشاء» is a URL (?create=1): the command palette opens it, and back closes it.
+  const create = useOverlayParam('create');
+  const creating = create.value === '1';
+  const setCreating = (on: boolean) => (on ? create.open('1') : create.close());
   const query: ProjectListQuery = {
     ...(filter === 'OPEN' ? {} : { status: filter }),
     ...(q.trim() ? { q: q.trim() } : {}),
@@ -110,7 +114,7 @@ export function ProjectsPage() {
         />
       </Group>
       {projects.isLoading ? (
-        <LoadingBlock />
+        <LoadingBlock variant="cards" />
       ) : projects.isError ? (
         <ErrorBlock error={projects.error} onRetry={() => void projects.refetch()} />
       ) : projects.data?.length ? (
@@ -152,8 +156,8 @@ function CreateProjectDialog({ opened, onClose }: { opened: boolean; onClose(): 
       const p = await api.projects.create({ ...data, ...(calendarId ? { calendarId } : {}) });
       void qc.invalidateQueries({ queryKey: ['projects'] });
       notifications.show({ color: 'ok', message: t('projects.created', { name: p.name }) });
-      onClose();
-      navigate(`/projects/${p.id}`);
+      // Replace the ?create=1 entry: back from the new project returns to the list.
+      navigate(`/projects/${p.id}`, { replace: true });
     } catch (err) {
       if (err instanceof ApiError && Object.keys(err.fieldErrors).length) form.setErrors(err.fieldErrors);
       setError(err);

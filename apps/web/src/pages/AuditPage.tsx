@@ -316,7 +316,7 @@ export function AuditPage() {
       </Card>
 
       {q.isLoading ? (
-        <LoadingBlock />
+        <LoadingBlock variant="table" />
       ) : q.isError ? (
         <ErrorBlock error={q.error} onRetry={() => void q.refetch()} />
       ) : !q.data?.items.length ? (

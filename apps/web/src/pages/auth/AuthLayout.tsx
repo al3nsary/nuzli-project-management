@@ -1,12 +1,16 @@
-import type { ReactNode } from 'react';
-import { Box, Stack, Text, Title } from '@mantine/core';
+import { useEffect, type ReactNode } from 'react';
+import { Title, Text } from '@mantine/core';
 import { IS_DEMO } from '../../api';
+import { documentTitle } from '../../app/nav';
 import { t } from '../../i18n';
-import { VestBand } from '../../theme/VestBand';
+import { brandUrl, NozolyCredit } from '../../components/Brand';
 
 /**
- * Public pages: a quiet --ink brand column on the inline-start (right in RTL) on wide screens,
- * the form on --ground. On phones the brand collapses into a compact header.
+ * Public pages (login, register, pending, forgot/reset/change password) — owner request A7.
+ * Desktop: a split screen. The Muhsen green panel on the inline start carries the Muhsen lockup
+ * (white, 168px), the pattern at ≤ .06 and one value line; the form panel carries «نُزلي» and
+ * «تطوير نُزلي» with the Nozoly logo (green by day, light by night). Phones: stacked, like the
+ * Muhsen app login (green header, white sheet).
  */
 export function AuthLayout({
   title,
@@ -19,69 +23,63 @@ export function AuthLayout({
   children: ReactNode;
   width?: number;
 }) {
+  useEffect(() => {
+    document.title = documentTitle(title, t('app.name'));
+  }, [title]);
+
   return (
-    <Box
-      mih="100dvh"
-      style={{ display: 'flex', flexDirection: 'column', background: 'var(--ground)' }}
-    >
+    <div className="nz-auth">
       {IS_DEMO ? (
         <div className="demo-strip" role="note">
           {t('shell.demoStrip')}
         </div>
       ) : null}
-      <Box style={{ flex: 1, display: 'flex' }}>
-        <Box
-          visibleFrom="md"
-          style={{
-            flex: '0 0 380px',
-            background: 'var(--sidebar)',
-            color: 'var(--sidebar-text)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            padding: 40,
-          }}
-        >
-          <VestBand color="#5FB3B8">
-            <Text className="display" fz="2.25rem" lh={1.15} c="var(--sidebar-text)">
-              {t('app.name')}
-            </Text>
-            <Text c="var(--sidebar-muted)" mt={4}>
-              {t('app.tagline')}
-            </Text>
-          </VestBand>
-          <Text fz="sm" c="var(--sidebar-muted)" maw={280}>
-            {t('auth.sideNote')}
-          </Text>
-        </Box>
-        <Box
-          style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}
-          px="md"
-          py={{ base: 'lg', sm: 56 }}
-        >
-          <Stack w="100%" maw={width} gap="lg">
-            <Box hiddenFrom="md">
-              <VestBand>
-                <Text className="display" fz="1.75rem" lh={1.2}>
-                  {t('app.name')}
-                </Text>
-                <Text c="dimmed" fz="sm">
-                  {t('app.tagline')}
-                </Text>
-              </VestBand>
-            </Box>
-            <Box>
-              <Title order={1}>{title}</Title>
+      <div className="nz-auth-grid">
+        <aside className="nz-auth-hero" aria-label={t('brand.system')}>
+          <img className="nz-auth-pattern" src={brandUrl('muhsen-pattern.png')} alt="" aria-hidden draggable={false} />
+          <div className="nz-auth-hero-in">
+            <img
+              className="nz-auth-lockup"
+              src={brandUrl('muhsen-lockup-white.png')}
+              alt={t('brand.muhsenLogo')}
+              width={168}
+              draggable={false}
+            />
+            <div className="nz-auth-value">
+              <p className="nz-auth-line">{t('brand.valueLine')}</p>
+              <p className="nz-auth-cap">{t('brand.valueCaption')}</p>
+            </div>
+            <p className="nz-auth-system">
+              <span className="nz-auth-dot" aria-hidden />
+              {t('brand.system')}
+            </p>
+          </div>
+        </aside>
+
+        <main className="nz-auth-main" id="main">
+          <div className="nz-auth-sheet" style={{ maxWidth: width }}>
+            <header className="nz-auth-brand">
+              <span className="nz-auth-name">{t('app.name')}</span>
+              <span className="nz-auth-tag">{t('app.tagline')}</span>
+            </header>
+            <div className="nz-auth-head">
+              <Title order={1} tabIndex={-1}>
+                {title}
+              </Title>
               {subtitle ? (
-                <Text c="dimmed" mt={4}>
+                <Text c="dimmed" mt={4} size="sm">
                   {subtitle}
                 </Text>
               ) : null}
-            </Box>
-            {children}
-          </Stack>
-        </Box>
-      </Box>
-    </Box>
+            </div>
+            <div className="nz-auth-body">{children}</div>
+            <footer className="nz-auth-foot">
+              <NozolyCredit variant="green" className="nz-credit--day" />
+              <NozolyCredit variant="light" className="nz-credit--night" />
+            </footer>
+          </div>
+        </main>
+      </div>
+    </div>
   );
 }

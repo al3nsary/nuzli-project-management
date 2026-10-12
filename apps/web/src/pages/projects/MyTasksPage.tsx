@@ -23,7 +23,7 @@ const BUCKET_TONE: Record<Bucket, string> = { overdue: 'var(--breach)', soon: 'v
 
 export function MyTasksPage() {
   const tasks = useMyTasks();
-  if (tasks.isLoading) return <LoadingBlock />;
+  if (tasks.isLoading) return <LoadingBlock variant="tasks" header />;
   if (tasks.isError) return <ErrorBlock error={tasks.error} onRetry={() => void tasks.refetch()} />;
   const all = tasks.data ?? [];
   const groups: Record<Bucket, MyTaskDto[]> = { overdue: [], soon: [], later: [], done: [] };

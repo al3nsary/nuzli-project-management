@@ -1,355 +1,170 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useMatches } from 'react-router-dom';
-import {
-  ActionIcon,
-  AppShell,
-  Avatar,
-  Badge,
-  Box,
-  Burger,
-  Button,
-  Group,
-  Menu,
-  Modal,
-  Stack,
-  Text,
-  UnstyledButton,
-} from '@mantine/core';
-import {
-  IconAlertTriangle,
-  IconChevronDown,
-  IconLogout,
-  IconRefresh,
-  IconUserCircle,
-  IconWifiOff,
-  IconX,
-} from '@tabler/icons-react';
-import { can } from '@nuzli/shared';
-import { NAV } from './nav';
-import { NotificationBell } from './NotificationBell';
-import { useSessionActions } from './useSessionActions';
-import { useAuthStore } from '../stores/auth';
-import { useApi } from '../api/context';
-import { useRegistrations, useTeamViolationsVisible } from '../api/queries';
-import { offlineDb } from '../features/violations/offline/db';
-import { unsyncedCount } from '../features/violations/offline/outbox';
-import { useUnsyncedCount } from '../features/violations/offline/runtime';
-import { useOnline } from '../lib/useOnline';
-import { MonitorBottomBar } from './MonitorBottomBar';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { Outlet, useLocation, useMatches, useNavigationType } from 'react-router-dom';
+import { useMediaQuery } from '@mantine/hooks';
 import { IS_DEMO } from '../api';
-import { formatNumber, t } from '../i18n';
-import { VestBand } from '../theme/VestBand';
-import { roleLabel } from '../components/ui';
+import { t } from '../i18n';
+import { documentTitle } from './nav';
+import { Sidebar } from './shell/Sidebar';
+import { OfflineBanner, TopBar } from './shell/TopBar';
+import { CommandPalette } from './shell/CommandPalette';
+import { ShortcutSheet, useShortcuts } from './shell/shortcuts';
+import { useShellStore } from './shell/store';
+import { useNavBadges, useNavModel } from './shell/useNavModel';
+import { RoleBottomBar, hasBottomBar } from './MonitorBottomBar';
 
-const HEADER = 60;
-const STRIP = 30;
+/** Scroll positions per history entry (rule 6): restored on back/forward, top on a new page. */
+const scrollPositions = new Map<string, number>();
 
-export function initials(name: string) {
-  const parts = name
-    .trim()
-    .split(/\s+/)
-    .filter((p) => p !== 'بن' && p !== 'بنت');
-  return parts
-    .slice(0, 2)
-    .map((p) => p.replace(/^ال/, '')[0] ?? '')
-    .join(' ');
+/** The stage scrolls (Muhsen Control `.view`), so the side and the top bar never move. */
+export function stageScroller(): HTMLElement | null {
+  return typeof document === 'undefined' ? null : document.getElementById('nz-stage');
 }
 
-function Brand() {
-  return (
-    <VestBand color="#5FB3B8" style={{ borderRadius: 8 }}>
-      <Box py={4}>
-        <Text className="display" fz="1.375rem" c="var(--sidebar-text)" lh={1.2}>
-          {t('app.name')}
-        </Text>
-        <Text fz="xs" c="var(--sidebar-muted)">
-          {t('app.tagline')}
-        </Text>
-      </Box>
-    </VestBand>
-  );
+function safeScrollTo(y: number) {
+  const el = stageScroller();
+  try {
+    if (el) el.scrollTo({ top: y, left: 0, behavior: 'instant' as ScrollBehavior });
+  } catch {
+    if (el) el.scrollTop = y;
+  }
 }
 
-function NavCount() {
-  const user = useAuthStore((s) => s.user);
-  const reg = useRegistrations({ pageSize: 1 }, can(user, 'registrations.review'));
-  const total = reg.data?.total ?? 0;
-  if (!total) return null;
-  return (
-    <Badge
-      className="nz-count"
-      color="signal"
-      variant="filled"
-      size="sm"
-      aria-label={String(total)}
-    >
-      {formatNumber(total)}
-    </Badge>
-  );
-}
-
-/** Unsynced violations on this device (badge on «بانتظار المزامنة»). */
-function OutboxCount() {
-  const user = useAuthStore((s) => s.user);
-  const n = useUnsyncedCount(user?.id);
-  if (!n) return null;
-  return (
-    <Badge className="nz-count" color="signal" variant="filled" size="sm" aria-label={t('outbox.badgeAria', { n })}>
-      {formatNumber(n)}
-    </Badge>
-  );
-}
-
-function OfflineChip() {
-  const online = useOnline();
-  if (online) return null;
-  return (
-    <Badge color="signal" variant="light" size="lg" leftSection={<IconWifiOff size={14} />} className="nz-offline-chip">
-      {t('shell.offline')}
-    </Badge>
-  );
-}
-
-export function DemoResetButton({ variant = 'sidebar' }: { variant?: 'sidebar' | 'menu' }) {
-  const api = useApi();
-  const { resetDemo } = useSessionActions();
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  if (!api.demo) return null;
-  return (
-    <>
-      {variant === 'sidebar' ? (
-        <Button
-          variant="subtle"
-          color="slate"
-          leftSection={<IconRefresh size={16} />}
-          onClick={() => setOpen(true)}
-          styles={{ root: { color: 'var(--sidebar-muted)' } }}
-          fullWidth
-          justify="flex-start"
-        >
-          {t('shell.demoReset')}
-        </Button>
-      ) : null}
-      <Modal opened={open} onClose={() => setOpen(false)} title={t('shell.demoResetConfirmTitle')}>
-        <Stack>
-          <Text>{t('shell.demoResetConfirmBody')}</Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              color="breach"
-              loading={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await resetDemo();
-                } finally {
-                  setBusy(false);
-                  setOpen(false);
-                }
-              }}
-            >
-              {t('shell.demoReset')}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
-    </>
-  );
-}
-
-function UserMenu() {
-  const user = useAuthStore((s) => s.user);
-  const { logout } = useSessionActions();
-  const [unsynced, setUnsynced] = useState(0);
-  const [busy, setBusy] = useState(false);
-  if (!user) return null;
-  // Brief §7.4: warn before logout wipes violations that never reached the server.
-  const requestLogout = async () => {
-    const n = await unsyncedCount(offlineDb()).catch(() => 0);
-    if (n > 0) setUnsynced(n);
-    else void logout();
+/** Moves focus to the page h1 once it renders (lazy pages and skeletons render it later). */
+function focusPageHeading(signal: { cancelled: boolean }) {
+  let tries = 0;
+  const tick = () => {
+    if (signal.cancelled) return;
+    const h1 = document.querySelector<HTMLElement>('#main h1');
+    if (h1) {
+      if (!h1.hasAttribute('tabindex')) h1.setAttribute('tabindex', '-1');
+      h1.focus({ preventScroll: true });
+      return;
+    }
+    if (++tries < 40) window.setTimeout(tick, 75);
+    else document.getElementById('main')?.focus({ preventScroll: true });
   };
-  return (
-    <>
-    <Modal opened={unsynced > 0} onClose={() => setUnsynced(0)} title={t('shell.logoutUnsyncedTitle')}>
-      <Stack>
-        <Group gap="sm" wrap="nowrap" align="flex-start">
-          <IconAlertTriangle size={24} color="var(--breach)" style={{ flexShrink: 0 }} aria-hidden />
-          <Text>{t('shell.logoutUnsyncedBody', { n: unsynced })}</Text>
-        </Group>
-        <Group justify="flex-end" gap="xs">
-          <Button variant="default" onClick={() => setUnsynced(0)}>
-            {t('shell.logoutStay')}
-          </Button>
-          <Button
-            color="breach"
-            loading={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await logout();
-              } finally {
-                setBusy(false);
-                setUnsynced(0);
-              }
-            }}
-          >
-            {t('shell.logoutWipe', { n: unsynced })}
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-    <Menu position="bottom-end" width={240} shadow="md">
-      <Menu.Target>
-        <UnstyledButton
-          aria-label={t('shell.userMenu')}
-          style={{ minHeight: 44, borderRadius: 8 }}
-          px={6}
-        >
-          <Group gap={8} wrap="nowrap">
-            <Avatar color="field" radius="xl" size={34}>
-              {initials(user.fullName)}
-            </Avatar>
-            <Box visibleFrom="sm" style={{ minWidth: 0 }}>
-              <Text size="sm" fw={600} lh={1.3} truncate maw={180}>
-                {user.fullName}
-              </Text>
-              <Text size="xs" c="dimmed" lh={1.3}>
-                {roleLabel(user.role)}
-              </Text>
-            </Box>
-            <IconChevronDown size={16} color="var(--muted)" />
-          </Group>
-        </UnstyledButton>
-      </Menu.Target>
-      <Menu.Dropdown>
-        <Menu.Label>{user.fullName}</Menu.Label>
-        <Menu.Item component={NavLink} to="/profile" leftSection={<IconUserCircle size={18} />}>
-          {t('nav.profile')}
-        </Menu.Item>
-        <Menu.Divider />
-        <Menu.Item
-          color="breach"
-          leftSection={<IconLogout size={18} className="mirror-rtl" />}
-          onClick={() => void requestLogout()}
-        >
-          {t('shell.logout')}
-        </Menu.Item>
-      </Menu.Dropdown>
-    </Menu>
-    </>
-  );
+  tick();
+}
+
+/**
+ * Navigation lifecycle: document title (rule 4), scroll and focus (rule 6), recent items.
+ * Only a change of path counts as a new page; drawers and tabs live in the query string.
+ */
+function usePageLifecycle(title: string, recent: { kind: 'team' | 'project'; id: string; name: string } | null) {
+  const location = useLocation();
+  const navType = useNavigationType();
+  const lastPath = useRef<string | null>(null);
+  const lastKey = useRef(location.key);
+  const pushRecent = useShellStore((s) => s.pushRecent);
+
+  useEffect(() => {
+    document.title = documentTitle(title, t('app.name'));
+  }, [title]);
+
+  useEffect(() => {
+    if (recent) pushRecent({ ...recent, path: `/${recent.kind === 'team' ? 'teams' : 'projects'}/${recent.id}` });
+  }, [recent?.id, recent?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    try {
+      if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
+    } catch {
+      /* ignore */
+    }
+    const el = stageScroller();
+    if (!el) return;
+    const onScroll = () => scrollPositions.set(lastKey.current, el.scrollTop);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    lastKey.current = location.key;
+    const first = lastPath.current === null;
+    const changed = lastPath.current !== location.pathname;
+    lastPath.current = location.pathname;
+    if (first || !changed) return;
+    const signal = { cancelled: false };
+    const saved = scrollPositions.get(location.key);
+    if (navType === 'POP' && saved !== undefined) {
+      // Restore once the page is tall enough again (data from the cache or the network), for up
+      // to 1.5 s; a wheel or touch by the user stops it.
+      const el = stageScroller();
+      let tries = 0;
+      const stop = () => {
+        signal.cancelled = true;
+      };
+      el?.addEventListener('wheel', stop, { once: true, passive: true });
+      el?.addEventListener('touchstart', stop, { once: true, passive: true });
+      const tick = () => {
+        if (signal.cancelled || !el) return;
+        safeScrollTo(saved);
+        if (el.scrollHeight - el.clientHeight >= saved - 1 || ++tries > 30) return;
+        window.setTimeout(tick, 50);
+      };
+      tick();
+    } else {
+      safeScrollTo(0);
+    }
+    focusPageHeading(signal);
+    return () => {
+      signal.cancelled = true;
+    };
+  }, [location.key, location.pathname, navType]);
 }
 
 export function Layout() {
-  const user = useAuthStore((s) => s.user);
-  const [opened, setOpened] = useState(false);
+  const { user, tree, chain, trail, resolved, entityName } = useNavModel();
+  const badges = useNavBadges();
+  const mobile = useMediaQuery('(max-width: 47.99em)', false, { getInitialValueInEffect: false }) ?? false;
+  const mini = useShellStore((s) => s.mini) && !mobile;
+  const drawer = useShellStore((s) => s.drawer);
+  const setDrawer = useShellStore((s) => s.setDrawer);
+  const bindUser = useShellStore((s) => s.bindUser);
   const location = useLocation();
 
-  useEffect(() => setOpened(false), [location.pathname]);
+  useEffect(() => bindUser(user?.id ?? null), [user?.id, bindUser]);
+  // Any navigation closes the phone drawer.
+  useEffect(() => setDrawer(false), [location.pathname, setDrawer]);
+  useEffect(() => {
+    if (!mobile) setDrawer(false);
+  }, [mobile, setDrawer]);
+
+  useShortcuts(tree, { mobile });
+  const entity = resolved.meta?.entity && entityName && resolved.params.id
+    ? { kind: resolved.meta.entity, id: resolved.params.id, name: entityName }
+    : null;
+  usePageLifecycle(trail.title, entity);
+
   // Boards and wide grids (route handle fullWidth) use the whole width; forms stay at 1200px.
   const matches = useMatches();
-  const fullWidth = matches.some(
-    (m) => (m.handle as { fullWidth?: boolean } | undefined)?.fullWidth === true,
-  );
-
-  const teamGate = useTeamViolationsVisible(
-    can(user, 'violations.readOwnTeams') && !can(user, 'violations.readAll'),
-  );
-  const items = NAV.filter((item) => !item.permission || can(user, item.permission))
-    .filter((item) => !item.role || item.role === user?.role)
-    .filter(
-    (item) =>
-      item.gate !== 'teamViolations' || (!can(user, 'violations.readAll') && teamGate.visible),
-  );
-  // A monitor on a phone gets the three violation actions at the bottom (design skill).
-  const bottomBar = user?.role === 'MONITOR';
-  const headerHeight = HEADER + (IS_DEMO ? STRIP : 0);
+  const fullWidth = matches.some((m) => (m.handle as { fullWidth?: boolean } | undefined)?.fullWidth === true);
+  const bottomBar = hasBottomBar(user?.role);
 
   return (
-    <AppShell
-      layout="alt"
-      header={{ height: headerHeight }}
-      navbar={{ width: 248, breakpoint: 'sm', collapsed: { mobile: !opened } }}
-      padding="md"
-    >
-      <a href="#main" className="sr-only-focusable">
+    <div className={['nz-room', mini ? 'is-mini' : '', bottomBar ? 'nz-has-bottombar' : ''].filter(Boolean).join(' ')}>
+      <a href="#main" className="nz-skip">
         {t('app.skipToContent')}
       </a>
-      <AppShell.Header style={{ background: 'var(--surface)', borderColor: 'var(--line)' }}>
+      <Sidebar tree={tree} chain={chain} badges={badges} mobile={mobile} />
+      {mobile && drawer ? <div className="nz-scrim" onClick={() => setDrawer(false)} aria-hidden /> : null}
+      <div className="nz-stage" id="nz-stage">
         {IS_DEMO ? (
-          <div className="demo-strip" role="note" style={{ height: STRIP }}>
+          <div className="demo-strip" role="note">
             {t('shell.demoStrip')}
           </div>
         ) : null}
-        <Group h={HEADER} px="md" justify="space-between" wrap="nowrap">
-          <Group gap="xs" wrap="nowrap">
-            <Burger
-              opened={opened}
-              onClick={() => setOpened((o) => !o)}
-              hiddenFrom="sm"
-              size="sm"
-              aria-label={opened ? t('common.closeMenu') : t('common.openMenu')}
-            />
-            <Text className="display" hiddenFrom="sm" fz="lg">
-              {t('app.name')}
-            </Text>
-          </Group>
-          <Group gap={4} wrap="nowrap">
-            <OfflineChip />
-            <NotificationBell />
-            <UserMenu />
-          </Group>
-        </Group>
-      </AppShell.Header>
-
-      <AppShell.Navbar className="nz-sidebar" p="md" aria-label={t('nav.main')}>
-        <Group justify="space-between" wrap="nowrap" mb="lg">
-          <Brand />
-          <ActionIcon
-            hiddenFrom="sm"
-            variant="subtle"
-            color="gray"
-            size={44}
-            onClick={() => setOpened(false)}
-            aria-label={t('common.closeMenu')}
-            style={{ color: 'var(--sidebar-text)' }}
-          >
-            <IconX size={20} />
-          </ActionIcon>
-        </Group>
-        <AppShell.Section grow component="nav">
-          <Stack gap={4}>
-            {items.map((item) => (
-              <NavLink key={item.to} to={item.to} end={item.end ?? item.to === '/'} className="nz-nav-link">
-                <item.icon size={20} stroke={1.7} aria-hidden />
-                <span>{t(item.label)}</span>
-                {item.badge === 'registrations' ? <NavCount /> : null}
-                {item.badge === 'outbox' ? <OutboxCount /> : null}
-              </NavLink>
-            ))}
-          </Stack>
-        </AppShell.Section>
-        {IS_DEMO ? (
-          <AppShell.Section>
-            <DemoResetButton />
-          </AppShell.Section>
-        ) : null}
-      </AppShell.Navbar>
-
-      <AppShell.Main
-        id="main"
-        style={{ background: 'var(--ground)' }}
-        className={bottomBar ? 'nz-has-bottombar' : undefined}
-      >
-        <Box maw={fullWidth ? undefined : 1200} mx="auto" pb="xl">
-          <Outlet />
-        </Box>
-      </AppShell.Main>
-      {bottomBar ? <MonitorBottomBar /> : null}
-    </AppShell>
+        <TopBar trail={trail} mobile={mobile} />
+        <OfflineBanner />
+        <main id="main" tabIndex={-1} className="nz-main">
+          <div className={fullWidth ? 'nz-page nz-page--wide' : 'nz-page'} key={location.pathname}>
+            <Outlet />
+          </div>
+        </main>
+      </div>
+      {bottomBar && user ? <RoleBottomBar role={user.role} tree={tree} chain={chain} badges={badges} /> : null}
+      <CommandPalette user={user} tree={tree} />
+      <ShortcutSheet tree={tree} />
+    </div>
   );
 }

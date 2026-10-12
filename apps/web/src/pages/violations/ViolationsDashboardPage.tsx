@@ -147,7 +147,7 @@ export function ViolationsDashboardPage() {
         {t('vdash.printFilters', { from: filter.from ?? '—', to: filter.to ?? '—' })}
       </Text>
 
-      {q.isLoading ? <LoadingBlock /> : null}
+      {q.isLoading ? <LoadingBlock variant="dashboard" /> : null}
       {q.isError ? <ErrorBlock error={q.error} onRetry={() => void q.refetch()} /> : null}
       {s && s.total === 0 && s.thisWeek === 0 && s.previousWeek === 0 ? (
         <EmptyState
