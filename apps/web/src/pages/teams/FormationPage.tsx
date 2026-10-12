@@ -55,6 +55,7 @@ import { errorMessage } from '../../api/errors';
 import { useAllMembers, useInvalidateTeams, useTeams } from '../../api/queries';
 import { ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { VestBand } from '../../theme/VestBand';
+import { MemberAvatar } from '../../components/UserAvatar';
 import { scrollInline } from '../../lib/direction';
 import { formatNumber, localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
@@ -164,6 +165,7 @@ const MemberCard = memo(function MemberCard({
         aria-label={t('formation.dragLabel', { name: member.fullName })}
       >
         <IconGripVertical size={16} aria-hidden />
+        <MemberAvatar member={member} size={28} />
         <span className="nz-member-text">
           <span className="nz-member-name">{member.fullName}</span>
           <span className="nz-member-meta">

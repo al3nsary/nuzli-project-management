@@ -41,6 +41,11 @@ export const AUDIT_ACTIONS = [
   'team.visibility_changed',
   'member.created',
   'member.updated',
+  // Owner request A8
+  'user.photo_updated',
+  'user.photo_removed',
+  'member.photo_updated',
+  'member.photo_removed',
   'members.moved',
   'members.imported',
   'color.created',

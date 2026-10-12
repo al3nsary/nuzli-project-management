@@ -1564,3 +1564,41 @@ a.nz-chip--wait:hover {
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------ personal photos (A8) */
+.nz-avatar[data-photo] {
+  background: var(--panel2);
+}
+.nz-cropper {
+  display: block;
+  border-radius: var(--r3);
+  background: var(--panel2);
+  box-shadow: 0 0 0 1px var(--line), 0 18px 34px -22px rgba(11, 53, 39, 0.45);
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.nz-cropper:active {
+  cursor: grabbing;
+}
+.nz-crop-preview {
+  display: block;
+  background: var(--panel2);
+}
+.nz-crop-preview--circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(198, 168, 111, 0.55), 0 4px 12px -5px rgba(11, 53, 39, 0.45);
+}
+.nz-crop-preview--card {
+  width: 48px;
+  height: 64px;
+  border-radius: 3px;
+  border: 0.5px solid var(--line2);
+}
+.nz-card-photo-row {
+  padding: 8px;
+  border-radius: var(--r3);
+  background: var(--panel2);
+}

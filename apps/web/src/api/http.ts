@@ -13,6 +13,8 @@ import type {
   MemberDto,
   MembershipHistoryDto,
   PresignedUpload,
+  PresignUploadInput,
+  PhotoUrlDto,
   PrintBatchCreatedDto,
   PrintBatchDetailDto,
   PrintBatchDto,
@@ -49,6 +51,7 @@ import {
   toQueryString,
   type ApiClient,
   type CalendarListDto,
+  type PhotoTarget,
   type ReferenceRemoveResult,
   type SessionListener,
 } from './client';
@@ -357,7 +360,12 @@ export class HttpApi implements ApiClient {
   files: ApiClient['files'] = {
     presign: (input) => this.request<PresignedUpload>('POST', '/files/presign', { body: input }),
     /** Straight to object storage with exactly the presigned headers (no auth header, no cookies). */
-    upload: async (presigned, blob) => {
+    upload: async (presigned, blob, opts) => {
+      // Progress needs XMLHttpRequest (fetch has no upload progress); same request otherwise.
+      if (opts?.onProgress && typeof XMLHttpRequest !== 'undefined') {
+        await putWithProgress(presigned, blob, opts.onProgress);
+        return;
+      }
       let put: Response;
       try {
         put = await this.fetchImpl(presigned.url, {
@@ -375,6 +383,27 @@ export class HttpApi implements ApiClient {
     },
     confirm: (fileId) =>
       this.request<{ id: string; status: 'READY' }>('POST', `/files/${enc(fileId)}/confirm`),
+  };
+
+  // ---------------------------------------------------------------- personal photos (A8)
+
+  photos: ApiClient['photos'] = {
+    url: (target) => this.request<PhotoUrlDto>('GET', `${photoBase(target)}/photo-url`),
+    upload: async (target, blob, opts) => {
+      const presigned = await this.files.presign({
+        entityType: target.kind === 'member' ? 'member_photo' : 'user_photo',
+        entityId: target.id,
+        kind: 'PHOTO',
+        contentType: blob.type as PresignUploadInput['contentType'],
+        sizeBytes: blob.size,
+        ...(await sha256Hex(blob)),
+      });
+      await this.files.upload(presigned, blob, opts);
+      opts?.onProgress?.(1);
+      await this.files.confirm(presigned.fileId);
+      return { fileId: presigned.fileId };
+    },
+    remove: (target) => this.request<void>('DELETE', `${photoBase(target)}/photo`),
   };
 
   violationTypes: ApiClient['violationTypes'] = {
@@ -523,3 +552,38 @@ export class HttpApi implements ApiClient {
 }
 
 const enc = encodeURIComponent;
+
+/** `/me`, `/users/:id` or `/members/:id` (owner request A8). */
+function photoBase(target: PhotoTarget): string {
+  if (target.kind === 'me') return '/me';
+  return target.kind === 'member' ? `/members/${enc(target.id)}` : `/users/${enc(target.id)}`;
+}
+
+/** `{ sha256 }` for the presign body when WebCrypto exists (checked again on confirm). */
+async function sha256Hex(blob: Blob): Promise<{ sha256?: string }> {
+  try {
+    if (!globalThis.crypto?.subtle) return {};
+    const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+    return { sha256: Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('') };
+  } catch {
+    return {};
+  }
+}
+
+/** The presigned PUT through XMLHttpRequest for upload progress; no credentials, exact headers. */
+function putWithProgress(presigned: PresignedUpload, blob: Blob, onProgress: (f: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(presigned.method, presigned.url);
+    for (const [k, v] of Object.entries(presigned.headers)) xhr.setRequestHeader(k, v);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new ApiError(xhr.status, 'FILE_NOT_UPLOADED', ERRORS.FILE_NOT_UPLOADED));
+    xhr.onerror = () => reject(new ApiError(0, 'NETWORK_ERROR', t('error.network')));
+    xhr.send(blob);
+  });
+}

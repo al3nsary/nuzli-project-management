@@ -51,6 +51,10 @@ export async function refreshRoster(api: ApiClient, db: OfflineDb, userId: strin
     teamId: r.teamId,
     teamName: r.teamName,
     teamColor: r.teamColor,
+    // A8: only whether a photo exists (and its file id, to cache-bust the in-memory URL). The
+    // photo itself and its signed URL are never stored on the device (ADR-090).
+    photoFileId: r.photoFileId ?? null,
+    hasPhoto: r.hasPhoto ?? Boolean(r.photoFileId),
     searchName: normalizeArabic(r.fullName),
   }));
   await db.transaction('rw', db.roster, db.meta, async () => {

@@ -33,6 +33,7 @@ import {
   IconArrowsExchange,
 } from '@tabler/icons-react';
 import {
+  can,
   createUserSchema,
   suspendUserSchema,
   ROLES,
@@ -59,6 +60,8 @@ import {
 } from '../components/ui';
 import { formatDateTime, t, tKey } from '../i18n';
 import { useOverlayParam } from '../lib/useUrlState';
+import { UserPhotoAvatar } from '../components/UserAvatar';
+import { PhotoUploader } from '../components/photos/PhotoUploader';
 
 const STATUSES: UserStatus[] = ['ACTIVE', 'PENDING', 'SUSPENDED', 'REJECTED'];
 
@@ -368,6 +371,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 function UserDetail({ id, onClose }: { id: string | null; onClose: () => void }) {
   const q = useUser(id);
   const u = q.data;
+  const me = useAuthStore((s) => s.user);
   // Drawer position is physical: open it on the inline-end side.
   const { dir } = useDirection();
   return (
@@ -387,6 +391,17 @@ function UserDetail({ id, onClose }: { id: string | null; onClose: () => void })
           <Text fw={600} fz="lg" mb="sm">
             {u.fullName}
           </Text>
+          {/* Owner request A8: an admin sets or replaces any user's photo. */}
+          <Box mb="sm">
+            <PhotoUploader
+              target={u.id === me?.id ? { kind: 'me', id: u.id } : { kind: 'user', id: u.id }}
+              name={u.fullName}
+              hasPhoto={Boolean(u.hasPhoto ?? u.photoFileId)}
+              fileId={u.photoFileId}
+              canEdit={can(me, 'users.manageRoles') || u.id === me?.id}
+              size={72}
+            />
+          </Box>
           <Row label={t('users.col.role')}>
             <RoleBadge role={u.role} />
           </Row>
@@ -452,8 +467,9 @@ export function UsersPage() {
   const nameButton = (u: UserDto) => (
     <UnstyledButton
       onClick={() => detail.open(u.id)}
-      style={{ fontWeight: 600, color: 'var(--field)' }}
+      style={{ fontWeight: 600, color: 'var(--field)', display: 'inline-flex', alignItems: 'center', gap: 8 }}
     >
+      <UserPhotoAvatar user={u} self={u.id === me?.id} size={28} />
       {u.fullName}
       {u.id === me?.id ? (
         <Text span size="xs" c="dimmed" fw={400}>

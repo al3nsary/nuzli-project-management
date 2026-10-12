@@ -35,6 +35,8 @@ import { loadPhase2Seed, loadPhase3Seed, loadSeed } from './seed';
 import { createPhase2, type Phase2Api } from './phase2';
 import { createPhase3, type Phase3Api } from './phase3';
 import { createPhase4, type Phase4Api, type Phase4Hooks } from './phase4';
+import { createPhotos, type PhotoHooks } from './photos';
+import { seedPhotos } from './seedPhotos';
 import { buildProjectSeed } from './seedProjects';
 import { seedViolations } from './seedViolations';
 import { fail, hashPassword, newId, paginate, rejectFullIdInUrl, validate } from './util';
@@ -78,6 +80,9 @@ export class DemoApi implements ApiClient {
   calendars!: Phase4Api['calendars'];
   /** @internal Phase 4 hooks used by the files module and tests. */
   phase4!: Phase4Hooks;
+  photos!: ApiClient['photos'];
+  /** @internal Owner request A8 hooks (presign/confirm of personal photos, card photo URLs). */
+  photoHooks!: PhotoHooks;
 
   /**
    * The demo has no network, so offline is simulated for the "network-shaped" violation
@@ -93,6 +98,8 @@ export class DemoApi implements ApiClient {
     this.phase4 = p4;
     Object.assign(this, createPhase3(this));
     Object.assign(this, { projects: p4.projects, tasks: p4.tasks, dependencies: p4.dependencies, calendars: p4.calendars });
+    this.photoHooks = createPhotos(this);
+    this.photos = this.photoHooks.photos;
     const seed = loadSeed();
     const first = (role: Role) => seed.users.find((u) => u.role === role && u.status === 'ACTIVE');
     const accounts: DemoAccount[] = (['ADMIN', 'SUPERVISOR', 'MONITOR'] as Role[])
@@ -119,6 +126,22 @@ export class DemoApi implements ApiClient {
     await this.seedPhase2();
     await this.seedPhase3();
     await this.seedPhase4();
+    await seedPhotos(this.db);
+  }
+
+  /** @internal A8 hooks for the files module (phase3.ts). */
+  beforePhotoPresign(input: Parameters<PhotoHooks['beforePresign']>[0], actor: DemoUser) {
+    return this.photoHooks.beforePresign(input, actor);
+  }
+
+  /** @internal */
+  afterPhotoConfirm(file: DemoFile, actor: DemoUser) {
+    return this.photoHooks.afterConfirm(file, actor);
+  }
+
+  /** @internal Card previews and print runs (phase2.ts). */
+  photoUrlFor(fileId: string | null | undefined) {
+    return this.photoHooks.urlForFile(fileId);
   }
 
   /** @internal Phase 3 → Phase 4 hooks (task uploads). */
@@ -264,6 +287,8 @@ export class DemoApi implements ApiClient {
       lastLoginAt: u.lastLoginAt,
       createdAt: u.createdAt,
       preferences: u.preferences,
+      photoFileId: u.photoFileId ?? null,
+      hasPhoto: Boolean(u.photoFileId),
     };
   }
 

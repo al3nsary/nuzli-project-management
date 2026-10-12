@@ -27,6 +27,7 @@ import type {
   VisibilityMode,
   PresignUploadInput,
   PresignedUpload,
+  PhotoUrlDto,
   RosterResponse,
   ViolationDto,
   ViolationFilter,
@@ -194,6 +195,21 @@ export interface DemoControls {
   reset(): Promise<void>;
 }
 
+/**
+ * Whose personal photo (owner request A8, docs/photos.md). `me` is the signed-in user's own photo
+ * (`/me/photo…`); `id` is still their user id, the presign `entityId`. `user` is another
+ * user's (admin writes; any active user reads ACTIVE users), `member` a team member's.
+ */
+export type PhotoTarget =
+  | { kind: 'me'; id: string }
+  | { kind: 'user'; id: string }
+  | { kind: 'member'; id: string };
+
+export interface UploadOptions {
+  /** 0…1 while the bytes go to storage. */
+  onProgress?(fraction: number): void;
+}
+
 export type SessionListener = (session: AuthSession | null) => void;
 
 export interface ApiClient {
@@ -336,8 +352,20 @@ export interface ApiClient {
    */
   files: {
     presign(input: PresignUploadInput): Promise<PresignedUpload>;
-    upload(presigned: PresignedUpload, blob: Blob): Promise<void>;
+    upload(presigned: PresignedUpload, blob: Blob, opts?: UploadOptions): Promise<void>;
     confirm(fileId: string): Promise<{ id: string; status: 'READY' }>;
+  };
+
+  /**
+   * Personal photos (owner request A8, ADR-083). `upload` runs presign (`user_photo` /
+   * `member_photo`, kind PHOTO) → PUT → confirm; confirm links the file and deletes the previous
+   * one. `url` is a short-lived signed GET (404 when there is none or it is out of scope) —
+   * never store it. Writes: self or admin (users); admin or the leading supervisor (members).
+   */
+  photos: {
+    url(target: PhotoTarget): Promise<PhotoUrlDto>;
+    upload(target: PhotoTarget, blob: Blob, opts?: UploadOptions): Promise<{ fileId: string }>;
+    remove(target: PhotoTarget): Promise<void>;
   };
 
   violationTypes: {

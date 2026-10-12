@@ -38,11 +38,41 @@ export function PrintView() {
   // ADR-064: full IDs come only from the POST /cards/batches answer, held in memory for this run.
   const [runCards] = useState(() => getPrintRun(batchId));
   useEffect(() => () => dropPrintRun(batchId), [batchId]);
+  // A8: a print run carries fresh photo URLs; a reprint from history asks for them now
+  // (in memory only, never stored), and a missing one prints the initials.
+  const [reprintPhotos, setReprintPhotos] = useState<Map<string, string | null> | null>(() =>
+    runCards ? new Map() : null,
+  );
+  const items = batch.data?.items;
+  useEffect(() => {
+    if (runCards || !items) return;
+    let cancelled = false;
+    void Promise.all(
+      items.map(async (item) => {
+        const target = item.memberId
+          ? ({ kind: 'member', id: item.memberId } as const)
+          : item.userId
+            ? ({ kind: 'user', id: item.userId } as const)
+            : null;
+        if (!item.data.photoFileId || !target) return [item.id, null] as const;
+        const url = await api.photos
+          .url(target)
+          .then((r) => r.url)
+          .catch(() => null);
+        return [item.id, url] as const;
+      }),
+    ).then((pairs) => {
+      if (!cancelled) setReprintPhotos(new Map(pairs));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, items, runCards]);
 
   const live = templates.data?.find((x) => x.id === batch.data?.template.id);
   const template = batch.data ? templateFromSnapshot(batch.data.templateSnapshot, live) : null;
   const logoUrl = template ? logoFor(template, logos.data) : null;
-  const dataReady = Boolean(batch.data && template && !logos.isLoading);
+  const dataReady = Boolean(batch.data && template && !logos.isLoading && reprintPhotos);
 
   useEffect(() => {
     if (!dataReady) return;
@@ -143,8 +173,16 @@ export function PrintView() {
             logoUrl={logoUrl}
             cards={
               runCards
-                ? runCards.map((c, i) => ({ key: `${c.memberId ?? c.userId ?? 'card'}-${i}`, data: c.data }))
-                : batch.data.items.map((item) => ({ key: item.id, data: item.data }))
+                ? runCards.map((c, i) => ({
+                    key: `${c.memberId ?? c.userId ?? 'card'}-${i}`,
+                    data: c.data,
+                    photoUrl: c.photoUrl ?? null,
+                  }))
+                : batch.data.items.map((item) => ({
+                    key: item.id,
+                    data: item.data,
+                    photoUrl: reprintPhotos?.get(item.id) ?? null,
+                  }))
             }
           />
         </div>

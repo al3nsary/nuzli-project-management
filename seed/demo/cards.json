@@ -54,7 +54,11 @@
       "isDefault": true,
       "logoId": null,
       "archived": false,
-      "config": {}
+      "config": {
+        "fields": {
+          "photo": true
+        }
+      }
     },
     {
       "id": "00000000-0000-4000-8000-110000000002",
@@ -71,6 +75,9 @@
         "fontSizes": {
           "name": 12,
           "body": 7
+        },
+        "fields": {
+          "photo": true
         }
       }
     },
@@ -87,7 +94,7 @@
         "fields": {
           "department": false,
           "qr": false,
-          "photo": false
+          "photo": true
         },
         "fontSizes": {
           "name": 10,

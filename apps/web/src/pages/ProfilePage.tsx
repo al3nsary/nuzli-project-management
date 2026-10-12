@@ -14,6 +14,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   NOTIFICATION_TYPES,
+  can,
   updateProfileSchema,
   type NotificationType,
   type Role,
@@ -26,6 +27,7 @@ import { useAuthStore } from '../stores/auth';
 import { useZodForm } from '../forms/useZodForm';
 import { FormError, Ltr, Mobile, RoleBadge } from '../components/ui';
 import { ChangePasswordForm } from '../components/ChangePasswordForm';
+import { PhotoUploader } from '../components/photos/PhotoUploader';
 import { formatDate, formatNumber, t, tKey } from '../i18n';
 
 /** Which notification types can reach each role (brief §9). */
@@ -46,6 +48,22 @@ function useSaveProfile() {
     notifications.show({ color: 'ok', message: t('common.saved') });
     return user;
   };
+}
+
+/** Owner request A8: every user sets their own photo. */
+function PhotoCard() {
+  const user = useAuthStore((s) => s.user)!;
+  return (
+    <Card>
+      <PhotoUploader
+        target={{ kind: 'me', id: user.id }}
+        name={user.fullName}
+        hasPhoto={Boolean(user.hasPhoto ?? user.photoFileId)}
+        fileId={user.photoFileId}
+        canEdit={can(user, 'profile.update')}
+      />
+    </Card>
+  );
 }
 
 function AccountCard() {
@@ -261,6 +279,7 @@ export function ProfilePage() {
       <Grid gutter="md">
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Stack>
+            <PhotoCard />
             <AccountCard />
             <Card>
               <Title order={2} fz="lg" mb="md">

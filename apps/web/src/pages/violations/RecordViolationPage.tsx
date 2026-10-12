@@ -72,6 +72,7 @@ import { uuidv4 } from '../../lib/uuid';
 import { useOnline } from '../../lib/useOnline';
 import { SeverityBadge, metres, useObjectUrl } from './parts';
 import { useStepParam } from '../../lib/useUrlState';
+import { MemberAvatar } from '../../components/UserAvatar';
 
 // ---------------------------------------------------------------- hooks
 
@@ -290,6 +291,14 @@ function LocationPanel({
 
 // ---------------------------------------------------------------- step 1: member
 
+/** A roster row as an avatar subject (ids and the photo flag only — no photo is cached). */
+const rosterPerson = (r: RosterRow) => ({
+  id: r.memberId,
+  fullName: r.fullName,
+  hasPhoto: r.hasPhoto ?? false,
+  photoFileId: r.photoFileId ?? null,
+});
+
 function MemberStep({
   selected,
   onSelect,
@@ -335,8 +344,10 @@ function MemberStep({
           {t('record.member.selected')}
         </Text>
         <Card padding="md" className="nz-member-picked">
-          <Group justify="space-between" wrap="nowrap" align="flex-start">
-            <Stack gap={4} style={{ minWidth: 0 }}>
+          <Group wrap="nowrap" align="flex-start" gap="md">
+            {/* A8: the photo helps confirm the person before recording (online only). */}
+            <MemberAvatar member={rosterPerson(selected)} size={72} ring />
+            <Stack gap={4} style={{ minWidth: 0, flex: 1 }} align="flex-start">
               <Text fw={600} size="lg">
                 {selected.fullName}
               </Text>
@@ -350,10 +361,15 @@ function MemberStep({
                   {t('record.member.noTeam')}
                 </Text>
               )}
+              {selected.hasPhoto && !online ? (
+                <Text size="xs" c="dimmed">
+                  {t('photo.offline')}
+                </Text>
+              ) : null}
+              <Button variant="subtle" size="compact-md" px={0} onClick={() => onSelect(null)}>
+                {t('record.member.change')}
+              </Button>
             </Stack>
-            <Button variant="subtle" size="compact-md" onClick={() => onSelect(null)}>
-              {t('record.member.change')}
-            </Button>
           </Group>
         </Card>
       </Stack>
@@ -406,7 +422,8 @@ function MemberStep({
             onClick={() => onSelect(m)}
           >
             <Group justify="space-between" wrap="nowrap" gap="sm">
-              <Box style={{ minWidth: 0 }}>
+              <MemberAvatar member={rosterPerson(m)} size={40} />
+              <Box style={{ minWidth: 0, flex: 1 }}>
                 <Text fw={600} truncate>
                   {m.fullName}
                 </Text>

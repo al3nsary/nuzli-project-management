@@ -155,14 +155,14 @@ describe('print batches: masked at rest, full IDs only in the POST answer (ADR-0
   });
 });
 
-describe('uploads (ADR-066)', () => {
-  it('member_photo presign is closed (403)', async () => {
+describe('uploads (ADR-066, superseded for photos by A8 / ADR-083)', () => {
+  it('member_photo presign goes through the photo scope check (no entity → 400)', async () => {
     await loginAs(ADMIN);
     const err = await codeOf(
       api.files.presign({ entityType: 'member_photo', kind: 'PHOTO', contentType: 'image/jpeg', sizeBytes: 100 }),
     );
-    expect(err.code).toBe('FORBIDDEN');
-    expect(err.status).toBe(403);
+    expect(err.code).toBe('VALIDATION_FAILED');
+    expect(err.status).toBe(400);
   });
 });
 

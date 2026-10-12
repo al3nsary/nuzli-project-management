@@ -31,6 +31,8 @@ import { ErrorBlock, FormError, Ltr } from '../../components/ui';
 import { TeamBadge } from '../../theme/TeamBadge';
 import { formatDateTime, localizeDigits, t } from '../../i18n';
 import { ReferenceInput, refFields } from '../teams/shared';
+import { PhotoUploader } from '../../components/photos/PhotoUploader';
+import { useCanChangeMemberPhoto } from '../../features/photos/access';
 
 /** Membership history (brief §5.3): newest first; the open row is the current team. */
 export function MembershipTimeline({ memberId }: { memberId: string }) {
@@ -190,6 +192,7 @@ export function MemberDrawer({ memberId, onClose }: { memberId: string | null; o
   }, [memberId]);
 
   const m = member.data;
+  const photoEditable = useCanChangeMemberPhoto(m);
   return (
     <Drawer
       opened={Boolean(memberId)}
@@ -219,6 +222,15 @@ export function MemberDrawer({ memberId, onClose }: { memberId: string | null; o
               )}
             </Group>
           </Box>
+          {/* Owner request A8: the admin or the supervisor leading the member's team sets the photo. */}
+          <PhotoUploader
+            target={{ kind: 'member', id: m.id }}
+            name={m.fullName}
+            hasPhoto={Boolean(m.hasPhoto ?? m.photoFileId)}
+            fileId={m.photoFileId}
+            canEdit={photoEditable}
+            size={80}
+          />
           {editing ? (
             <EditMember member={m} onDone={() => setEditing(false)} />
           ) : (

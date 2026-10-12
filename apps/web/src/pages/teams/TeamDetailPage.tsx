@@ -15,6 +15,7 @@ import {
   TextInput,
   Textarea,
   Title,
+  UnstyledButton,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -56,6 +57,7 @@ import { EmptyState, ErrorBlock, FormError, Ltr, LoadingBlock } from '../../comp
 import { VestBand } from '../../theme/VestBand';
 import { formatDate, formatDateTime, formatNumber, localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
+import { MemberAvatar, PhotoAvatar } from '../../components/UserAvatar';
 import { ColorPicker, ReferenceInput, TeamStatusBadge, refFields } from './shared';
 import { MembersImporter } from './MembersImporter';
 import { useOverlayParam } from '../../lib/useUrlState';
@@ -496,9 +498,19 @@ export function TeamDetailPage() {
             </Group>
             <Group gap="lg" mt={6} wrap="wrap">
               <Text c="dimmed">{t('teams.colorName', { name: tm.color.name })}</Text>
-              <Text>
-                {t('teams.supervisorIs', { name: tm.supervisor?.fullName ?? t('teams.noSupervisor') })}
-              </Text>
+              <Group gap={8} wrap="nowrap">
+                {tm.supervisor ? (
+                  <PhotoAvatar
+                    target={tm.supervisor.id === user?.id ? { kind: 'me', id: tm.supervisor.id } : { kind: 'user', id: tm.supervisor.id }}
+                    name={tm.supervisor.fullName}
+                    size={30}
+                    ring
+                  />
+                ) : null}
+                <Text>
+                  {t('teams.supervisorIs', { name: tm.supervisor?.fullName ?? t('teams.noSupervisor') })}
+                </Text>
+              </Group>
               <Text className="num">{t('teams.memberCount', { count: tm.memberCount })}</Text>
               <Text c="dimmed" size="sm">
                 {t('teams.createdAt', { date: formatDate(tm.createdAt) })}
@@ -639,7 +651,15 @@ export function TeamDetailPage() {
               <Table.Tbody>
                 {tm.members.map((m) => (
                   <Table.Tr key={m.id}>
-                    <Table.Td fw={500}>{m.fullName}</Table.Td>
+                    <Table.Td fw={500}>
+                      <UnstyledButton
+                        onClick={() => member.open(m.id)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}
+                      >
+                        <MemberAvatar member={m} size={28} />
+                        {m.fullName}
+                      </UnstyledButton>
+                    </Table.Td>
                     <Table.Td>
                       <Ltr mono>{localizeDigits(m.nationalIdMasked)}</Ltr>
                     </Table.Td>

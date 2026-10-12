@@ -26,7 +26,7 @@ import { offlineDb } from '../../features/violations/offline/db';
 import { unsyncedCount } from '../../features/violations/offline/outbox';
 import { formatNumber, t } from '../../i18n';
 import { roleLabel } from '../../components/ui';
-import { UserAvatar } from '../../components/UserAvatar';
+import { UserPhotoAvatar } from '../../components/UserAvatar';
 import { NotificationBell } from '../NotificationBell';
 import { useSessionActions } from '../useSessionActions';
 import { useShellStore } from './store';
@@ -173,7 +173,7 @@ function UserMenu() {
       <Menu position="bottom-end" width={250}>
         <Menu.Target>
           <UnstyledButton className="nz-who" aria-label={t('shell.userMenu')}>
-            <UserAvatar name={user.fullName} size={34} />
+            <UserPhotoAvatar user={user} self size={34} ring />
             <span className="nz-who-text">
               <b>{user.fullName}</b>
               <span>{roleLabel(user.role)}</span>
@@ -183,7 +183,7 @@ function UserMenu() {
         </Menu.Target>
         <Menu.Dropdown>
           <div className="nz-who-head">
-            <UserAvatar name={user.fullName} size={40} />
+            <UserPhotoAvatar user={user} self size={40} ring />
             <div style={{ minWidth: 0 }}>
               <Text fw={700} size="sm" truncate>
                 {user.fullName}

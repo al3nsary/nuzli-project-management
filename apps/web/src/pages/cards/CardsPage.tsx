@@ -40,6 +40,7 @@ import { formatNumber, t, tKey } from '../../i18n';
 import { CardEditor, type EditableCard } from './CardEditor';
 import { CardStyles, FitCard, SAMPLE_CARD, logoFor, toTemplateLike } from './cardUtils';
 import { putPrintRun } from '../../features/cards/printRun';
+import { canChangeMemberPhoto, canChangeUserPhoto } from '../../features/photos/access';
 
 function TemplateChoice({
   template,
@@ -133,6 +134,7 @@ export function CardsPage() {
           data: { ...s.data },
           selected: true,
           saveBack: false,
+          photoUrl: s.photoUrl ?? null,
         })),
       );
       setActiveKey(null);
@@ -142,6 +144,43 @@ export function CardsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  /**
+   * A8: after a photo changes in the editor, ask the preview again and take only the photo
+   * (URL and file id) — the batch edits stay as they are.
+   */
+  const refreshPhotos = async () => {
+    if (!templateId) return;
+    try {
+      const res = await api.cards.preview({ templateId, teamIds, memberIds, includeSupervisors });
+      const byKey = new Map(
+        res.subjects.map((s) => [s.memberId ? `m:${s.memberId}` : `u:${s.userId}`, s] as const),
+      );
+      setCards((prev) =>
+        prev.map((c) => {
+          const s = byKey.get(c.key);
+          if (!s) return c;
+          const photoFileId = s.data.photoFileId ?? null;
+          return {
+            ...c,
+            photoUrl: s.photoUrl ?? null,
+            original: { ...c.original, photoFileId },
+            data: { ...c.data, photoFileId },
+          };
+        }),
+      );
+    } catch (err) {
+      setError(err);
+    }
+  };
+
+  const canChangePhoto = (c: EditableCard) => {
+    if (c.memberId) {
+      const m = members.data?.find((x) => x.id === c.memberId);
+      return canChangeMemberPhoto(user, m ?? { team: null }, teams.data);
+    }
+    return c.userId ? canChangeUserPhoto(user, c.userId) : false;
   };
 
   const print = async () => {
@@ -309,6 +348,8 @@ export function CardsPage() {
               activeKey={activeKey}
               onActivate={setActiveKey}
               onChange={setCards}
+              canChangePhoto={canChangePhoto}
+              onPhotoChanged={() => void refreshPhotos()}
             />
           )}
           <Card className="nz-print-bar" withBorder shadow="md" p="sm">

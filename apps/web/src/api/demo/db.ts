@@ -40,6 +40,8 @@ export interface DemoUser {
   /** ADR-062: consecutive failures and the short silent lock. */
   failedLogins?: number;
   lockedUntil?: string | null;
+  /** Owner request A8: the linked personal photo (`files` row, entityType user_photo). */
+  photoFileId?: string | null;
 }
 
 export interface DemoNotification {
@@ -241,7 +243,7 @@ export interface DemoFile {
   /** Task attachments removed by an admin or the uploader (ADR-058). */
   deletedAt?: string | null;
   /** Seeded photos are drawn on a canvas on first view (never real photos). */
-  placeholder?: { label: string; hue: number } | null;
+  placeholder?: { label: string; hue: number; portrait?: boolean } | null;
 }
 
 /** The fake bucket: object bytes by file id (ArrayBuffer, not Blob — see ADR-072). */

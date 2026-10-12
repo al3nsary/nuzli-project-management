@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   CARD_BASE_CSS,
   resolveCardDimensions,
+  waitForCardImages,
   type CardTemplateLike,
 } from '@nuzli/ui-print';
 import type {
@@ -119,7 +120,11 @@ export function FitCard({
   );
 }
 
-/** Waits until the self-hosted fonts and every image on the page are ready (docs/printing.md). */
+/**
+ * Waits until the self-hosted fonts and every card image (photos, logo, QR) are ready
+ * (docs/printing.md): fonts first, then `waitForCardImages` — a photo that fails or is slow
+ * never blocks printing for more than its timeout (owner request A8).
+ */
 export async function waitForPrintAssets(root: ParentNode = document) {
   if (typeof document !== 'undefined' && 'fonts' in document) {
     const loads = [
@@ -132,15 +137,5 @@ export async function waitForPrintAssets(root: ParentNode = document) {
     await Promise.all(loads);
     await document.fonts.ready;
   }
-  const images = Array.from(root.querySelectorAll('img'));
-  await Promise.all(
-    images.map((img) =>
-      img.complete
-        ? img.decode?.().catch(() => undefined)
-        : new Promise<void>((resolve) => {
-            img.addEventListener('load', () => resolve(), { once: true });
-            img.addEventListener('error', () => resolve(), { once: true });
-          }),
-    ),
-  );
+  return waitForCardImages(root);
 }

@@ -81,6 +81,8 @@ export interface DemoInternals {
   notify(userId: string, type: string, payload: Record<string, unknown>): Promise<unknown>;
   readSettings(): ReturnType<ApiClient['settings']['get']>;
   demoPasswordHash(): Promise<string>;
+  /** Owner request A8: a displayable URL for a linked photo file (cards); null when none. */
+  photoUrlFor?(fileId: string | null | undefined): Promise<string | null>;
 }
 
 export type Phase2Api = Pick<
@@ -240,6 +242,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       status: m.status,
       team: team ? summary(team, w) : null,
       photoFileId: m.photoFileId,
+      hasPhoto: Boolean(m.photoFileId),
     };
   }
 
@@ -1183,7 +1186,8 @@ export function createPhase2(api: DemoInternals): Phase2Api {
     }
     const user = item.userId ? await db.users.get(item.userId) : undefined;
     if (!user) fail('NOT_FOUND', { field: 'items' });
-    return { id: user.id, nationalId: user.nationalId, photoFileId: null, isMember: false };
+    // Owner request A8: supervisor cards carry the user's own photo.
+    return { id: user.id, nationalId: user.nationalId, photoFileId: user.photoFileId ?? null, isMember: false };
   }
 
   /** Client text fields + server-derived ID, QR and photo (ADR-064); the client's values are ignored. */
@@ -1192,7 +1196,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       ...data,
       nationalId: cardNationalId(config, subject.nationalId),
       qrValue: subject.id,
-      photoFileId: subject.isMember && config.fields.photo ? subject.photoFileId : null,
+      photoFileId: config.fields.photo ? subject.photoFileId : null,
     };
   }
 
@@ -1211,7 +1215,14 @@ export function createPhase2(api: DemoInternals): Phase2Api {
         const subject = await printSubject(item);
         data.nationalId = subject.nationalId;
       }
-      out.push({ memberId: item.memberId, userId: item.userId, data, nationalIdPrinted: item.nationalIdPrinted });
+      // A8: the photo is resolved for this run only (never stored); a replaced photo falls back
+      // to the subject's current one.
+      let photoUrl: string | null = null;
+      if (item.data.photoFileId && api.photoUrlFor) {
+        photoUrl = await api.photoUrlFor(item.data.photoFileId);
+        if (!photoUrl) photoUrl = await api.photoUrlFor((await printSubject(item)).photoFileId);
+      }
+      out.push({ memberId: item.memberId, userId: item.userId, data, nationalIdPrinted: item.nationalIdPrinted, photoUrl });
     }
     return out;
   }
@@ -1425,7 +1436,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
             teamName: team?.name ?? '',
             teamColor: color?.hex ?? '#1D5C63',
             qrValue: m.id,
-            photoFileId: m.photoFileId,
+            photoFileId: tpl.config.fields.photo ? m.photoFileId : null,
             ...(validUntil ? { validUntil } : {}),
           },
         });
@@ -1448,6 +1459,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
               teamName: team.name,
               teamColor: color?.hex ?? '#1D5C63',
               qrValue: sup.id,
+              photoFileId: tpl.config.fields.photo ? (sup.photoFileId ?? null) : null,
               roleLabel: t('role.SUPERVISOR'),
               ...(validUntil ? { validUntil } : {}),
             },
@@ -1481,6 +1493,10 @@ export function createPhase2(api: DemoInternals): Phase2Api {
             memberCount: data.memberIds.length,
           },
         });
+      }
+      // A8: short-lived photo URLs for the preview (member photo, or the supervisor's own).
+      for (const s of subjects) {
+        s.photoUrl = (await api.photoUrlFor?.(s.data.photoFileId)) ?? null;
       }
       return { template: await templateDto(tpl), subjects };
     },

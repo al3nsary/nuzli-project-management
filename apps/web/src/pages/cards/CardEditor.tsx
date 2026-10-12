@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Badge,
   Box,
@@ -13,11 +13,14 @@ import {
   Title,
   UnstyledButton,
 } from '@mantine/core';
-import { IconArrowBackUp, IconPencil } from '@tabler/icons-react';
+import { IconArrowBackUp, IconCamera, IconPencil } from '@tabler/icons-react';
 import { WorkCard } from '@nuzli/ui-print';
 import type { CardData, CardTemplateDto } from '@nuzli/shared';
 import { formatNumber, t } from '../../i18n';
 import { CardStyles, FitCard, toTemplateLike } from './cardUtils';
+import { UserAvatar } from '../../components/UserAvatar';
+import { PhotoUploaderModal } from '../../components/photos/PhotoUploader';
+import { useAuthStore } from '../../stores/auth';
 
 /** One card of the batch: the server preview plus this batch's edits (brief §8.1). */
 export interface EditableCard {
@@ -29,6 +32,11 @@ export interface EditableCard {
   selected: boolean;
   /** Write name / job title / department back to the member record. Members only. */
   saveBack: boolean;
+  /**
+   * Owner request A8: the short-lived signed URL from the preview (member photo, or the
+   * supervisor's own). Display only — never stored; the print run gets fresh ones.
+   */
+  photoUrl?: string | null;
 }
 
 const FIELDS = ['fullName', 'jobTitle', 'nationalId', 'department', 'teamName', 'validUntil'] as const;
@@ -48,6 +56,8 @@ export function CardEditor({
   activeKey,
   onActivate,
   onChange,
+  canChangePhoto,
+  onPhotoChanged,
 }: {
   template: CardTemplateDto;
   logoUrl: string | null;
@@ -55,8 +65,14 @@ export function CardEditor({
   activeKey: string | null;
   onActivate: (key: string | null) => void;
   onChange: (cards: EditableCard[]) => void;
+  /** Whether the viewer may change this card's subject photo (the API decides in the end). */
+  canChangePhoto?: (card: EditableCard) => boolean;
+  /** After a photo upload/removal: re-fetch the preview photos. */
+  onPhotoChanged?: () => void;
 }) {
   const like = useMemo(() => toTemplateLike(template), [template]);
+  const me = useAuthStore((s) => s.user);
+  const [photoFor, setPhotoFor] = useState<EditableCard | null>(null);
   const active = cards.find((c) => c.key === activeKey) ?? null;
   const selectedCount = cards.filter((c) => c.selected).length;
 
@@ -111,6 +127,32 @@ export function CardEditor({
                     </Button>
                   ) : null}
                 </Group>
+                {template.config.fields.photo ? (
+                  <Group gap="sm" wrap="nowrap" className="nz-card-photo-row">
+                    <UserAvatar name={active.data.fullName ?? ''} photoUrl={active.photoUrl} size={48} />
+                    <div style={{ minWidth: 0 }}>
+                      <Text size="sm" fw={600}>
+                        {t('cards.photo')}
+                      </Text>
+                      {!active.photoUrl ? (
+                        <Text size="xs" c="dimmed">
+                          {t('cards.noPhoto')}
+                        </Text>
+                      ) : null}
+                      {canChangePhoto?.(active) ? (
+                        <Button
+                          variant="subtle"
+                          size="compact-sm"
+                          px={0}
+                          leftSection={<IconCamera size={14} />}
+                          onClick={() => setPhotoFor(active)}
+                        >
+                          {t('cards.changePhoto')}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </Group>
+                ) : null}
                 <TextInput
                   label={t('cards.field.fullName')}
                   value={active.data.fullName ?? ''}
@@ -222,7 +264,7 @@ export function CardEditor({
                   style={{ display: 'block', width: '100%' }}
                 >
                   <FitCard template={like}>
-                    <WorkCard template={like} data={c.data} logoUrl={logoUrl} />
+                    <WorkCard template={like} data={c.data} logoUrl={logoUrl} photoUrl={c.photoUrl} />
                   </FitCard>
                 </UnstyledButton>
               </Box>
@@ -230,6 +272,26 @@ export function CardEditor({
           </div>
         </Grid.Col>
       </Grid>
+      {photoFor ? (
+        <PhotoUploaderModal
+          opened
+          onClose={() => setPhotoFor(null)}
+          target={
+            photoFor.memberId
+              ? { kind: 'member', id: photoFor.memberId }
+              : photoFor.userId === me?.id
+                ? { kind: 'me', id: photoFor.userId! }
+                : { kind: 'user', id: photoFor.userId! }
+          }
+          name={photoFor.original.fullName ?? ''}
+          hasPhoto={Boolean(photoFor.original.photoFileId)}
+          fileId={photoFor.original.photoFileId}
+          onChanged={() => {
+            setPhotoFor(null);
+            onPhotoChanged?.();
+          }}
+        />
+      ) : null}
     </>
   );
 }

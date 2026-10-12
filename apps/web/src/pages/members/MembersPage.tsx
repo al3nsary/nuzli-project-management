@@ -20,6 +20,7 @@ import { TeamBadge } from '../../theme/TeamBadge';
 import { localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from './MemberDrawer';
 import { useOverlayParam } from '../../lib/useUrlState';
+import { MemberAvatar } from '../../components/UserAvatar';
 
 const PAGE_SIZE = 25;
 
@@ -112,8 +113,9 @@ export function MembersPage() {
                           onClick={() => member.open(m.id)}
                           fw={600}
                           c="var(--field)"
-                          style={{ minHeight: 32 }}
+                          style={{ minHeight: 32, display: 'inline-flex', alignItems: 'center', gap: 8 }}
                         >
+                          <MemberAvatar member={m} size={28} />
                           {m.fullName}
                         </UnstyledButton>
                       </Table.Td>

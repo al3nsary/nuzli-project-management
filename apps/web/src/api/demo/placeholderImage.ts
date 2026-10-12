@@ -71,3 +71,74 @@ export async function drawPlaceholder(opts: {
   if (!blob) return fallback();
   return { data: await blob.arrayBuffer(), type: 'image/jpeg' };
 }
+
+/**
+ * Owner request A8: a generated placeholder portrait for seeded demo members and supervisors —
+ * an abstract silhouette in muted tones with a «تجريبية» tag. Never a real face or stock photo.
+ */
+export async function drawPortrait(opts: { hue: number; variant?: number }): Promise<{ data: ArrayBuffer; type: string }> {
+  if (typeof document === 'undefined' || /jsdom/i.test(navigator.userAgent)) return fallback();
+  const size = 600;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  let ctx: CanvasRenderingContext2D | null = null;
+  try {
+    ctx = canvas.getContext('2d');
+  } catch {
+    ctx = null;
+  }
+  if (!ctx) return fallback();
+  const h = opts.hue;
+  const v = (opts.variant ?? 0) % 3;
+  const bg = ctx.createLinearGradient(0, 0, size, size);
+  bg.addColorStop(0, `hsl(${h} 22% 84%)`);
+  bg.addColorStop(1, `hsl(${(h + 24) % 360} 18% 72%)`);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, size, size);
+  // Soft concentric rings behind the figure, so it reads as an illustration.
+  ctx.strokeStyle = `hsla(${h} 25% 96% / .35)`;
+  ctx.lineWidth = 10;
+  for (let r = 120; r < 520; r += 70) {
+    ctx.beginPath();
+    ctx.arc(size / 2, size * 0.42, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  const ink = `hsl(${h} 16% ${38 + v * 6}%)`;
+  ctx.fillStyle = ink;
+  // Shoulders.
+  ctx.beginPath();
+  ctx.ellipse(size / 2, size * 0.98, size * (0.36 + v * 0.03), size * 0.32, 0, Math.PI, 0);
+  ctx.fill();
+  // Neck.
+  ctx.fillRect(size / 2 - 38, size * 0.52, 76, 90);
+  // Head (a plain oval — no features).
+  ctx.beginPath();
+  ctx.ellipse(size / 2, size * 0.4, 104 - v * 6, 124 - v * 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (v === 1) {
+    // A headscarf-like outline for variety, still abstract.
+    ctx.beginPath();
+    ctx.ellipse(size / 2, size * 0.42, 132, 150, 0, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.lineWidth = 26;
+    ctx.strokeStyle = `hsl(${h} 14% 30%)`;
+    ctx.stroke();
+  }
+  // Demo tag.
+  ctx.fillStyle = 'rgba(255,255,255,.78)';
+  ctx.fillRect(size / 2 - 92, size - 76, 184, 44);
+  ctx.fillStyle = '#0D1A13';
+  ctx.direction = 'rtl';
+  ctx.textAlign = 'center';
+  ctx.font = '600 26px "IBM Plex Sans Arabic", system-ui, sans-serif';
+  ctx.fillText('صورة تجريبية', size / 2, size - 45);
+  const blob = await new Promise<Blob | null>((resolve) => {
+    try {
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.85);
+    } catch {
+      resolve(null);
+    }
+  });
+  if (!blob) return fallback();
+  return { data: await blob.arrayBuffer(), type: 'image/jpeg' };
+}

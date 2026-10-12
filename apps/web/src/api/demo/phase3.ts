@@ -56,6 +56,12 @@ export interface Phase3Internals extends DemoInternals {
   /** Phase 4 hook: who may upload to a task (admins and the assignee, ADR-058). */
   beforeTaskPresign?(input: { entityId?: string; kind?: string }, actor: DemoUser): Promise<void>;
   afterTaskConfirm?(file: DemoFile, actor: DemoUser): Promise<void>;
+  /** Owner request A8 hooks (demo/photos.ts): scope checks at presign, linking at confirm. */
+  beforePhotoPresign?(
+    input: { entityType: string; entityId?: string; kind?: string; contentType: string; sizeBytes: number },
+    actor: DemoUser,
+  ): Promise<void>;
+  afterPhotoConfirm?(file: DemoFile, actor: DemoUser): Promise<void>;
   /** True when the demo should behave as if the network were down (navigator offline or forced). */
   isOffline(): boolean;
 }
@@ -338,8 +344,12 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       const actor = await api.actor();
       const data = validate(presignUploadSchema, input);
       const settings = await api.readSettings();
-      // ADR-066: member photos are closed until a scoped route exists; logos are admin-only, no entityId.
-      if (data.entityType === 'member_photo') fail('FORBIDDEN');
+      // ADR-083: personal photos go through the photo hooks (refused when none is registered);
+      // logos are admin-only, no entityId.
+      if (data.entityType === 'member_photo' || data.entityType === 'user_photo') {
+        if (!api.beforePhotoPresign) fail('FORBIDDEN');
+        await api.beforePhotoPresign(data, actor);
+      }
       if (data.entityType === 'logo' && (data.entityId || !can(actor, 'logos.manage'))) fail('FORBIDDEN');
       if (data.entityType === 'task') await api.beforeTaskPresign?.(data, actor);
       if (data.entityType === 'violation') {
@@ -431,6 +441,9 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       // Phase 4 hook: a confirmed task upload is attached and audited once (ADR-058).
       const confirmed = await db.files.get(fileId);
       if (confirmed?.entityType === 'task') await api.afterTaskConfirm?.(confirmed, actor);
+      if (confirmed?.entityType === 'user_photo' || confirmed?.entityType === 'member_photo') {
+        await api.afterPhotoConfirm?.(confirmed, actor);
+      }
       return result;
     },
   };
@@ -586,6 +599,8 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
           teamId: team.id,
           teamName: team.name,
           teamColor: w.colors.get(team.colorId)?.hex ?? null,
+          photoFileId: m.photoFileId,
+          hasPhoto: Boolean(m.photoFileId),
         });
       }
       items.sort((a, b) => a.fullName.localeCompare(b.fullName, 'ar'));
