@@ -55,6 +55,7 @@ export type Phase3Api = Pick<ApiClient, 'files' | 'violationTypes' | 'violations
 export interface Phase3Internals extends DemoInternals {
   /** Phase 4 hook: who may upload to a task (admins and the assignee, ADR-058). */
   beforeTaskPresign?(input: { entityId?: string; kind?: string }, actor: DemoUser): Promise<void>;
+  afterTaskConfirm?(file: DemoFile, actor: DemoUser): Promise<void>;
   /** True when the demo should behave as if the network were down (navigator offline or forced). */
   isOffline(): boolean;
 }
@@ -398,7 +399,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       network();
       const actor = await api.actor();
       const settings = await api.readSettings();
-      return db.transaction('rw', [db.files, db.objects, db.violations], async () => {
+      const result = await db.transaction('rw', [db.files, db.objects, db.violations], async () => {
         const file = await db.files.get(fileId);
         if (!file || (file.createdById !== actor.id && !can(actor, 'violations.manage'))) {
           fail('NOT_FOUND');
@@ -408,7 +409,10 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         if (!obj) fail('FILE_NOT_UPLOADED');
         const bytes = new Uint8Array(obj.data);
         if (bytes.byteLength > MAX_UPLOAD_BYTES) throw ApiError.of('FILE_TOO_LARGE', 413);
-        if (sniffImageType(bytes) !== file.mimeType) throw ApiError.of('FILE_TYPE_NOT_ALLOWED', 415);
+        const isPdf = String.fromCharCode(...bytes.slice(0, 4)) === '%PDF';
+        const sniffed = isPdf ? 'application/pdf' : sniffImageType(bytes);
+        if (sniffed !== file.mimeType) throw ApiError.of('FILE_TYPE_NOT_ALLOWED', 415);
+        if (sniffed === 'application/pdf' && file.entityType !== 'task') throw ApiError.of('FILE_TYPE_NOT_ALLOWED', 415);
         if (file.entityType === 'violation' && file.entityId) {
           const linked = (await db.files.where('violationId').equals(file.entityId).toArray()).filter(
             (f) => f.kind === file.kind,
@@ -424,6 +428,10 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         }
         return { id: fileId, status: 'READY' as const };
       });
+      // Phase 4 hook: a confirmed task upload is attached and audited once (ADR-058).
+      const confirmed = await db.files.get(fileId);
+      if (confirmed?.entityType === 'task') await api.afterTaskConfirm?.(confirmed, actor);
+      return result;
     },
   };
 

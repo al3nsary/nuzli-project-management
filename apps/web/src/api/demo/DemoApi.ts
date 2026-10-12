@@ -30,10 +30,12 @@ import {
 } from '@nuzli/shared';
 import type { ApiClient, DemoAccount, DemoControls, SessionListener, UserListQuery } from '../client';
 import { riyadhDay } from '../../i18n/format';
-import { DemoDb, type DemoAudit, type DemoUser } from './db';
+import { DemoDb, type DemoAudit, type DemoFile, type DemoUser } from './db';
 import { loadPhase2Seed, loadPhase3Seed, loadSeed } from './seed';
 import { createPhase2, type Phase2Api } from './phase2';
 import { createPhase3, type Phase3Api } from './phase3';
+import { createPhase4, type Phase4Api, type Phase4Hooks } from './phase4';
+import { buildProjectSeed } from './seedProjects';
 import { seedViolations } from './seedViolations';
 import { fail, hashPassword, newId, paginate, rejectFullIdInUrl, validate } from './util';
 import { DEMO_DB_NAME, DEMO_EXPIRES_IN, DEMO_PASSWORD } from './constants';
@@ -70,6 +72,12 @@ export class DemoApi implements ApiClient {
   files!: Phase3Api['files'];
   violationTypes!: Phase3Api['violationTypes'];
   violations!: Phase3Api['violations'];
+  projects!: Phase4Api['projects'];
+  tasks!: Phase4Api['tasks'];
+  dependencies!: Phase4Api['dependencies'];
+  calendars!: Phase4Api['calendars'];
+  /** @internal Phase 4 hooks used by the files module and tests. */
+  phase4!: Phase4Hooks;
 
   /**
    * The demo has no network, so offline is simulated for the "network-shaped" violation
@@ -81,7 +89,10 @@ export class DemoApi implements ApiClient {
   constructor(opts: { dbName?: string } = {}) {
     this.db = new DemoDb(opts.dbName ?? DEMO_DB_NAME);
     Object.assign(this, createPhase2(this));
+    const p4 = createPhase4(this);
+    this.phase4 = p4;
     Object.assign(this, createPhase3(this));
+    Object.assign(this, { projects: p4.projects, tasks: p4.tasks, dependencies: p4.dependencies, calendars: p4.calendars });
     const seed = loadSeed();
     const first = (role: Role) => seed.users.find((u) => u.role === role && u.status === 'ACTIVE');
     const accounts: DemoAccount[] = (['ADMIN', 'SUPERVISOR', 'MONITOR'] as Role[])
@@ -107,6 +118,32 @@ export class DemoApi implements ApiClient {
     await this.seedPhase1();
     await this.seedPhase2();
     await this.seedPhase3();
+    await this.seedPhase4();
+  }
+
+  /** @internal Phase 3 → Phase 4 hooks (task uploads). */
+  beforeTaskPresign(input: { entityId?: string; kind?: string }, actor: DemoUser) {
+    return this.phase4.beforeTaskPresign(input, actor);
+  }
+
+  /** @internal */
+  afterTaskConfirm(file: DemoFile, actor: DemoUser) {
+    return this.phase4.afterTaskConfirm(file, actor);
+  }
+
+  /** Calendars (with clearly marked sample holidays) and three projects, one with 2,000 tasks. */
+  private async seedPhase4() {
+    if (await this.db.kv.get('seededPhase4')) return;
+    const seed = buildProjectSeed(new Date());
+    const db = this.db;
+    await db.transaction('rw', db.tables, async () => {
+      await db.calendars.bulkPut(seed.calendars);
+      await db.projects.bulkPut(seed.projects);
+      await db.tasks.bulkPut(seed.tasks);
+      await db.dependencies.bulkPut(seed.dependencies);
+      await db.projectAccess.bulkPut(seed.access);
+      await db.kv.put({ key: 'seededPhase4', value: new Date().toISOString() });
+    });
   }
 
   /** @internal */

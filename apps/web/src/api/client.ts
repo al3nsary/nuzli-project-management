@@ -34,6 +34,21 @@ import type {
   ViolationTypeDto,
   MemberSearchInput,
   UserSearchInput,
+  ActivityDto,
+  CalendarDto,
+  CreatedDependencyDto,
+  CreatedTaskDto,
+  GanttDto,
+  MyTaskDto,
+  ProjectAccessDto,
+  ProjectDto,
+  ProjectListQuery,
+  TaskArchiveResult,
+  TaskAttachmentDto,
+  TaskBatchResult,
+  TaskCommentDto,
+  TaskDto,
+  TaskUpdateResult,
 } from '@nuzli/shared';
 import type { z } from 'zod';
 import type {
@@ -73,6 +88,17 @@ import type {
   violationResponseSchema,
   violationTypeSchema,
   updateViolationTypeSchema,
+  calendarExceptionSchema,
+  calendarSchema,
+  createDependencySchema,
+  createProjectSchema,
+  createTaskSchema,
+  grantProjectAccessSchema,
+  taskBatchSchema,
+  taskCommentSchema,
+  updateCalendarSchema,
+  updateProjectSchema,
+  updateTaskSchema,
 } from '@nuzli/shared';
 
 /**
@@ -150,6 +176,9 @@ export interface CreateViolationResult {
   violation: ViolationDto;
   created: boolean;
 }
+
+/** Calendars as built: `CalendarDto` plus `isDefault` (docs/phase-4-backend.md). */
+export type CalendarListDto = CalendarDto & { isDefault: boolean };
 
 export interface DemoAccount {
   role: Role;
@@ -344,6 +373,62 @@ export interface ApiClient {
     upload(input: LogoUploadInput): Promise<LogoDto>;
     setDefault(id: string): Promise<LogoDto>;
     remove(id: string): Promise<void>;
+  };
+
+  // ---------------------------------------------------------------- Phase 4
+
+  /** Projects (docs/API.md "Phase 4"). Supervisors see granted projects and those with their tasks. */
+  projects: {
+    list(query?: ProjectListQuery): Promise<ProjectDto[]>;
+    get(id: string): Promise<ProjectDto>;
+    create(input: In<typeof createProjectSchema>): Promise<ProjectDto>;
+    update(id: string, input: In<typeof updateProjectSchema>): Promise<ProjectDto>;
+    /** `DELETE /projects/:id` archives and answers the archived project. */
+    archive(id: string): Promise<ProjectDto>;
+    access(id: string): Promise<ProjectAccessDto[]>;
+    grantAccess(id: string, input: In<typeof grantProjectAccessSchema>): Promise<ProjectAccessDto>;
+    revokeAccess(id: string, userId: string): Promise<void>;
+    /** The whole chart in one call: project, tasks (WBS order), dependencies, calendar. */
+    gantt(id: string): Promise<GanttDto>;
+    /** Tasks to Excel (ADR-019): RTL sheets, no freeze panes. */
+    exportXlsx(id: string): Promise<Blob>;
+  };
+
+  tasks: {
+    create(projectId: string, input: In<typeof createTaskSchema>): Promise<CreatedTaskDto>;
+    get(id: string): Promise<TaskDto>;
+    /** The server re-runs the engine; `affected` lists every other task it changed. 409 CONFLICT_VERSION. */
+    update(id: string, input: In<typeof updateTaskSchema>): Promise<TaskUpdateResult>;
+    /** One drag-end = one request with every changed task and its version (ADR-017). */
+    batch(projectId: string, input: In<typeof taskBatchSchema>): Promise<TaskBatchResult>;
+    /** Archives the task and its subtree. */
+    archive(id: string): Promise<TaskArchiveResult>;
+    /** Supervisor: assigned tasks across projects with due flags. */
+    mine(): Promise<MyTaskDto[]>;
+    comments(id: string): Promise<TaskCommentDto[]>;
+    addComment(id: string, input: In<typeof taskCommentSchema>): Promise<TaskCommentDto>;
+    activity(id: string): Promise<ActivityDto[]>;
+    attachments(id: string): Promise<TaskAttachmentDto[]>;
+    /** Links a READY file uploaded with `entityType: 'task'` (presign → upload → confirm first). */
+    attach(id: string, fileId: string): Promise<TaskAttachmentDto>;
+    attachmentUrl(id: string, fileId: string): Promise<{ url: string; expiresAt: string }>;
+    removeAttachment(id: string, fileId: string): Promise<void>;
+  };
+
+  dependencies: {
+    /** Only FS from the UI. DEPENDENCY_CYCLE (409, details.path), DEPENDENCY_SELF, DEPENDENCY_EXISTS. */
+    create(projectId: string, input: In<typeof createDependencySchema>): Promise<CreatedDependencyDto>;
+    remove(id: string): Promise<void>;
+  };
+
+  calendars: {
+    list(): Promise<CalendarListDto[]>;
+    get(id: string): Promise<CalendarListDto>;
+    create(input: In<typeof calendarSchema>): Promise<CalendarListDto>;
+    update(id: string, input: In<typeof updateCalendarSchema>): Promise<CalendarListDto>;
+    /** Answers the whole calendar (201); a duplicate date → 409 CALENDAR_DATE_EXISTS. */
+    addException(id: string, input: In<typeof calendarExceptionSchema>): Promise<CalendarListDto>;
+    removeException(id: string, exceptionId: string): Promise<void>;
   };
 }
 

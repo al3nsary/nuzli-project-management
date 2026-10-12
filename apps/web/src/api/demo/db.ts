@@ -1,10 +1,13 @@
 import Dexie, { type Table } from 'dexie';
+import { maskNationalId } from '@nuzli/shared';
+import type { StoredTask } from '../../features/projects/engine';
 import type {
   CardData,
   CardLayoutKey,
   CardOrientation,
   CardTemplateConfig,
   MemberStatus,
+  ProjectStatus,
   PrintBatchItemDto,
   Role,
   Severity,
@@ -14,6 +17,7 @@ import type {
   UserPreferences,
   UserStatus,
   VisibilityMode,
+  DependencyType,
 } from '@nuzli/shared';
 
 /** A user row as the demo stores it: full national ID and a password hash, never sent to screens as is. */
@@ -234,6 +238,8 @@ export interface DemoFile {
   expiresAt: string;
   /** Set when linked to a violation (`violation_files`). */
   violationId: string | null;
+  /** Task attachments removed by an admin or the uploader (ADR-058). */
+  deletedAt?: string | null;
   /** Seeded photos are drawn on a canvas on first view (never real photos). */
   placeholder?: { label: string; hue: number } | null;
 }
@@ -243,6 +249,65 @@ export interface DemoObject {
   key: string;
   data: ArrayBuffer;
   type: string;
+}
+
+// ---------------------------------------------------------------- Phase 4 rows
+
+export interface DemoProject {
+  id: string;
+  name: string;
+  description: string | null;
+  startDate: string;
+  status: ProjectStatus;
+  calendarId: string;
+  autoSchedule: boolean;
+  ownerId: string;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+/** A task as the API stores it (StoredTask) plus archive and reminder columns (ADR-059). */
+export interface DemoTask extends StoredTask {
+  archivedAt: string | null;
+  dueSoonNotifiedAt: string | null;
+  overdueNotifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface DemoDependency {
+  id: string;
+  projectId: string;
+  predecessorId: string;
+  successorId: string;
+  type: DependencyType;
+  lagDays: number;
+  createdAt: string;
+}
+
+export interface DemoCalendar {
+  id: string;
+  name: string;
+  weekendDays: number[];
+  isDefault: boolean;
+  createdAt: string;
+  exceptions: { id: string; date: string; isWorking: boolean; name: string }[];
+}
+
+export interface DemoProjectAccess {
+  id: string;
+  projectId: string;
+  userId: string;
+  level: 'VIEW';
+  createdAt: string;
+}
+
+export interface DemoTaskComment {
+  id: string;
+  taskId: string;
+  authorId: string;
+  body: string;
+  mentions: string[];
+  createdAt: string;
 }
 
 export class DemoDb extends Dexie {
@@ -265,6 +330,12 @@ export class DemoDb extends Dexie {
   violations!: Table<DemoViolation, string>;
   files!: Table<DemoFile, string>;
   objects!: Table<DemoObject, string>;
+  projects!: Table<DemoProject, string>;
+  tasks!: Table<DemoTask, string>;
+  dependencies!: Table<DemoDependency, string>;
+  calendars!: Table<DemoCalendar, string>;
+  projectAccess!: Table<DemoProjectAccess, string>;
+  taskComments!: Table<DemoTaskComment, string>;
 
   constructor(name: string) {
     super(name);
@@ -295,6 +366,34 @@ export class DemoDb extends Dexie {
       files: 'id, violationId, entityId',
       objects: 'key',
     });
+    // Phase 4: projects, tasks, dependencies, calendars. Also masks print items stored before
+    // ADR-064 (full IDs at rest) and flags them MASKED.
+    this.version(4)
+      .stores({
+        projects: 'id, status',
+        tasks: 'id, projectId, assigneeId',
+        dependencies: 'id, projectId',
+        calendars: 'id',
+        projectAccess: 'id, projectId, userId',
+        taskComments: 'id, taskId',
+      })
+      .upgrade((tx) =>
+        tx
+          .table('batches')
+          .toCollection()
+          .modify((b: DemoBatch) => {
+            b.items = b.items.map((item) => ({
+              ...item,
+              nationalIdPrinted: item.nationalIdPrinted ?? 'MASKED',
+              data: {
+                ...item.data,
+                nationalId: /^\d{10}$/.test(item.data.nationalId ?? '')
+                  ? maskNationalId(item.data.nationalId!)
+                  : item.data.nationalId,
+              },
+            }));
+          }),
+      );
   }
 
   /** Every table, for reset and wide transactions. */

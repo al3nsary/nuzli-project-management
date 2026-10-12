@@ -27,12 +27,28 @@ import type {
   ViolationStats,
   ViolationTypeDto,
 } from '@nuzli/shared';
+import type {
+  ActivityDto,
+  CreatedDependencyDto,
+  CreatedTaskDto,
+  GanttDto,
+  MyTaskDto,
+  ProjectAccessDto,
+  ProjectDto,
+  TaskArchiveResult,
+  TaskAttachmentDto,
+  TaskBatchResult,
+  TaskCommentDto,
+  TaskDto,
+  TaskUpdateResult,
+} from '@nuzli/shared';
 import { ERRORS } from '@nuzli/shared';
 import { ApiError } from './errors';
 import { t } from '../i18n';
 import {
   toQueryString,
   type ApiClient,
+  type CalendarListDto,
   type ReferenceRemoveResult,
   type SessionListener,
 } from './client';
@@ -441,6 +457,68 @@ export class HttpApi implements ApiClient {
     },
     setDefault: (id) => this.request<LogoDto>('POST', `/logos/${enc(id)}/default`),
     remove: (id) => this.request<void>('DELETE', `/logos/${enc(id)}`),
+  };
+
+  // ---------------------------------------------------------------- Phase 4
+
+  projects: ApiClient['projects'] = {
+    list: (q) => this.request<ProjectDto[]>('GET', `/projects${toQueryString(q)}`),
+    get: (id) => this.request<ProjectDto>('GET', `/projects/${enc(id)}`),
+    create: (input) => this.request<ProjectDto>('POST', '/projects', { body: input }),
+    update: (id, input) => this.request<ProjectDto>('PATCH', `/projects/${enc(id)}`, { body: input }),
+    archive: (id) => this.request<ProjectDto>('DELETE', `/projects/${enc(id)}`),
+    access: (id) => this.request<ProjectAccessDto[]>('GET', `/projects/${enc(id)}/access`),
+    grantAccess: (id, input) =>
+      this.request<ProjectAccessDto>('POST', `/projects/${enc(id)}/access`, { body: input }),
+    revokeAccess: (id, userId) =>
+      this.request<void>('DELETE', `/projects/${enc(id)}/access/${enc(userId)}`),
+    gantt: (id) => this.request<GanttDto>('GET', `/projects/${enc(id)}/gantt`),
+    exportXlsx: (id) => this.requestBlob(`/projects/${enc(id)}/export.xlsx`),
+  };
+
+  tasks: ApiClient['tasks'] = {
+    create: (projectId, input) =>
+      this.request<CreatedTaskDto>('POST', `/projects/${enc(projectId)}/tasks`, { body: input }),
+    get: (id) => this.request<TaskDto>('GET', `/tasks/${enc(id)}`),
+    update: (id, input) => this.request<TaskUpdateResult>('PATCH', `/tasks/${enc(id)}`, { body: input }),
+    batch: (projectId, input) =>
+      this.request<TaskBatchResult>('POST', `/projects/${enc(projectId)}/tasks/batch`, { body: input }),
+    archive: (id) => this.request<TaskArchiveResult>('DELETE', `/tasks/${enc(id)}`),
+    mine: () => this.request<MyTaskDto[]>('GET', '/tasks/mine'),
+    comments: (id) => this.request<TaskCommentDto[]>('GET', `/tasks/${enc(id)}/comments`),
+    addComment: (id, input) =>
+      this.request<TaskCommentDto>('POST', `/tasks/${enc(id)}/comments`, { body: input }),
+    activity: (id) => this.request<ActivityDto[]>('GET', `/tasks/${enc(id)}/activity`),
+    attachments: (id) => this.request<TaskAttachmentDto[]>('GET', `/tasks/${enc(id)}/attachments`),
+    attach: (id, fileId) =>
+      this.request<TaskAttachmentDto>('POST', `/tasks/${enc(id)}/attachments`, { body: { fileId } }),
+    attachmentUrl: (id, fileId) =>
+      this.request<{ url: string; expiresAt: string }>(
+        'GET',
+        `/tasks/${enc(id)}/attachments/${enc(fileId)}/url`,
+      ),
+    removeAttachment: (id, fileId) =>
+      this.request<void>('DELETE', `/tasks/${enc(id)}/attachments/${enc(fileId)}`),
+  };
+
+  dependencies: ApiClient['dependencies'] = {
+    create: (projectId, input) =>
+      this.request<CreatedDependencyDto>('POST', `/projects/${enc(projectId)}/dependencies`, {
+        body: input,
+      }),
+    remove: (id) => this.request<void>('DELETE', `/dependencies/${enc(id)}`),
+  };
+
+  calendars: ApiClient['calendars'] = {
+    list: () => this.request<CalendarListDto[]>('GET', '/calendars'),
+    get: (id) => this.request<CalendarListDto>('GET', `/calendars/${enc(id)}`),
+    create: (input) => this.request<CalendarListDto>('POST', '/calendars', { body: input }),
+    update: (id, input) =>
+      this.request<CalendarListDto>('PATCH', `/calendars/${enc(id)}`, { body: input }),
+    addException: (id, input) =>
+      this.request<CalendarListDto>('POST', `/calendars/${enc(id)}/exceptions`, { body: input }),
+    removeException: (id, exId) =>
+      this.request<void>('DELETE', `/calendars/${enc(id)}/exceptions/${enc(exId)}`),
   };
 }
 
