@@ -53,6 +53,8 @@ import { fail, newId, paginate, sameName, validate } from './util';
 export type Phase3Api = Pick<ApiClient, 'files' | 'violationTypes' | 'violations'>;
 
 export interface Phase3Internals extends DemoInternals {
+  /** Phase 4 hook: who may upload to a task (admins and the assignee, ADR-058). */
+  beforeTaskPresign?(input: { entityId?: string; kind?: string }, actor: DemoUser): Promise<void>;
   /** True when the demo should behave as if the network were down (navigator offline or forced). */
   isOffline(): boolean;
 }
@@ -335,6 +337,10 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       const actor = await api.actor();
       const data = validate(presignUploadSchema, input);
       const settings = await api.readSettings();
+      // ADR-066: member photos are closed until a scoped route exists; logos are admin-only, no entityId.
+      if (data.entityType === 'member_photo') fail('FORBIDDEN');
+      if (data.entityType === 'logo' && (data.entityId || !can(actor, 'logos.manage'))) fail('FORBIDDEN');
+      if (data.entityType === 'task') await api.beforeTaskPresign?.(data, actor);
       if (data.entityType === 'violation') {
         if (!data.entityId || (data.kind !== 'ID_CARD' && data.kind !== 'EVIDENCE')) {
           fail('VALIDATION_FAILED', { fieldErrors: { kind: [t('violations.err.kind')] } });

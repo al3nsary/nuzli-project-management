@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Anchor,
   Button,
   Code,
@@ -31,6 +32,15 @@ export function LoginPage() {
   const [error, setError] = useState<unknown>(null);
   const [demoBusy, setDemoBusy] = useState<Role | null>(null);
   const form = useZodForm(loginSchema, { identifier: '', password: '' });
+  // ADR-062: throttled logins answer 429 RATE_LIMITED with details.retryAfterSeconds.
+  const [retryUntil, setRetryUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const waitSeconds = retryUntil ? Math.max(0, Math.ceil((retryUntil - now) / 1000)) : 0;
+  useEffect(() => {
+    if (!retryUntil) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [retryUntil]);
 
   const finish = (session: AuthSession) => {
     api.setAccessToken(session.accessToken);
@@ -39,6 +49,13 @@ export function LoginPage() {
   };
 
   const handleError = (err: unknown) => {
+    if (err instanceof ApiError && err.code === 'RATE_LIMITED') {
+      const seconds = Number((err.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds);
+      setNow(Date.now());
+      setRetryUntil(Date.now() + (Number.isFinite(seconds) && seconds > 0 ? seconds : 60) * 1000);
+      setError(null);
+      return;
+    }
     if (err instanceof ApiError && err.code === 'ACCOUNT_PENDING') {
       navigate('/pending');
       return;
@@ -47,7 +64,9 @@ export function LoginPage() {
   };
 
   const submit = form.onSubmit(async (data) => {
+    if (waitSeconds > 0) return;
     setError(null);
+    setRetryUntil(null);
     try {
       finish(await api.auth.login(data));
     } catch (err) {
@@ -73,6 +92,11 @@ export function LoginPage() {
       <Paper component="form" onSubmit={submit} p="lg" withBorder shadow="sm" noValidate>
         <Stack>
           <FormError error={error} />
+          {retryUntil ? (
+            <Alert color={waitSeconds > 0 ? 'signal' : 'ok'} role="status" aria-live="polite">
+              {waitSeconds > 0 ? t('login.rateLimited', { seconds: waitSeconds }) : t('login.retryNow')}
+            </Alert>
+          ) : null}
           <TextInput
             label={t('login.identifier')}
             placeholder={t('login.identifierPlaceholder')}
@@ -95,6 +119,7 @@ export function LoginPage() {
             type="submit"
             size="md"
             loading={form.submitting}
+            disabled={waitSeconds > 0}
             leftSection={<IconLogin2 size={18} className="mirror-rtl" />}
           >
             {t('login.submit')}

@@ -10,6 +10,7 @@ import type {
   MembershipHistoryDto,
   NotificationDto,
   Paginated,
+  PrintBatchCreatedDto,
   PrintBatchDetailDto,
   PrintBatchDto,
   ReferenceItemDto,
@@ -31,6 +32,8 @@ import type {
   ViolationFilter,
   ViolationStats,
   ViolationTypeDto,
+  MemberSearchInput,
+  UserSearchInput,
 } from '@nuzli/shared';
 import type { z } from 'zod';
 import type {
@@ -197,6 +200,11 @@ export interface ApiClient {
     suspend(id: string, input: In<typeof suspendUserSchema>): Promise<UserDto>;
     reactivate(id: string): Promise<UserDto>;
     supervisors(q?: string): Promise<UserDto[]>;
+    /**
+     * `POST /users/search`: the same filters in the body. Use it whenever the term holds a full
+     * national ID (`isFullNationalIdTerm`) — those never go in a URL (ADR-067); GET answers 400.
+     */
+    search(input: UserSearchInput): Promise<Paginated<UserDto>>;
   };
 
   registrations: {
@@ -253,6 +261,8 @@ export interface ApiClient {
     update(id: string, input: In<typeof updateMemberSchema>): Promise<MemberDto>;
     history(id: string): Promise<MembershipHistoryDto[]>;
     move(input: In<typeof moveMembersSchema>): Promise<MemberDto[]>;
+    /** `POST /members/search` — for full national IDs (ADR-067). */
+    search(input: MemberSearchInput): Promise<Paginated<MemberDto>>;
   };
 
   reference: {
@@ -276,8 +286,12 @@ export interface ApiClient {
     updateTemplate(id: string, input: In<typeof updateCardTemplateSchema>): Promise<CardTemplateDto>;
     archiveTemplate(id: string): Promise<void>;
     preview(input: In<typeof cardPreviewSchema>): Promise<CardPreviewDto>;
-    /** Idempotent by `idempotencyKey`: repeating it returns the original batch. */
-    createBatch(input: In<typeof printBatchSchema>): Promise<PrintBatchDto>;
+    /**
+     * Idempotent by `idempotencyKey`: repeating it returns the original batch. The answer
+     * carries `cards` — the only place with full national IDs (ADR-064): print from it, keep it
+     * in memory, never re-read full IDs from the batch detail.
+     */
+    createBatch(input: In<typeof printBatchSchema>): Promise<PrintBatchCreatedDto>;
     batches(query?: PageQuery): Promise<Paginated<PrintBatchDto>>;
     batch(id: string): Promise<PrintBatchDetailDto>;
     /** Server PDF (ADR-024). Throws `PDF_NOT_CONFIGURED` (501) until the pdf service exists. */

@@ -33,6 +33,9 @@ export interface DemoUser {
   createdAt: string;
   preferences: UserPreferences;
   passwordHash: string;
+  /** ADR-062: consecutive failures and the short silent lock. */
+  failedLogins?: number;
+  lockedUntil?: string | null;
 }
 
 export interface DemoNotification {

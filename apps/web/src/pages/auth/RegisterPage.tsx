@@ -51,7 +51,8 @@ export function RegisterPage() {
         ...data,
         requestedTeamName: data.accountType === 'SUPERVISOR' ? data.requestedTeamName : undefined,
       });
-      navigate('/pending', { replace: true });
+      // ADR-063: the API answers PENDING for new and duplicate details alike; never claim an account was created.
+      navigate('/pending', { replace: true, state: { submitted: true } });
     } catch (err) {
       if (err instanceof ApiError) {
         const fields = err.fieldErrors;

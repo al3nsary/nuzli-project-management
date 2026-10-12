@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { RouterProvider, type createBrowserRouter } from 'react-router-dom';
 import { DirectionProvider, MantineProvider, useMantineColorScheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import type { ApiClient } from '../api/client';
 import { ApiProvider } from '../api/context';
 import { ApiError } from '../api/errors';
@@ -13,6 +13,7 @@ import { offlineDb } from '../features/violations/offline/db';
 import { loadOfflineUser } from '../features/violations/offline/session';
 import { useOfflineStore } from '../features/violations/offline/runtime';
 import { UpdatePrompt } from './UpdatePrompt';
+import { dropPrintRun } from '../features/cards/printRun';
 
 export function createQueryClient() {
   return new QueryClient({
@@ -37,10 +38,16 @@ export function createQueryClient() {
  */
 function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode }) {
   const setSession = useAuthStore((s) => s.setSession);
+  const qc = useQueryClient();
   useEffect(() => {
     let alive = true;
     const off = api.onSessionChange((session) => {
       if (!alive) return;
+      if (!session) {
+        // A session the server ended (refresh refused) drops cached server data and print runs too.
+        qc.clear();
+        dropPrintRun();
+      }
       if (session) useOfflineStore.getState().set({ offlineSession: false });
       setSession(session);
     });
@@ -67,7 +74,7 @@ function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode 
       alive = false;
       off();
     };
-  }, [api, setSession]);
+  }, [api, setSession, qc]);
   return <>{children}</>;
 }
 

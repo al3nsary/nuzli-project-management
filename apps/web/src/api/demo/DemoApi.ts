@@ -15,8 +15,10 @@ import {
   rejectRegistrationSchema,
   resetPasswordSchema,
   suspendUserSchema,
+  isFullNationalIdTerm,
   toWesternDigits,
   updateProfileSchema,
+  userSearchSchema,
   updateSettingsSchema,
   type AuditEntryDto,
   type AuthSession,
@@ -26,15 +28,19 @@ import {
   type Settings,
   type UserDto,
 } from '@nuzli/shared';
-import type { ApiClient, DemoAccount, DemoControls, SessionListener } from '../client';
+import type { ApiClient, DemoAccount, DemoControls, SessionListener, UserListQuery } from '../client';
 import { riyadhDay } from '../../i18n/format';
 import { DemoDb, type DemoAudit, type DemoUser } from './db';
 import { loadPhase2Seed, loadPhase3Seed, loadSeed } from './seed';
 import { createPhase2, type Phase2Api } from './phase2';
 import { createPhase3, type Phase3Api } from './phase3';
 import { seedViolations } from './seedViolations';
-import { fail, hashPassword, newId, paginate, validate } from './util';
+import { fail, hashPassword, newId, paginate, rejectFullIdInUrl, validate } from './util';
 import { DEMO_DB_NAME, DEMO_EXPIRES_IN, DEMO_PASSWORD } from './constants';
+
+const LOGIN_FREE_FAILURES = 5;
+const LOGIN_MAX_FAILURES = 10;
+const LOGIN_LOCK_MINUTES = 5;
 
 const byCreatedDesc = (a: { createdAt: string }, b: { createdAt: string }) =>
   b.createdAt.localeCompare(a.createdAt);
@@ -52,6 +58,8 @@ export class DemoApi implements ApiClient {
   private token: string | null = null;
   private ready: Promise<void> | null = null;
   private listeners = new Set<SessionListener>();
+  /** ADR-062: per-identifier delays, in memory like the API's LoginThrottleService. */
+  private loginBuckets = new Map<string, { failures: number; until: number }>();
 
   colors!: Phase2Api['colors'];
   teams!: Phase2Api['teams'];
@@ -268,6 +276,42 @@ export class DemoApi implements ApiClient {
     return { accessToken: this.token, expiresIn: DEMO_EXPIRES_IN, user: this.toDto(user) };
   }
 
+  /** Owners of an e-mail, mobile or national ID already registered (ADR-063). */
+  private async duplicateOwners(input: { email: string; mobile: string; nationalId: string }) {
+    const hits = await Promise.all([
+      this.db.users.where('email').equals(input.email).first(),
+      this.db.users.where('mobile').equals(input.mobile).first(),
+      this.db.users.where('nationalId').equals(input.nationalId).first(),
+    ]);
+    return [...new Set(hits.filter((u): u is DemoUser => Boolean(u)).map((u) => u.id))];
+  }
+
+  /** 5 free failures per identifier, then 1 s doubling up to 60 s; 10 on an account lock it 5 min. */
+  private async recordLoginFailure(key: string, user: DemoUser | undefined) {
+    const b = this.loginBuckets.get(key) ?? { failures: 0, until: 0 };
+    b.failures += 1;
+    if (b.failures > LOGIN_FREE_FAILURES) {
+      b.until = Date.now() + Math.min(60, 2 ** (b.failures - LOGIN_FREE_FAILURES - 1)) * 1000;
+    }
+    this.loginBuckets.set(key, b);
+    if (!user) return;
+    const failedLogins = (user.failedLogins ?? 0) + 1;
+    if (failedLogins >= LOGIN_MAX_FAILURES) {
+      const lockedUntil = new Date(Date.now() + LOGIN_LOCK_MINUTES * 60_000).toISOString();
+      await this.db.users.update(user.id, { failedLogins: 0, lockedUntil });
+      await this.writeAudit({
+        actorId: null,
+        action: 'auth.account_locked',
+        entityType: 'user',
+        entityId: user.id,
+        before: null,
+        after: { minutes: LOGIN_LOCK_MINUTES },
+      });
+    } else {
+      await this.db.users.update(user.id, { failedLogins });
+    }
+  }
+
   // ------------------------------------------------------------------ auth
 
   auth: ApiClient['auth'] = {
@@ -279,7 +323,22 @@ export class DemoApi implements ApiClient {
         'rw',
         [this.db.users, this.db.notifications, this.db.audit],
         async () => {
-          await this.assertUnique(data);
+          // ADR-063: duplicates create nothing and get the same answer; the owner is "e-mailed"
+          // and the attempt is audited without personal data.
+          const owners = await this.duplicateOwners(data);
+          if (owners.length) {
+            for (const ownerId of owners) {
+              await this.writeAudit({
+                actorId: null,
+                action: 'registration.duplicate_attempt',
+                entityType: 'user',
+                entityId: ownerId,
+                before: null,
+                after: null,
+              });
+            }
+            return;
+          }
           const user: DemoUser = {
             id: newId(),
             fullName: data.fullName,
@@ -327,6 +386,15 @@ export class DemoApi implements ApiClient {
       await this.init();
       const data = validate(loginSchema, input);
       const identifier = toWesternDigits(data.identifier).trim();
+      const key = identifier.includes('@')
+        ? identifier.toLowerCase()
+        : (normalizeSaudiMobile(identifier) ?? identifier);
+      // ADR-062: while the identifier cools down, answer 429 before checking the password.
+      const bucket = this.loginBuckets.get(key);
+      const nowMs = Date.now();
+      if (bucket && bucket.until > nowMs) {
+        fail('RATE_LIMITED', { retryAfterSeconds: Math.ceil((bucket.until - nowMs) / 1000) });
+      }
       let user: DemoUser | undefined;
       if (identifier.includes('@')) {
         user = await this.db.users.where('email').equals(identifier.toLowerCase()).first();
@@ -334,9 +402,16 @@ export class DemoApi implements ApiClient {
         const mobile = normalizeSaudiMobile(identifier);
         user = mobile ? await this.db.users.where('mobile').equals(mobile).first() : undefined;
       }
-      // Same answer for an unknown account and a wrong password (no enumeration).
-      if (!user || user.passwordHash !== (await hashPassword(data.password)))
+      const passwordOk = Boolean(user) && user!.passwordHash === (await hashPassword(data.password));
+      // A locked account answers INVALID_CREDENTIALS even with the right password (no 423).
+      const locked = Boolean(user?.lockedUntil && Date.parse(user.lockedUntil) > nowMs);
+      if (!user || !passwordOk || locked) {
+        await this.recordLoginFailure(key, user && !locked ? user : undefined);
+        // Same answer for an unknown account, a wrong password and a locked one (no enumeration).
         fail('INVALID_CREDENTIALS');
+      }
+      this.loginBuckets.delete(key);
+      if (user.failedLogins) await this.db.users.update(user.id, { failedLogins: 0, lockedUntil: null });
       if (user.status === 'PENDING') fail('ACCOUNT_PENDING');
       if (user.status === 'REJECTED') fail('ACCOUNT_REJECTED');
       if (user.status === 'SUSPENDED') fail('ACCOUNT_SUSPENDED');
@@ -428,29 +503,42 @@ export class DemoApi implements ApiClient {
     },
   };
 
+  /** `GET /users` and `POST /users/search` share the filters; a full national ID matches exactly. */
+  private async filterUsers(query: UserListQuery) {
+    const q = toWesternDigits(query.q ?? '')
+      .trim()
+      .toLowerCase();
+    const qMobile = q ? normalizeSaudiMobile(q) : null;
+    const fullId = isFullNationalIdTerm(q) ? q.replace(/[\s-]/g, '') : null;
+    const rows = (await this.db.users.toArray())
+      .filter((u) => !query.role || u.role === query.role)
+      .filter((u) => !query.status || u.status === query.status)
+      .filter(
+        (u) =>
+          !q ||
+          (fullId !== null && u.nationalId === fullId) ||
+          u.fullName.toLowerCase().includes(q) ||
+          u.email.includes(q) ||
+          u.mobile.includes(q) ||
+          (qMobile !== null && u.mobile === qMobile),
+      )
+      .sort(byCreatedDesc);
+    const page = paginate(rows, query.page, query.pageSize);
+    return { ...page, items: page.items.map((u) => this.toDto(u)) };
+  }
+
   // ------------------------------------------------------------------ users
 
   users: ApiClient['users'] = {
     list: async (query = {}) => {
       await this.actor('users.read');
-      const q = toWesternDigits(query.q ?? '')
-        .trim()
-        .toLowerCase();
-      const qMobile = q ? normalizeSaudiMobile(q) : null;
-      const rows = (await this.db.users.toArray())
-        .filter((u) => !query.role || u.role === query.role)
-        .filter((u) => !query.status || u.status === query.status)
-        .filter(
-          (u) =>
-            !q ||
-            u.fullName.toLowerCase().includes(q) ||
-            u.email.includes(q) ||
-            u.mobile.includes(q) ||
-            (qMobile !== null && u.mobile === qMobile),
-        )
-        .sort(byCreatedDesc);
-      const page = paginate(rows, query.page, query.pageSize);
-      return { ...page, items: page.items.map((u) => this.toDto(u)) };
+      rejectFullIdInUrl(query.q, 'POST /users/search');
+      return this.filterUsers(query);
+    },
+
+    search: async (input) => {
+      await this.actor('users.read');
+      return this.filterUsers(validate(userSearchSchema, input));
     },
 
     get: async (id) => {
@@ -572,6 +660,7 @@ export class DemoApi implements ApiClient {
 
     supervisors: async (q) => {
       await this.actor('users.read');
+      rejectFullIdInUrl(q, 'POST /users/search');
       const needle = (q ?? '').trim().toLowerCase();
       const rows = await this.db.users
         .where('role')

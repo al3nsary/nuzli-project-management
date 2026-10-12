@@ -68,6 +68,12 @@ export const AUDIT_ACTIONS = [
   'violations.exported',
   'violations.dashboard_exported',
   'violations.photos_purged',
+  // Security changes (2026-10 review)
+  'auth.account_locked',
+  'registration.duplicate_attempt',
+  'member.duplicate_rejected',
+  'cards.preview_full_ids',
+  'cards.print_data_reissued',
 ] as const;
 
 const ENTITY_TYPES = [
@@ -82,6 +88,7 @@ const ENTITY_TYPES = [
   'card_size',
   'logo',
   'print_batch',
+  'card_print_batch',
   'violation',
   'violation_type',
   'violation_file',

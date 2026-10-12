@@ -158,7 +158,7 @@ describe('DemoApi — same rules as the real API', () => {
     expect(audit.items.some((a) => a.entityId === sup.id)).toBe(true);
   });
 
-  it('rejects duplicate email, mobile and national ID', async () => {
+  it('public registration never reveals duplicates (ADR-063); admins still get *_TAKEN', async () => {
     const base = {
       accountType: 'MONITOR' as const,
       fullName: 'مكرر البيانات',
@@ -167,15 +167,15 @@ describe('DemoApi — same rules as the real API', () => {
       nationalId: validId('199887766'),
       password: 'Password12345',
     };
-    await expectCode(api.auth.register(base), 'EMAIL_TAKEN');
-    await expectCode(
+    await expect(api.auth.register(base)).resolves.toEqual({ status: 'PENDING' });
+    const before = (await api.db.users.toArray()).length;
+    await expect(
       api.auth.register({ ...base, email: 'x1@demo.nuzli.example', mobile: '0550000101' }),
-      'MOBILE_TAKEN',
-    );
-    await expectCode(
+    ).resolves.toEqual({ status: 'PENDING' });
+    await expect(
       api.auth.register({ ...base, email: 'x2@demo.nuzli.example', nationalId: '1055123408' }),
-      'NATIONAL_ID_TAKEN',
-    );
+    ).resolves.toEqual({ status: 'PENDING' });
+    expect((await api.db.users.toArray()).length).toBe(before);
 
     await loginAs(ADMIN1);
     const err = await expectCode(
@@ -189,6 +189,9 @@ describe('DemoApi — same rules as the real API', () => {
       'EMAIL_TAKEN',
     );
     expect(err.fieldErrors.email).toBe(ERRORS.EMAIL_TAKEN);
+    const dup = await api.audit.list({ action: 'registration.duplicate_attempt' });
+    expect(dup.total).toBe(3);
+    expect(JSON.stringify(dup.items)).not.toContain('1055123408');
   });
 
   it('admin creates another admin; the new account must change its password; creation is audited', async () => {

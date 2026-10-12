@@ -7,9 +7,15 @@ import { t } from '../i18n';
 import { offlineDb } from '../features/violations/offline/db';
 import { clearOfflineData } from '../features/violations/offline/outbox';
 import { peekSyncEngine, setOfflineUser } from '../features/violations/offline/runtime';
+import { dropPrintRun } from '../features/cards/printRun';
 
-/** Brief §7.4: logout removes the roster, the outbox and every cached personal datum. */
-async function wipeDevice() {
+/**
+ * Brief §7.4 + security review "logout clears caches": the roster, the outbox and its photos,
+ * the offline profile, the in-memory print run (full IDs) — and the caller clears the query cache.
+ * The service worker caches only the app shell (ADR-071), never API data.
+ */
+export async function wipeDevice() {
+  dropPrintRun();
   setOfflineUser(null);
   peekSyncEngine()?.stop();
   try {

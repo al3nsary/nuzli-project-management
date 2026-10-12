@@ -39,6 +39,7 @@ import { TeamBadge } from '../../theme/TeamBadge';
 import { formatNumber, t, tKey } from '../../i18n';
 import { CardEditor, type EditableCard } from './CardEditor';
 import { CardStyles, FitCard, SAMPLE_CARD, logoFor, toTemplateLike } from './cardUtils';
+import { putPrintRun } from '../../features/cards/printRun';
 
 function TemplateChoice({
   template,
@@ -160,6 +161,7 @@ export function CardsPage() {
         })),
       });
       attemptKey.current = null;
+      putPrintRun(batch.id, batch.cards);
       void qc.invalidateQueries({ queryKey: ['cards', 'batches'] });
       if (selected.some((c) => c.saveBack)) await invalidateTeams();
       notifications.show({ color: 'ok', message: t('cards.batchLogged', { count: batch.cardCount }) });

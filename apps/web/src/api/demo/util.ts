@@ -1,4 +1,5 @@
-import type { ErrorCode, Paginated } from '@nuzli/shared';
+import { isFullNationalIdTerm, type ErrorCode, type Paginated } from '@nuzli/shared';
+import { t } from '../../i18n';
 import type { z } from 'zod';
 import { ApiError } from '../errors';
 
@@ -37,6 +38,19 @@ const STATUS: Partial<Record<ErrorCode, number>> = {
   FILE_TYPE_NOT_ALLOWED: 400,
   FILE_TOO_LARGE: 413,
   PDF_NOT_CONFIGURED: 501,
+  // Security changes (2026-10 review)
+  RATE_LIMITED: 429,
+  NATIONAL_ID_NOT_ACCEPTED: 400,
+  // Phase 4
+  CONFLICT_VERSION: 409,
+  DEPENDENCY_CYCLE: 409,
+  DEPENDENCY_SELF: 400,
+  DEPENDENCY_EXISTS: 409,
+  DEPENDENCY_TYPE_DISABLED: 400,
+  TASK_PARENT_INVALID: 400,
+  PROJECT_ARCHIVED: 409,
+  CALENDAR_DATE_EXISTS: 409,
+  ASSIGNEE_NOT_SUPERVISOR: 400,
 };
 
 export function fail(code: ErrorCode, details?: unknown): never {
@@ -80,4 +94,14 @@ export function hashPassword(password: string) {
 export function sameName(a: string, b: string) {
   const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
   return norm(a) === norm(b);
+}
+
+/**
+ * ADR-067: `GET /members`, `/users` and `/users/supervisors` answer 400 when `q` holds a full
+ * national ID — it must travel in a POST body (`…/search`), never in a URL.
+ */
+export function rejectFullIdInUrl(q: string | undefined, useInstead: string): void {
+  if (isFullNationalIdTerm(q)) {
+    fail('VALIDATION_FAILED', { fieldErrors: { q: [t('error.fullIdInUrl')] }, useInstead });
+  }
 }

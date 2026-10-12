@@ -13,6 +13,7 @@ import type {
   MemberDto,
   MembershipHistoryDto,
   PresignedUpload,
+  PrintBatchCreatedDto,
   PrintBatchDetailDto,
   PrintBatchDto,
   ReferenceItemDto,
@@ -231,6 +232,7 @@ export class HttpApi implements ApiClient {
     reactivate: (id) =>
       this.request<UserDto>('POST', `/users/${encodeURIComponent(id)}/reactivate`),
     supervisors: (q) => this.request<UserDto[]>('GET', `/users/supervisors${toQueryString({ q })}`),
+    search: (input) => this.request<Paginated<UserDto>>('POST', '/users/search', { body: input }),
   };
 
   registrations: ApiClient['registrations'] = {
@@ -302,6 +304,7 @@ export class HttpApi implements ApiClient {
       this.request<MemberDto>('PATCH', `/members/${enc(id)}`, { body: input }),
     history: (id) => this.request<MembershipHistoryDto[]>('GET', `/members/${enc(id)}/history`),
     move: (input) => this.request<MemberDto[]>('POST', '/members/move', { body: input }),
+    search: (input) => this.request<Paginated<MemberDto>>('POST', '/members/search', { body: input }),
   };
 
   reference: ApiClient['reference'] = {
@@ -325,7 +328,8 @@ export class HttpApi implements ApiClient {
       this.request<CardTemplateDto>('PATCH', `/cards/templates/${enc(id)}`, { body: input }),
     archiveTemplate: (id) => this.request<void>('DELETE', `/cards/templates/${enc(id)}`),
     preview: (input) => this.request<CardPreviewDto>('POST', '/cards/preview', { body: input }),
-    createBatch: (input) => this.request<PrintBatchDto>('POST', '/cards/batches', { body: input }),
+    createBatch: (input) =>
+      this.request<PrintBatchCreatedDto>('POST', '/cards/batches', { body: input }),
     batches: (q) =>
       this.request<Paginated<PrintBatchDto>>('GET', `/cards/batches${toQueryString(q)}`),
     batch: (id) => this.request<PrintBatchDetailDto>('GET', `/cards/batches/${enc(id)}`),

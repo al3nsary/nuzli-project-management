@@ -9,6 +9,7 @@ import { useBatch, useCardTemplates, useLogos } from '../../api/queries';
 import { ErrorBlock, LoadingBlock } from '../../components/ui';
 import { formatDateTime, formatNumber, t } from '../../i18n';
 import { logoFor, templateFromSnapshot, waitForPrintAssets } from './cardUtils';
+import { dropPrintRun, getPrintRun } from '../../features/cards/printRun';
 
 /** Screen-only chrome; the sheet itself is styled by `printCss()` from @nuzli/ui-print. */
 const PAGE_CSS = `
@@ -34,6 +35,9 @@ export function PrintView() {
   const [pdfBusy, setPdfBusy] = useState(false);
   const printed = useRef(false);
   const sheetRef = useRef<HTMLDivElement>(null);
+  // ADR-064: full IDs come only from the POST /cards/batches answer, held in memory for this run.
+  const [runCards] = useState(() => getPrintRun(batchId));
+  useEffect(() => () => dropPrintRun(batchId), [batchId]);
 
   const live = templates.data?.find((x) => x.id === batch.data?.template.id);
   const template = batch.data ? templateFromSnapshot(batch.data.templateSnapshot, live) : null;
@@ -121,6 +125,11 @@ export function PrintView() {
         <Text size="xs" c="dimmed" mt={4}>
           {t('print.hint')}
         </Text>
+        {!runCards && batch.data.items.some((i) => i.nationalIdPrinted === 'FULL') ? (
+          <Alert color="signal" mt="xs">
+            {t('print.maskedReprint')}
+          </Alert>
+        ) : null}
         {pdfError ? (
           <Alert color="signal" mt="xs" role="alert">
             {pdfError}
@@ -132,7 +141,11 @@ export function PrintView() {
           <PrintSheet
             template={template}
             logoUrl={logoUrl}
-            cards={batch.data.items.map((item) => ({ key: item.id, data: item.data }))}
+            cards={
+              runCards
+                ? runCards.map((c, i) => ({ key: `${c.memberId ?? c.userId ?? 'card'}-${i}`, data: c.data }))
+                : batch.data.items.map((item) => ({ key: item.id, data: item.data }))
+            }
           />
         </div>
       ) : (

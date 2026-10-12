@@ -1198,6 +1198,29 @@ export const ar = {
   'audit.fieldName.responseId': 'الرد',
   'audit.fieldName.length': 'طول الرد (حرفًا)',
   'audit.fieldName.filters': 'المرشّحات',
+
+  // ---------------------------------------------------------------- security changes (2026-10 review)
+  'print.maskedReprint': 'تُعرض هذه الدفعة من السجل بأرقام هوية مقنّعة. للطباعة بالرقم الكامل أنشئ دفعة جديدة من صفحة كروت العمل.',
+  'pending.submittedTitle': 'استلمنا طلبك',
+  'pending.submitted': 'استلمنا طلبك. إن كانت بياناتك جديدة فسيصلك إشعار عند الاعتماد، وإلا فراجع بريدك.',
+  'login.rateLimited': 'محاولات كثيرة في وقت قصير. أعد المحاولة بعد {seconds} ثانية.',
+  'login.retryNow': 'يمكنك المحاولة الآن.',
+  'audit.action.auth.account_locked': 'قفل حساب مؤقتًا بعد محاولات دخول فاشلة',
+  'audit.action.registration.duplicate_attempt': 'محاولة تسجيل ببيانات حساب موجود',
+  'audit.action.member.duplicate_rejected': 'رفض رقم هوية مكرّر عند إضافة عضو',
+  'audit.action.cards.preview_full_ids': 'معاينة كروت بأرقام هوية كاملة',
+  'audit.action.cards.print_data_reissued': 'إعادة إصدار بيانات طباعة دفعة كروت',
+  'audit.entity.card_print_batch': 'دفعة طباعة',
+  'audit.fieldName.nationalIdFull': 'رقم الهوية كاملًا على الكرت',
+  'audit.fieldName.fullNationalIds': 'كروت برقم هوية كامل',
+  'audit.fieldName.templateName': 'القالب',
+  'audit.fieldName.templateId': 'معرّف القالب',
+  'audit.fieldName.teamCount': 'عدد الفرق',
+  'audit.fieldName.memberCount': 'عدد الأعضاء',
+  'audit.fieldName.rows': 'عدد الصفوف',
+
+  // ---------------------------------------------------------------- search
+  'error.fullIdInUrl': 'ابحث برقم الهوية الكامل من خانة البحث؛ لا يُرسل الرقم الكامل في الرابط.',
 } as const;
 
 export type MessageKey = keyof typeof ar;

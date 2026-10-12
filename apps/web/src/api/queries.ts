@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from './context';
 import { useAuthStore } from '../stores/auth';
-import type { MemberDto, ViolationFilter } from '@nuzli/shared';
+import { isFullNationalIdTerm, type MemberDto, type ViolationFilter } from '@nuzli/shared';
 import type {
   AuditQuery,
   MemberListQuery,
@@ -30,7 +30,8 @@ export function useUsers(q: UserListQuery, enabled = true) {
   const api = useApi();
   return useQuery({
     queryKey: qk.users(q),
-    queryFn: () => api.users.list(q),
+    // ADR-067: a full national ID goes in a POST body, never in the query string.
+    queryFn: () => (isFullNationalIdTerm(q.q) ? api.users.search({ ...q }) : api.users.list(q)),
     placeholderData: keepPreviousData,
     enabled: useSignedIn() && enabled,
   });
@@ -178,7 +179,10 @@ export function useMembers(q: MemberListQuery, enabled = true) {
   const api = useApi();
   return useQuery({
     queryKey: qk2.members(q),
-    queryFn: () => api.members.list(q),
+    queryFn: () =>
+      isFullNationalIdTerm(q.q)
+        ? api.members.search({ ...q, unassigned: Boolean(q.unassigned) })
+        : api.members.list(q),
     placeholderData: keepPreviousData,
     enabled: useSignedIn() && enabled,
   });

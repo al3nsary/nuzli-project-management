@@ -11,6 +11,7 @@ import {
   importMembersSchema,
   maskNationalId,
   memberInputSchema,
+  memberSearchSchema,
   moveMembersSchema,
   printBatchSchema,
   referenceItemSchema,
@@ -26,19 +27,24 @@ import {
   type CardData,
   type CardPreviewSubjectDto,
   type CardSizeDto,
+  type CardTemplateConfig,
   type CardTemplateDto,
   type ColorTakenDetails,
   type LogoDto,
   type MemberDto,
   type Permission,
+  type NationalIdPrinted,
+  type PrintBatchCreatedDto,
   type PrintBatchDetailDto,
   type PrintBatchDto,
+  type PrintRunCardDto,
   type ReferenceItemDto,
   type TeamColorDto,
   type TeamDto,
   type TeamSummaryDto,
 } from '@nuzli/shared';
-import type { ApiClient } from '../client';
+import type { ApiClient, MemberListQuery } from '../client';
+import { ApiError } from '../errors';
 import { t } from '../../i18n';
 import { toMemberInput, validateImportRows } from '../../features/members/importRows';
 import type {
@@ -54,7 +60,18 @@ import type {
   DemoTemplate,
   DemoUser,
 } from './db';
-import { fail, newId, paginate, sameName, validate } from './util';
+import { fail, newId, paginate, rejectFullIdInUrl, sameName, validate } from './util';
+
+/** ADR-064: what the physical card carries — full only when the field is on and unmasked. */
+export function nationalIdPrintedFor(config: CardTemplateConfig): NationalIdPrinted {
+  return config.fields.nationalId && !config.maskNationalId ? 'FULL' : 'MASKED';
+}
+
+/** The card's national ID per template, derived from the stored record (never from the client). */
+function cardNationalId(config: CardTemplateConfig, full: string): string {
+  if (!config.fields.nationalId) return '';
+  return config.maskNationalId ? maskNationalId(full) : full;
+}
 
 /** What the Phase 2 module needs from the DemoApi instance. */
 export interface DemoInternals {
@@ -876,12 +893,12 @@ export function createPhase2(api: DemoInternals): Phase2Api {
 
   // ------------------------------------------------------------ members
 
-  const members: Phase2Api['members'] = {
-    list: async (query = {}) => {
+  /** `GET /members` and `POST /members/search` share the filters (ADR-067). */
+  async function filterMembers(query: MemberListQuery) {
       const u = await readerOfTeams();
       const w = await world();
-      const raw = toWesternDigits(query.q ?? '').trim();
-      const q = raw.toLowerCase();
+      const raw = toWesternDigits(query.q ?? '').trim().replace(/[\s-]/g, '');
+      const q = toWesternDigits(query.q ?? '').trim().toLowerCase();
       const digits = /^\d{4}$/.test(raw) ? raw : null;
       const fullId = /^\d{10}$/.test(raw) ? raw : null;
       const rows = (await db.members.toArray())
@@ -901,7 +918,15 @@ export function createPhase2(api: DemoInternals): Phase2Api {
         .sort(byFullName);
       const page = paginate(rows, query.page, query.pageSize);
       return { ...page, items: page.items.map((m) => memberDto(m, w)) };
+  }
+
+  const members: Phase2Api['members'] = {
+    list: async (query = {}) => {
+      rejectFullIdInUrl(query.q, 'POST /members/search');
+      return filterMembers(query);
     },
+
+    search: async (input) => filterMembers(validate(memberSearchSchema, input)),
 
     get: async (id) => {
       const u = await readerOfTeams();
@@ -1142,6 +1167,55 @@ export function createPhase2(api: DemoInternals): Phase2Api {
     }
   }
 
+  interface PrintSubject {
+    id: string;
+    nationalId: string;
+    photoFileId: string | null;
+    isMember: boolean;
+  }
+
+  /** The stored member or supervisor behind a card (404 when missing), like the API's loadSubjects. */
+  async function printSubject(item: { memberId?: string | null; userId?: string | null }): Promise<PrintSubject> {
+    if (item.memberId) {
+      const m = await db.members.get(item.memberId);
+      if (!m) fail('NOT_FOUND', { field: 'items' });
+      return { id: m.id, nationalId: m.nationalId, photoFileId: m.photoFileId, isMember: true };
+    }
+    const user = item.userId ? await db.users.get(item.userId) : undefined;
+    if (!user) fail('NOT_FOUND', { field: 'items' });
+    return { id: user.id, nationalId: user.nationalId, photoFileId: null, isMember: false };
+  }
+
+  /** Client text fields + server-derived ID, QR and photo (ADR-064); the client's values are ignored. */
+  function serverCard(config: CardTemplateConfig, data: CardData, subject: PrintSubject): CardData {
+    return {
+      ...data,
+      nationalId: cardNationalId(config, subject.nationalId),
+      qrValue: subject.id,
+      photoFileId: subject.isMember && config.fields.photo ? subject.photoFileId : null,
+    };
+  }
+
+  /** What is kept in the batch: the national ID always masked. */
+  function storedCard(config: CardTemplateConfig, data: CardData, subject: PrintSubject): CardData {
+    const card = serverCard(config, data, subject);
+    return { ...card, nationalId: card.nationalId ? maskNationalId(subject.nationalId) : '' };
+  }
+
+  /** Cards of a recorded batch for one print run; FULL items get the ID from the stored record. */
+  async function printRun(b: DemoBatch): Promise<PrintRunCardDto[]> {
+    const out: PrintRunCardDto[] = [];
+    for (const item of b.items) {
+      const data: CardData = { ...item.data, qrValue: item.memberId ?? item.userId ?? undefined };
+      if (item.nationalIdPrinted === 'FULL') {
+        const subject = await printSubject(item);
+        data.nationalId = subject.nationalId;
+      }
+      out.push({ memberId: item.memberId, userId: item.userId, data, nationalIdPrinted: item.nationalIdPrinted });
+    }
+    return out;
+  }
+
   const batchDto = (b: DemoBatch, w: World): PrintBatchDto => ({
     id: b.id,
     idempotencyKey: b.idempotencyKey,
@@ -1332,8 +1406,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       const tpl = await db.cardTemplates.get(data.templateId);
       if (!tpl || tpl.archived) fail('NOT_FOUND');
       const w = await world();
-      const mask = tpl.config.maskNationalId;
-      const idOut = (id: string) => (mask ? maskNationalId(id) : id);
+      const idOut = (id: string) => cardNationalId(tpl.config, id);
       const validUntil = tpl.config.validUntil;
       const subjects: CardPreviewSubjectDto[] = [];
       const seen = new Set<string>();
@@ -1392,6 +1465,23 @@ export function createPhase2(api: DemoInternals): Phase2Api {
         if (!m || !canSeeMember(u, memberTeam(w, memberId))) fail('NOT_FOUND');
         memberSubject(m);
       }
+      // Security review M3 (ADR-064): a preview that decrypts full IDs is audited (count only).
+      if (subjects.length && nationalIdPrintedFor(tpl.config) === 'FULL') {
+        await api.writeAudit({
+          actorId: u.id,
+          action: 'cards.preview_full_ids',
+          entityType: 'card_template',
+          entityId: tpl.id,
+          before: null,
+          after: {
+            count: subjects.length,
+            templateId: tpl.id,
+            templateName: tpl.name,
+            teamCount: data.teamIds.length,
+            memberCount: data.memberIds.length,
+          },
+        });
+      }
       return { template: await templateDto(tpl), subjects };
     },
 
@@ -1399,6 +1489,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       const u = await api.actor('cards.print');
       const data = validate(printBatchSchema, input);
       let batch!: DemoBatch;
+      let created = false;
       await tx(async () => {
         // Idempotency (brief §12): the same key returns the original batch, nothing is redone.
         const existing = await db.batches.where('idempotencyKey').equals(data.idempotencyKey).first();
@@ -1410,20 +1501,23 @@ export function createPhase2(api: DemoInternals): Phase2Api {
         if (!tpl) fail('NOT_FOUND');
         const size = await db.cardSizes.get(tpl.sizeId);
         const w = await world();
+        const mode = nationalIdPrintedFor(tpl.config);
         let savedBack = 0;
         const items: DemoBatch['items'] = [];
         for (const item of data.items) {
+          const subject = await printSubject(item);
           const doSave = Boolean(item.saveBack && item.memberId);
           if (doSave) {
             await saveBack(item.memberId!, item.data, u, w);
             savedBack++;
           }
-          const id = (item.data.nationalId ?? '').trim();
+          // ADR-064: stored data is always masked; `nationalIdPrinted` records the physical card.
           items.push({
             id: newId(),
             memberId: item.memberId ?? null,
-            userId: item.userId ?? null,
-            data: { ...item.data, nationalId: tpl.config.maskNationalId ? maskNationalId(id) : id },
+            userId: item.memberId ? null : (item.userId ?? null),
+            data: storedCard(tpl.config, item.data, subject),
+            nationalIdPrinted: mode,
             savedBack: doSave,
           });
         }
@@ -1445,16 +1539,30 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           items,
         };
         await db.batches.add(batch);
+        created = true;
         await api.writeAudit({
           actorId: u.id,
           action: 'cards.printed',
           entityType: 'print_batch',
           entityId: batch.id,
           before: null,
-          after: { template: tpl.name, cardCount: items.length, savedBack },
+          after: { template: tpl.name, cardCount: items.length, savedBack, nationalIdFull: mode === 'FULL' },
         });
       });
-      return batchDto(batch, await world());
+      // The print run: full IDs re-derived from the stored records, only in this answer.
+      const cards = await printRun(batch);
+      if (!created && cards.some((c) => c.nationalIdPrinted === 'FULL')) {
+        await api.writeAudit({
+          actorId: u.id,
+          action: 'cards.print_data_reissued',
+          entityType: 'print_batch',
+          entityId: batch.id,
+          before: null,
+          after: { count: cards.length, fullNationalIds: cards.filter((c) => c.nationalIdPrinted === 'FULL').length },
+        });
+      }
+      const dto: PrintBatchCreatedDto = { ...batchDto(batch, await world()), cards };
+      return dto;
     },
 
     batches: async (query = {}) => {
@@ -1582,6 +1690,44 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       });
     },
   };
+
+  /**
+   * ADR-067 (security review L7): without `members.manage` (supervisors) a duplicate national ID
+   * answers a neutral NATIONAL_ID_NOT_ACCEPTED on the same fields, audited without personal data.
+   */
+  function hideDuplicateNationalId<A extends unknown[], R>(
+    route: string,
+    fn: (...args: A) => Promise<R>,
+  ): (...args: A) => Promise<R> {
+    return async (...args) => {
+      try {
+        return await fn(...args);
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.code !== 'NATIONAL_ID_TAKEN') throw err;
+        const u = await api.actor();
+        if (can(u, 'members.manage')) throw err;
+        const keys = Object.keys(
+          (err.details as { fieldErrors?: Record<string, unknown> } | undefined)?.fieldErrors ?? {},
+        );
+        await api.writeAudit({
+          actorId: u.id,
+          action: 'member.duplicate_rejected',
+          entityType: 'member',
+          entityId: null,
+          before: null,
+          after: { route, rows: keys.length || 1 },
+        });
+        fail('NATIONAL_ID_NOT_ACCEPTED', {
+          fieldErrors: Object.fromEntries(
+            (keys.length ? keys : ['nationalId']).map((k) => [k, [ERRORS.NATIONAL_ID_NOT_ACCEPTED]]),
+          ),
+        });
+      }
+    };
+  }
+  teams.create = hideDuplicateNationalId('teams.create', teams.create);
+  teams.addMember = hideDuplicateNationalId('teams.addMember', teams.addMember);
+  members.update = hideDuplicateNationalId('members.update', members.update);
 
   return { colors, teams, members, reference, cards, logos };
 }

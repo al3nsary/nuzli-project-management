@@ -1132,4 +1132,27 @@ export const en: Record<MessageKey, string> = {
   'audit.fieldName.responseId': '',
   'audit.fieldName.length': '',
   'audit.fieldName.filters': '',
+
+  // ---------------------------------------------------------------- security changes (2026-10 review)
+  'print.maskedReprint': '',
+  'pending.submittedTitle': '',
+  'pending.submitted': '',
+  'login.rateLimited': '',
+  'login.retryNow': '',
+  'audit.action.auth.account_locked': '',
+  'audit.action.registration.duplicate_attempt': '',
+  'audit.action.member.duplicate_rejected': '',
+  'audit.action.cards.preview_full_ids': '',
+  'audit.action.cards.print_data_reissued': '',
+  'audit.entity.card_print_batch': '',
+  'audit.fieldName.nationalIdFull': '',
+  'audit.fieldName.fullNationalIds': '',
+  'audit.fieldName.templateName': '',
+  'audit.fieldName.templateId': '',
+  'audit.fieldName.teamCount': '',
+  'audit.fieldName.memberCount': '',
+  'audit.fieldName.rows': '',
+
+  // ---------------------------------------------------------------- search
+  'error.fullIdInUrl': '',
 };
