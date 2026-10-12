@@ -138,7 +138,12 @@ export function PhotoArea({ model, widthMm, heightMm }: { model: CardModel; widt
   if (model.photoUrl) {
     return (
       <div className="nz-photo-frame" data-photo="image" data-photo-mm={size} style={frame}>
-        <img className="nz-photo" src={model.photoUrl} alt={CARD_LABELS.photoAlt} />
+        <img
+          className="nz-photo"
+          src={model.photoUrl}
+          alt={CARD_LABELS.photoAlt}
+          referrerPolicy="no-referrer"
+        />
       </div>
     );
   }
