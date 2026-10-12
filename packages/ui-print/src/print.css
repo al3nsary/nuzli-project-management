@@ -18,7 +18,11 @@
 .nz-mono { font-family: "IBM Plex Mono", "IBM Plex Sans Arabic", ui-monospace, monospace; font-variant-numeric: tabular-nums; unicode-bidi: isolate; }
 .nz-logo-row { display: flex; flex: none; align-items: center; min-width: 0; }
 .nz-logo { display: block; object-fit: contain; }
-.nz-photo { display: block; flex: none; object-fit: cover; }
+.nz-photo-frame { position: relative; display: block; flex: none; overflow: hidden; }
+.nz-photo { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+.nz-photo-placeholder { display: flex; align-items: center; justify-content: center; }
+.nz-photo-silhouette { position: absolute; inset-inline-start: 12%; inset-block-end: 0; width: 76%; height: 74%; opacity: 0.12; }
+.nz-initials { position: relative; font-weight: 700; line-height: 1; white-space: nowrap; unicode-bidi: isolate; }
 .nz-qr { display: block; flex: none; }
 .nz-qr-box { flex: none; }
 .nz-center { display: flex; justify-content: center; flex: none; }

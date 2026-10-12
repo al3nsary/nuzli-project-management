@@ -57,8 +57,12 @@ function template(config: Record<string, unknown>) {
   };
 }
 
-function setup(config: Record<string, unknown> = {}, cfg: Record<string, unknown> = {}) {
+const urlsFor = (prefix: string) =>
+  jest.fn(async (ids: Array<string | null | undefined>) => new Map(ids.filter((v): v is string => !!v).map((id) => [id, `${prefix}${id}`])));
+
+function setup(config: Record<string, unknown> = {}, cfg: Record<string, unknown> = {}, supPhoto: string | null = null) {
   const sp = crypto.protectNationalId(SUP_NID);
+  const supRow = { id: SUP_ID, fullName: 'سعد المشرف', nationalIdEnc: sp.enc, nationalIdFirst: sp.first, nationalIdLast2: sp.last2, photoFileId: supPhoto };
   const tx = {
     cardTemplate: { findUnique: jest.fn().mockResolvedValue(template(config)) },
     team: {
@@ -67,7 +71,7 @@ function setup(config: Record<string, unknown> = {}, cfg: Record<string, unknown
           id: TEAM,
           name: 'فريق أ',
           color: { hex: '#1D4ED8' },
-          supervisor: { id: SUP_ID, fullName: 'سعد المشرف', nationalIdEnc: sp.enc, nationalIdFirst: sp.first, nationalIdLast2: sp.last2 },
+          supervisor: supRow,
         },
       ]),
     },
@@ -78,9 +82,7 @@ function setup(config: Record<string, unknown> = {}, cfg: Record<string, unknown
     },
     user: {
       count: jest.fn().mockResolvedValue(1),
-      findMany: jest.fn().mockResolvedValue([
-        { id: SUP_ID, fullName: 'سعد المشرف', nationalIdEnc: sp.enc, nationalIdFirst: sp.first, nationalIdLast2: sp.last2 },
-      ]),
+      findMany: jest.fn().mockResolvedValue([supRow]),
     },
     cardPrintBatch: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -101,8 +103,9 @@ function setup(config: Record<string, unknown> = {}, cfg: Record<string, unknown
     auditLog: { create: jest.fn().mockResolvedValue({}) },
   };
   const prisma = { ...tx, $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)) };
-  const svc = new PrintService(prisma as never, crypto, new AuditService(prisma as never), cfg as never);
-  return { svc, tx };
+  const photos = { presignMany: urlsFor('https://bucket/get/'), inlineMany: urlsFor('data:image/jpeg;base64,') };
+  const svc = new PrintService(prisma as never, crypto, new AuditService(prisma as never), cfg as never, photos as never);
+  return { svc, tx, photos };
 }
 
 const previewInput = { templateId: 'tpl-1', teamIds: [TEAM], memberIds: [], includeSupervisors: true };
@@ -332,5 +335,61 @@ describe('print batches (brief §8.1, §12)', () => {
     const err = await svc.streamPdf('batch-1', {} as never, ctx).catch((e: AppError) => e);
     expect((err as AppError).code).toBe('PDF_NOT_CONFIGURED');
     expect((err as AppError).status).toBe(501);
+  });
+});
+
+describe('card photos (owner request A8)', () => {
+  const MEMBER_PHOTO = '55555555-5555-4555-8555-555555555555';
+  const SUP_PHOTO = '66666666-6666-4666-8666-666666666666';
+
+  it('preview returns a short-lived photoUrl for member (member photo) and supervisor (user photo) subjects', async () => {
+    const { svc, tx } = setup({}, {}, SUP_PHOTO);
+    tx.teamMember.findMany.mockResolvedValue([member({ photoFileId: MEMBER_PHOTO })]);
+    const { subjects } = await svc.preview(previewInput, ADMIN);
+    expect(subjects[0]).toMatchObject({ userId: SUP_ID, photoUrl: `https://bucket/get/${SUP_PHOTO}`, data: { photoFileId: SUP_PHOTO } });
+    expect(subjects[1]).toMatchObject({ memberId: MEMBER_ID, photoUrl: `https://bucket/get/${MEMBER_PHOTO}`, data: { photoFileId: MEMBER_PHOTO } });
+  });
+
+  it('without a photo, or with fields.photo=false, photoUrl is null and no file id is carried', async () => {
+    const off = setup({ fields: { photo: false } }, {}, SUP_PHOTO);
+    off.tx.teamMember.findMany.mockResolvedValue([member({ photoFileId: MEMBER_PHOTO })]);
+    const hidden = await off.svc.preview(previewInput, ADMIN);
+    expect(hidden.subjects.map((s) => [s.photoUrl, s.data.photoFileId])).toEqual([[null, null], [null, null]]);
+    const none = await setup().svc.preview(previewInput, ADMIN);
+    expect(none.subjects.every((s) => s.photoUrl === null)).toBe(true);
+  });
+
+  it('print batch cards carry photoUrl from the DB photo, never a client-sent file id, and the URL is not stored', async () => {
+    const { svc, tx } = setup({}, {}, SUP_PHOTO);
+    tx.teamMember.findMany.mockResolvedValue([{ ...member({ photoFileId: MEMBER_PHOTO }) }]);
+    const res = await svc.createBatch(
+      {
+        idempotencyKey: KEY,
+        templateId: 'tpl-1',
+        items: [
+          { memberId: MEMBER_ID, data: { fullName: 'x', photoFileId: KEY }, saveBack: false },
+          { userId: SUP_ID, data: { fullName: 'y' }, saveBack: false },
+        ],
+      },
+      ADMIN,
+      ctx,
+    );
+    expect(res.batch.cards.map((c) => c.photoUrl)).toEqual([`https://bucket/get/${MEMBER_PHOTO}`, `https://bucket/get/${SUP_PHOTO}`]);
+    const stored = JSON.stringify(tx.cardPrintItem.createMany.mock.calls[0]![0].data);
+    expect(stored).not.toContain('https://');
+    expect(stored).not.toContain(KEY);
+  });
+
+  it('the PDF request inlines each card photo', async () => {
+    const { svc, tx, photos } = setup({}, { PDF_SERVICE_URL: 'http://pdf:4000', PDF_SERVICE_TOKEN: 'tok', PDF_SERVICE_TIMEOUT_MS: 1000 });
+    tx.cardPrintBatch.findUnique.mockResolvedValue({ ...(await tx.cardPrintBatch.findUniqueOrThrow()), templateSnapshot: {}, items: [] } as never);
+    tx.cardPrintItem.findMany.mockResolvedValue([
+      { memberId: MEMBER_ID, userId: null, renderedData: { fullName: 'x', photoFileId: MEMBER_PHOTO }, nationalIdPrinted: 'MASKED' },
+    ]);
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 502 }));
+    await svc.streamPdf('batch-1', {} as never, ctx).catch(() => undefined);
+    expect(photos.inlineMany).toHaveBeenCalledWith([MEMBER_PHOTO]);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body)).cards[0].photoUrl).toBe(`data:image/jpeg;base64,${MEMBER_PHOTO}`);
+    fetchMock.mockRestore();
   });
 });

@@ -65,7 +65,7 @@ export const BUILTIN_CARD_TEMPLATES: ReadonlyArray<{
     sizeName: 'CR80 (بطاقة قياسية)',
     orientation: 'LANDSCAPE',
     layoutKey: 'CLASSIC_HORIZONTAL',
-    config: {},
+    config: { fields: { photo: true } },
     isDefault: true,
   },
   {
@@ -73,7 +73,7 @@ export const BUILTIN_CARD_TEMPLATES: ReadonlyArray<{
     sizeName: 'CR80 (بطاقة قياسية)',
     orientation: 'PORTRAIT',
     layoutKey: 'VERTICAL_BADGE',
-    config: { logoPosition: 'center', accentStrip: 'top', fontSizes: { name: 12, body: 7 } },
+    config: { fields: { photo: true }, logoPosition: 'center', accentStrip: 'top', fontSizes: { name: 12, body: 7 } },
     isDefault: false,
   },
   {
@@ -82,7 +82,8 @@ export const BUILTIN_CARD_TEMPLATES: ReadonlyArray<{
     orientation: 'LANDSCAPE',
     layoutKey: 'COMPACT_LABEL',
     config: {
-      fields: { department: false, qr: false, photo: false },
+      // Owner request A8: every built-in layout reserves a photo area (14×18 mm here).
+      fields: { department: false, qr: false, photo: true },
       fontSizes: { name: 10, body: 6 },
       accentStrip: 'start',
     },

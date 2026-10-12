@@ -6,6 +6,11 @@ import type { TeamSummaryDto } from './teams';
 export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const ALLOWED_UPLOAD_TYPES = [...ALLOWED_IMAGE_TYPES, 'application/pdf'] as const;
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Personal photos (owner request A8): images only, compressed client-side to about 600×600. */
+export const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+/** Upload entity types of personal photos (`entityId` = the user or the member). */
+export const PHOTO_ENTITY_TYPES = ['user_photo', 'member_photo'] as const;
+export type PhotoEntityType = (typeof PHOTO_ENTITY_TYPES)[number];
 
 export const deviceInfoSchema = z
   .object({
@@ -37,7 +42,7 @@ export const createViolationSchema = z.object({
 export type CreateViolationInput = z.input<typeof createViolationSchema>;
 
 export const presignUploadSchema = z.object({
-  entityType: z.enum(['violation', 'task', 'logo', 'member_photo']),
+  entityType: z.enum(['violation', 'task', 'logo', 'member_photo', 'user_photo']),
   entityId: uuid.optional(),
   kind: z.enum(['ID_CARD', 'EVIDENCE', 'ATTACHMENT', 'LOGO', 'PHOTO']).optional(),
   contentType: z.enum(ALLOWED_UPLOAD_TYPES),
@@ -52,6 +57,12 @@ export interface PresignedUpload {
   url: string;
   method: 'PUT';
   headers: Record<string, string>;
+  expiresAt: string;
+}
+
+/** `GET /me/photo-url`, `/users/:id/photo-url`, `/members/:id/photo-url` (owner request A8). */
+export interface PhotoUrlDto {
+  url: string;
   expiresAt: string;
 }
 
@@ -163,6 +174,9 @@ export interface RosterEntry {
   teamId: string | null;
   teamName: string | null;
   teamColor: string | null;
+  /** Owner request A8: the member photo (fetch it with `GET /members/:id/photo-url`). */
+  photoFileId?: string | null;
+  hasPhoto?: boolean;
 }
 
 export interface ViolationStats {

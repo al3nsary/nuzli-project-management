@@ -74,7 +74,12 @@ export interface CardModel {
   validUntil: string | null;
   qrValue: string | null;
   logoUrl: string | null;
+  /** The photo to print; null with `showPhoto` → the initials placeholder. */
   photoUrl: string | null;
+  /** `fields.photo`: the layout reserves a photo area (owner request A8), with or without a photo. */
+  showPhoto: boolean;
+  /** Placeholder text: first letters of the first and last name (`cardInitials`). */
+  initials: string;
   qrDataUrl: string | null;
 }
 
@@ -109,8 +114,34 @@ export function buildCardModel(template: CardTemplateLike, data: CardData, asset
     qrValue: f.qr ? text(data.qrValue) || null : null,
     logoUrl: f.logo && assets.logoUrl ? assets.logoUrl : null,
     photoUrl: f.photo && assets.photoUrl ? assets.photoUrl : null,
+    showPhoto: f.photo,
+    initials: cardInitials(text(data.fullName)),
     qrDataUrl: f.qr && assets.qrDataUrl ? assets.qrDataUrl : null,
   };
+}
+
+/** Arabic name particles that never give an initial. */
+const PARTICLES = new Set(['بن', 'بنت', 'ابن', 'آل', 'ال', 'أبو', 'ابو', 'bin', 'bint', 'al']);
+/** Zero-width non-joiner: keeps two Arabic initials from joining into a word. */
+const ZWNJ = '\u200C';
+
+function initialOf(word: string): string {
+  // «القحطاني» → «ق», «الشمري» → «ش»: the article is not the name. «عبدالله» keeps «ع».
+  const w = /^(ال|al-)/i.test(word) && [...word].length > 3 ? word.replace(/^(ال|al-)/i, '') : word;
+  const ch = [...w].find((c) => /\p{L}/u.test(c)) ?? '';
+  return ch.toLocaleUpperCase('ar');
+}
+
+/**
+ * Initials for the photo placeholder: the first letters of the first and the last name,
+ * e.g. «محمد بن عبدالرحمن القحطاني» → «م‌ق» (two letters kept apart by a ZWNJ).
+ */
+export function cardInitials(fullName: string): string {
+  const words = fullName.trim().split(/\s+/).filter((w) => w && !PARTICLES.has(w.toLowerCase()));
+  if (!words.length) return '';
+  const first = initialOf(words[0]!);
+  const last = words.length > 1 ? initialOf(words[words.length - 1]!) : '';
+  return last ? `${first}${ZWNJ}${last}` : first;
 }
 
 /** `2027-03-31` → `31 مارس 2027` (Gregorian, Western digits — brief / RTL skill defaults). */
@@ -139,6 +170,7 @@ export const CARD_LABELS = {
   team: 'الفريق',
   validUntil: 'صالحة حتى',
   logoAlt: 'الشعار',
-  photoAlt: 'صورة العضو',
+  photoAlt: 'الصورة الشخصية',
+  photoPlaceholder: 'لا توجد صورة',
   qrAlt: 'رمز التحقق',
 } as const;

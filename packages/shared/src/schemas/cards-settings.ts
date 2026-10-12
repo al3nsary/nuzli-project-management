@@ -16,7 +16,8 @@ export const cardTemplateConfigSchema = z.object({
       nationalId: z.boolean().default(true),
       department: z.boolean().default(true),
       teamName: z.boolean().default(true),
-      photo: z.boolean().default(false),
+      /** Owner request A8: cards reserve a photo area by default (initials when there is no photo). */
+      photo: z.boolean().default(true),
       qr: z.boolean().default(true),
       validUntil: z.boolean().default(false),
     })
@@ -130,6 +131,11 @@ export interface CardPreviewSubjectDto {
   memberId?: string;
   userId?: string;
   data: CardData;
+  /**
+   * Owner request A8: short-lived presigned GET of the subject photo (member photo for members,
+   * the user photo for supervisors), or null. Never persisted; re-request the preview when expired.
+   */
+  photoUrl?: string | null;
 }
 
 export interface CardPreviewDto {
@@ -169,6 +175,8 @@ export interface PrintRunCardDto {
   /** Server-derived: `nationalId` from the DB per template (full when FULL), `qrValue` = UUID. */
   data: CardData;
   nationalIdPrinted: NationalIdPrinted;
+  /** Owner request A8: short-lived presigned GET of the photo for this print run, or null. Never stored. */
+  photoUrl?: string | null;
 }
 
 /**

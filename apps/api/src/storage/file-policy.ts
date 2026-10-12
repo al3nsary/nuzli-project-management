@@ -1,6 +1,6 @@
 import { can, canAny, type Permission, type PermissionSubject } from '@nuzli/shared';
 
-export type FileEntity = 'violation' | 'task' | 'logo' | 'member_photo';
+export type FileEntity = 'violation' | 'task' | 'logo' | 'member_photo' | 'user_photo';
 
 /** Object-key folder per entity: `{folder}/{yyyy}/{mm}/{uuid}.{ext}` (brief §3.2). */
 export const ENTITY_FOLDERS: Record<FileEntity, string> = {
@@ -8,19 +8,29 @@ export const ENTITY_FOLDERS: Record<FileEntity, string> = {
   task: 'tasks',
   logo: 'logos',
   member_photo: 'member-photos',
+  user_photo: 'user-photos',
 };
 
 /**
- * Who may upload a file for each entity type.
- * Security review L3 (ADR-066): logos are admin-only (`logos.manage`). Member photos are closed
- * until a member-photo route exists that validates the member scope and links the file at
- * confirm; until then nobody can presign one (the enum value stays for compatibility).
+ * Entities whose uploads are scoped by a hook (entity id, limits, linking at confirm). Without
+ * its hook registered such an upload is refused instead of being accepted unchecked.
+ */
+export const HOOKED_ENTITIES: ReadonlySet<FileEntity> = new Set<FileEntity>(['violation', 'task', 'member_photo', 'user_photo']);
+
+/**
+ * Who may upload a file for each entity type (the coarse gate; hooks add the data scope).
+ * Security review L3 (ADR-066): logos are admin-only (`logos.manage`).
+ * Owner request A8 supersedes the temporary member-photo closure: member photos are open to
+ * `members.manage` (admin) and `members.manageOwn` (the supervisor leading the member's team —
+ * checked by PhotosService); user photos to everyone for themselves (`profile.update`) and to
+ * admins (`users.manageRoles`) for anyone.
  */
 const UPLOAD_PERMISSIONS: Record<FileEntity, Permission[]> = {
   violation: ['violations.create', 'violations.manage'],
   task: ['tasks.manage', 'tasks.comment'],
   logo: ['logos.manage'],
-  member_photo: [],
+  member_photo: ['members.manage', 'members.manageOwn'],
+  user_photo: ['profile.update', 'users.manageRoles'],
 };
 
 /**
@@ -32,6 +42,8 @@ const READ_PERMISSIONS: Record<FileEntity, Permission[]> = {
   task: ['projects.readAll'],
   logo: ['cards.print', 'logos.manage'],
   member_photo: ['teams.readAll', 'members.manage', 'cards.print'],
+  // Scoped photo reads go through GET /users/:id/photo-url and /members/:id/photo-url.
+  user_photo: ['users.read', 'cards.print'],
 };
 
 export function canUpload(user: PermissionSubject, entity: FileEntity, kind?: string, entityId?: string): boolean {

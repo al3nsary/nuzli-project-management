@@ -182,3 +182,20 @@ describe('national-ID search terms stay out of URLs (security review L4)', () =>
     expect(userSearchSchema.safeParse({ role: 'ROOT' }).success).toBe(false);
   });
 });
+
+describe('personal photos (owner request A8)', () => {
+  it('cards reserve a photo area by default', async () => {
+    const { cardTemplateConfigSchema } = await import('./index');
+    expect(cardTemplateConfigSchema.parse({}).fields.photo).toBe(true);
+    expect(cardTemplateConfigSchema.parse({ fields: { photo: false } }).fields.photo).toBe(false);
+  });
+
+  it('presign accepts user and member photos, images only, and the photo cap is 2 MB', async () => {
+    const { presignUploadSchema, PHOTO_MAX_BYTES } = await import('./index');
+    const base = { entityId: '7c9e6679-7425-40de-944b-e07fc1f90ae7', kind: 'PHOTO', sizeBytes: 1000 };
+    expect(presignUploadSchema.safeParse({ ...base, entityType: 'user_photo', contentType: 'image/webp' }).success).toBe(true);
+    expect(presignUploadSchema.safeParse({ ...base, entityType: 'member_photo', contentType: 'image/jpeg' }).success).toBe(true);
+    expect(presignUploadSchema.safeParse({ ...base, entityType: 'user_photo', contentType: 'image/svg+xml' }).success).toBe(false);
+    expect(PHOTO_MAX_BYTES).toBe(2 * 1024 * 1024);
+  });
+});

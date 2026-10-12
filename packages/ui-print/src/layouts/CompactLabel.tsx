@@ -1,19 +1,29 @@
 import type { CardModel } from '../config';
-import { CardShell, FieldRow, hasQr, LogoRow, NameBlock, Photo, QrCode, sortForDisplay } from '../parts';
+import { CardShell, FieldRow, hasQr, LogoRow, NameBlock, PHOTO_ASPECT, PhotoArea, QrCode, sortForDisplay } from '../parts';
 import { computeFrame, planText, rowSpecs, type RowSpec } from '../plan';
 import { clamp, mm } from '../units';
 
+/** Photo height on 90×40 and 57×32: about 14×18 mm; larger media grow it to half the height. */
+export const COMPACT_PHOTO_H_MM = 18;
+/** Below this height (content box) the photo area is left out. */
+export const COMPACT_PHOTO_MIN_H_MM = 12;
+
 /**
  * Compact label for small media (57×32, 90×40): no field labels except the validity date,
- * job title and department merged on one line, QR filling the end side.
+ * job title and department merged on one line, QR filling the end side, a small photo area
+ * (3:4) on the start side when `fields.photo` is on and the label is tall enough.
  */
 export function CompactLabel({ model }: { model: CardModel }) {
   const frame = computeFrame(model);
   const { innerW, innerH, gap } = frame;
   const { config } = model;
 
-  const qr = hasQr(model) ? Math.min(innerH, clamp(innerW * 0.34, 6, 26)) : 0;
-  const photoW = model.photoUrl ? Math.min(innerW * 0.2, innerH / 1.25) : 0;
+  const qr = hasQr(model) ? Math.min(innerH, clamp(innerW * (model.showPhoto ? 0.28 : 0.34), 6, 26)) : 0;
+  let photoH = model.showPhoto
+    ? Math.min(innerH, Math.max(COMPACT_PHOTO_H_MM, innerH * 0.5), innerW * 0.27 * PHOTO_ASPECT)
+    : 0;
+  if (photoH < COMPACT_PHOTO_MIN_H_MM) photoH = 0;
+  const photoW = photoH / PHOTO_ASPECT;
   const textW = Math.max(0, innerW - qr - photoW - (qr ? gap : 0) - (photoW ? gap : 0));
   const logoH = model.logoUrl ? clamp(innerH * 0.16, 3, 8) : 0;
 
@@ -32,7 +42,11 @@ export function CompactLabel({ model }: { model: CardModel }) {
   return (
     <CardShell model={model} frame={frame} layout="compact-label">
       <div className="nz-hstack nz-grow" style={{ gap: mm(gap) }}>
-        {photoW ? <Photo url={model.photoUrl!} widthMm={photoW} heightMm={photoW * 1.25} /> : null}
+        {photoW ? (
+          <div className="nz-center" style={{ alignSelf: 'center' }}>
+            <PhotoArea model={model} widthMm={photoW} heightMm={photoH} />
+          </div>
+        ) : null}
         <div className="nz-text nz-grow" style={{ gap: mm(gap * 0.25) }} data-dropped={plan.dropped.join(',') || undefined}>
           <LogoRow model={model} heightMm={logoH} widthMm={textW} />
           <NameBlock name={model.fullName} sizePt={plan.namePt} lines={plan.nameLines} />

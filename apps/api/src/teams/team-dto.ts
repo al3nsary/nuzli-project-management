@@ -114,6 +114,7 @@ export function toMemberDto(
     status: m.status,
     team: open ? toTeamSummary(open.team) : null,
     photoFileId: m.photoFileId,
+    hasPhoto: !!m.photoFileId,
   };
   if (opts.full && opts.crypto && opts.viewer && can(opts.viewer, 'nationalIds.readFull')) {
     dto.nationalId = opts.crypto.decrypt(m.nationalIdEnc);

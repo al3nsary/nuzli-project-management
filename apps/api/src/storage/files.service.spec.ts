@@ -117,11 +117,17 @@ describe('upload confirm copies to a final key (security review M1)', () => {
 });
 
 describe('logo and member-photo uploads (security review L3)', () => {
-  it('member photos cannot be presigned by anyone until a member-photo route exists', async () => {
+  it('photo uploads are refused while their scope hook is not registered (A8 supersedes the L3 closure)', async () => {
     const s = setup();
-    const input = { entityType: 'member_photo' as const, kind: 'PHOTO' as const, contentType: 'image/png' as const, sizeBytes: 10 };
-    await expectCode(s.files.presign(input, SUPERVISOR), 'FORBIDDEN');
-    await expectCode(s.files.presign(input, ADMIN), 'FORBIDDEN');
+    for (const entityType of ['member_photo', 'user_photo'] as const) {
+      const input = { entityType, entityId: ID, kind: 'PHOTO' as const, contentType: 'image/png' as const, sizeBytes: 10 };
+      await expectCode(s.files.presign(input, ADMIN), 'FORBIDDEN');
+    }
+    const hook = { beforePresign: jest.fn().mockResolvedValue(undefined), onConfirmed: jest.fn() };
+    s.files.registerHook('member_photo', hook);
+    const input = { entityType: 'member_photo' as const, entityId: ID, kind: 'PHOTO' as const, contentType: 'image/png' as const, sizeBytes: 10 };
+    await expect(s.files.presign(input, SUPERVISOR)).resolves.toBeDefined();
+    expect(hook.beforePresign).toHaveBeenCalledWith(input, SUPERVISOR);
   });
 
   it('logos are admin-only and carry no entityId', async () => {
@@ -132,7 +138,7 @@ describe('logo and member-photo uploads (security review L3)', () => {
     await expect(s.files.presign(logo, ADMIN)).resolves.toBeDefined();
   });
 
-  it('the orphan job removes READY logos/photos nothing links to after 24 h', async () => {
+  it('the orphan job removes READY logos and user/member photos nothing links to after 24 h', async () => {
     const s = setup();
     s.prisma.file.findMany.mockResolvedValue([{ id: ID, storageKey: FINAL }]);
     const now = new Date('2026-10-12T00:00:00Z');
@@ -142,6 +148,7 @@ describe('logo and member-photo uploads (security review L3)', () => {
     expect(where.OR).toEqual([
       { entityType: 'logo', logo: { is: null } },
       { entityType: 'member_photo', memberPhotos: { none: {} } },
+      { entityType: 'user_photo', userPhotos: { none: {} } },
     ]);
     expect(s.storage.delete).toHaveBeenCalledWith(FINAL);
   });

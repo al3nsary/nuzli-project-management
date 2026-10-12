@@ -23,6 +23,7 @@ import { mapPrismaError, targetText } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { AppConfig } from '../config/app-config';
 import { CryptoService } from '../crypto/crypto.service';
+import { PhotosService } from '../photos/photos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MEMBER_SELECT, memberDepartment, memberJobTitle, type MemberRow, type Viewer } from '../teams/team-dto';
 import {
@@ -72,6 +73,7 @@ const SUPERVISOR_SELECT = {
   nationalIdEnc: true,
   nationalIdFirst: true,
   nationalIdLast2: true,
+  photoFileId: true,
 } satisfies Prisma.UserSelect;
 
 const BATCH_SELECT = {
@@ -106,7 +108,17 @@ export class PrintService {
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
     private readonly cfg: AppConfig,
+    private readonly photos: PhotosService,
   ) {}
+
+  /**
+   * Owner request A8: a short-lived presigned GET per card photo (member photo for members, the
+   * user photo for supervisors). Only in the answer — never stored with the batch.
+   */
+  private async withPhotoUrls<T extends { data: CardData }>(cards: T[]): Promise<Array<T & { photoUrl: string | null }>> {
+    const urls = await this.photos.presignMany(cards.map((c) => c.data.photoFileId));
+    return cards.map((c) => ({ ...c, photoUrl: (c.data.photoFileId && urls.get(c.data.photoFileId)) || null }));
+  }
 
   private async template(id: string) {
     const row = await this.prisma.cardTemplate.findUnique({ where: { id }, select: TEMPLATE_SELECT });
@@ -199,7 +211,7 @@ export class PrintService {
         },
       });
     }
-    return { template: toTemplateDto(template), subjects };
+    return { template: toTemplateDto(template), subjects: await this.withPhotoUrls(subjects) };
   }
 
   // ─────────────────────────────────────────── print batches
@@ -238,7 +250,7 @@ export class PrintService {
           cards = input.items.map((item) => ({
             memberId: item.memberId ?? null,
             userId: item.memberId ? null : (item.userId ?? null),
-            data: this.serverCard(config, item.data, subjects.get(subjectKey(item))!, !!item.memberId),
+            data: this.serverCard(config, item.data, subjects.get(subjectKey(item))!),
             nationalIdPrinted: mode,
           }));
           const saved = await this.saveBack(tx, input.items, ctx);
@@ -284,7 +296,7 @@ export class PrintService {
         },
         { timeout: 60_000 },
       );
-      return { created: true, batch: { ...toBatchDto(batch), cards } };
+      return { created: true, batch: { ...toBatchDto(batch), cards: await this.withPhotoUrls(cards) } };
     } catch (err) {
       // Two identical requests raced: the loser returns the winner's batch.
       if (
@@ -335,19 +347,22 @@ export class PrintService {
       out.set(`m:${m.id}`, { id: m.id, enc: m.nationalIdEnc, first: m.nationalIdFirst, last: m.nationalIdLast4, photoFileId: m.photoFileId });
     }
     for (const u of users) {
-      out.set(`u:${u.id}`, { id: u.id, enc: u.nationalIdEnc, first: u.nationalIdFirst, last: u.nationalIdLast2, photoFileId: null });
+      out.set(`u:${u.id}`, { id: u.id, enc: u.nationalIdEnc, first: u.nationalIdFirst, last: u.nationalIdLast2, photoFileId: u.photoFileId });
     }
     return out;
   }
 
-  /** Client text fields (name, job, department, team label) + server-derived ID, QR and photo. */
-  private serverCard(config: ReturnType<typeof parseConfig>, data: CardData, subject: CardSubject, isMember: boolean): CardData {
+  /**
+   * Client text fields (name, job, department, team label) + server-derived ID, QR and photo
+   * (the member photo, or the supervisor's user photo — owner request A8).
+   */
+  private serverCard(config: ReturnType<typeof parseConfig>, data: CardData, subject: CardSubject): CardData {
     const parsed = cardDataSchema.parse(data);
     return {
       ...parsed,
       nationalId: cardNationalId(config, { first: subject.first, last: subject.last }, () => this.crypto.decrypt(subject.enc)),
       qrValue: subject.id, // internal UUID — never a national ID (brief §8.2)
-      photoFileId: isMember && config.fields.photo ? subject.photoFileId : null,
+      photoFileId: config.fields.photo ? subject.photoFileId : null,
     };
   }
 
@@ -372,7 +387,7 @@ export class PrintService {
       where: { batchId: batch.id },
       select: { memberId: true, userId: true, renderedData: true, nationalIdPrinted: true },
     });
-    const cards = await this.printRun(items);
+    const cards = await this.withPhotoUrls(await this.printRun(items));
     const fullCount = items.filter((i) => i.nationalIdPrinted === 'FULL').length;
     if (fullCount) {
       await this.audit.logCtx(ctx, {
@@ -479,6 +494,8 @@ export class PrintService {
       select: { memberId: true, userId: true, renderedData: true, nationalIdPrinted: true },
     });
     const cards = await this.printRun(stored);
+    // Owner request A8: photos travel inline (data: URLs) — the service may not reach the bucket.
+    const photos = await this.photos.inlineMany(cards.map((c) => c.data.photoFileId));
     let upstream: globalThis.Response;
     try {
       upstream = await fetch(`${base.replace(/\/$/, '')}/render`, {
@@ -487,7 +504,10 @@ export class PrintService {
         body: JSON.stringify({
           batchId: batch.id,
           template: batch.templateSnapshot,
-          cards: cards.map((c) => c.data),
+          cards: cards.map((c) => ({
+            ...c.data,
+            photoUrl: (c.data.photoFileId && photos.get(c.data.photoFileId)) || null,
+          })),
         }),
         signal: AbortSignal.timeout(this.cfg.PDF_SERVICE_TIMEOUT_MS),
       });

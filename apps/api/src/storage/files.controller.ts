@@ -29,8 +29,8 @@ export class FilesController {
   @HttpCode(200)
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @ApiOperation({ summary: 'تأكيد الرفع: الحجم ونوع الملف من بصمته' })
-  confirm(@Param('id', UuidPipe) id: string, @CurrentUser() user: AuthUser) {
-    return this.files.confirm(id, user);
+  confirm(@Param('id', UuidPipe) id: string, @CurrentUser() user: AuthUser, @ReqCtx() ctx: RequestContext) {
+    return this.files.confirm(id, user, ctx);
   }
 
   @Get(':id/url')

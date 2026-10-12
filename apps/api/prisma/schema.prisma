@@ -154,7 +154,10 @@ model User {
   updatedAt           DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdById         String?    @map("created_by") @db.Uuid
   archivedAt          DateTime?  @map("archived_at") @db.Timestamptz(3)
+  /// Profile photo (owner request A8). The old file is deleted on replacement.
+  photoFileId         String?    @map("photo_file_id") @db.Uuid
 
+  photo               File?                   @relation("UserPhoto", fields: [photoFileId], references: [id])
   refreshTokens       RefreshToken[]
   actionTokens        ActionToken[]
   ledTeams            Team[]                  @relation("TeamSupervisor")
@@ -175,6 +178,7 @@ model User {
 
   @@index([role, status])
   @@index([status])
+  @@index([photoFileId])
   @@map("users")
 }
 
@@ -311,6 +315,7 @@ model TeamMember {
   @@index([fullName])
   /// Member search by the last four digits of the national ID (GET /members?q=1234).
   @@index([nationalIdLast4])
+  @@index([photoFileId])
   @@map("team_members")
 }
 
@@ -677,6 +682,7 @@ model File {
   violationFile ViolationFile?
   logo          Logo?
   memberPhotos  TeamMember[]   @relation("MemberPhoto")
+  userPhotos    User[]         @relation("UserPhoto")
 
   @@index([entityType, entityId])
   @@index([status, createdAt])

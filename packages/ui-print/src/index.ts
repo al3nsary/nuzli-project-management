@@ -3,7 +3,7 @@
 export { BUILTIN_CARD_SIZES, DEFAULT_CARD_SIZE, resolveCardDimensions } from './sizes';
 export type { BuiltinCardSize, BuiltinCardSizeKey, CardDimensions } from './sizes';
 
-export { buildCardModel, resolveConfig, formatValidity, DEFAULT_CARD_CONFIG, CARD_LABELS } from './config';
+export { buildCardModel, resolveConfig, formatValidity, cardInitials, DEFAULT_CARD_CONFIG, CARD_LABELS } from './config';
 export type { CardTemplateLike, CardTemplateConfigInput, CardModel, CardAssets } from './config';
 
 export { fitFontPt, estimateTextWidthMm } from './fit';
@@ -12,12 +12,14 @@ export type { TextPlan, RowSpec, RowKind, Frame } from './plan';
 
 export { makeQrDataUrl, assertSafeQrValue, isNationalIdLike, safeQrValue, qrMatrix } from './qr';
 
-export { ClassicHorizontal } from './layouts/ClassicHorizontal';
-export { VerticalBadge } from './layouts/VerticalBadge';
-export { CompactLabel } from './layouts/CompactLabel';
+export { ClassicHorizontal, CLASSIC_PHOTO_W_MM, CLASSIC_PHOTO_MIN_W_MM } from './layouts/ClassicHorizontal';
+export { VerticalBadge, BADGE_PHOTO_H_MM, BADGE_PHOTO_MIN_H_MM, BADGE_QR_MIN_MM } from './layouts/VerticalBadge';
+export { CompactLabel, COMPACT_PHOTO_H_MM, COMPACT_PHOTO_MIN_H_MM } from './layouts/CompactLabel';
 export { WorkCard, LAYOUTS } from './WorkCard';
 export type { WorkCardProps } from './WorkCard';
-export { VestBand, vestBackground, FONT_STACK, MONO_STACK } from './parts';
+export { VestBand, vestBackground, FONT_STACK, MONO_STACK, PhotoArea, PHOTO_ASPECT, PHOTO_BORDER, PHOTO_FILL, PHOTO_INK } from './parts';
+export { waitForCardImages, CARD_IMAGES_TIMEOUT_MS } from './images';
+export type { CardImagesResult } from './images';
 
 export { PrintSheet, withQrDataUrls } from './PrintSheet';
 export type { PrintSheetProps, PrintCardItem } from './PrintSheet';

@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { CARD_LABELS, type CardModel } from './config';
 import { BODY_LINE_HEIGHT, NAME_LINE_HEIGHT, type Frame, type RowKind, type RowSpec } from './plan';
 import { qrMatrix, safeQrValue } from './qr';
-import { mm, num, pt } from './units';
+import { MM_PER_PT, mm, num, pt } from './units';
 
 export const FONT_STACK = '"IBM Plex Sans Arabic", "Noto Sans Arabic", Tahoma, sans-serif';
 export const MONO_STACK = '"IBM Plex Mono", "IBM Plex Sans Arabic", ui-monospace, monospace';
@@ -110,14 +110,56 @@ export function LogoRow({
   );
 }
 
-export function Photo({ url, widthMm, heightMm }: { url: string; widthMm: number; heightMm: number }) {
+// ───────────────────────────────────────────── photo area (owner request A8)
+
+/** Photo frame: 3:4 portrait (height = width × 4/3). */
+export const PHOTO_ASPECT = 4 / 3;
+export const PHOTO_BORDER = '#DDE9E1';
+export const PHOTO_FILL = '#F2F9F4';
+export const PHOTO_INK = '#14593F';
+export const PHOTO_RADIUS_MM = 1;
+export const PHOTO_BORDER_MM = 0.25;
+
+/**
+ * The photo area: the photo (`object-fit: cover`) in a thin framed box, or — without a photo —
+ * the initials on a pale green field over a faint silhouette, never an empty hole.
+ * `data-photo-mm` carries the box size for tests and print checks.
+ */
+export function PhotoArea({ model, widthMm, heightMm }: { model: CardModel; widthMm: number; heightMm: number }) {
+  if (!model.showPhoto || widthMm <= 0 || heightMm <= 0) return null;
+  const frame: CSSProperties = {
+    width: mm(widthMm),
+    height: mm(heightMm),
+    border: `${mm(PHOTO_BORDER_MM)} solid ${PHOTO_BORDER}`,
+    borderRadius: mm(PHOTO_RADIUS_MM),
+    background: PHOTO_FILL,
+  };
+  const size = `${num(widthMm)}x${num(heightMm)}`;
+  if (model.photoUrl) {
+    return (
+      <div className="nz-photo-frame" data-photo="image" data-photo-mm={size} style={frame}>
+        <img className="nz-photo" src={model.photoUrl} alt={CARD_LABELS.photoAlt} />
+      </div>
+    );
+  }
+  const initialsPt = Math.max(5, Math.min(widthMm * 0.36, heightMm * 0.3) / MM_PER_PT);
   return (
-    <img
-      className="nz-photo"
-      src={url}
-      alt={CARD_LABELS.photoAlt}
-      style={{ width: mm(widthMm), height: mm(heightMm), borderRadius: mm(Math.min(widthMm, heightMm) * 0.06) }}
-    />
+    <div
+      className="nz-photo-frame nz-photo-placeholder"
+      data-photo="placeholder"
+      data-photo-mm={size}
+      role="img"
+      aria-label={CARD_LABELS.photoPlaceholder}
+      style={{ ...frame, color: PHOTO_INK }}
+    >
+      <svg className="nz-photo-silhouette" viewBox="0 0 30 40" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+        <circle cx="15" cy="15" r="7" fill={PHOTO_INK} />
+        <path d="M2 40c0-8.5 5.8-14 13-14s13 5.5 13 14z" fill={PHOTO_INK} />
+      </svg>
+      <span className="nz-initials" style={{ fontSize: pt(initialsPt) }}>
+        {model.initials}
+      </span>
+    </div>
   );
 }
 

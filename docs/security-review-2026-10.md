@@ -22,7 +22,7 @@ Fixed in the API and infrastructure. The web client still has follow-ups for M2,
 | M7 | **Fixed** | `infra/backup/restore.sh`: mandatory checksum → decrypt to a temp file → archive check → restore into a new database in one transaction → checks → transactional rename swap. Runbook and drill: `docs/backup-restore.md` (ADR-069). The truncation drill itself still has to be run on a Docker host (§3 of the runbook) |
 | L1 | **Fixed** | `gpg --symmetric --cipher-algo AES256` (MDC; tamper and truncation fail, checked locally), `pg_dump -Fc`, missing checksum is fatal (ADR-069) |
 | L2 | **Fixed** | `violations/violation-files.service.ts`: CANCELLED → `INVALID_STATE`; after the edit window only up to the expected counts (ADR-066) |
-| L3 | **Fixed** | `storage/file-policy.ts`: logos admin-only without `entityId`; member-photo presign closed until a route exists; `cleanupOrphans` job (ADR-066) |
+| L3 | **Superseded by A8 — reopened with scope hook** | `storage/file-policy.ts`: logos admin-only without `entityId`; member and user photos open only through `photos/photos.service.ts` hooks (leading supervisor or admin; self or admin), refused when no hook is registered; `cleanupOrphans` also covers user photos (ADR-066, ADR-083) |
 | L4 | **Fixed** | `POST /members/search`, `POST /users/search`; GET list routes refuse full IDs in `q` (`common/search-term.ts`, `isFullNationalIdTerm` in shared) (ADR-067) |
 | L5 | **Fixed** | `SWAGGER_ENABLED` unset → off in production; examples set `false` (ADR-061) |
 | L6 | **Fixed** | Server sets `nationalId`, `qrValue` and `photoFileId` from the DB on `POST /cards/batches` (ADR-064) |

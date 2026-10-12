@@ -21,6 +21,7 @@ export const USER_DTO_SELECT = {
   lastLoginAt: true,
   createdAt: true,
   preferences: true,
+  photoFileId: true,
 } satisfies Prisma.UserSelect;
 
 export type UserRow = Pick<User, keyof typeof USER_DTO_SELECT>;
@@ -48,6 +49,8 @@ export function toUserDto(
     lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
     createdAt: u.createdAt.toISOString(),
     preferences: preferencesOf(u.preferences),
+    photoFileId: u.photoFileId,
+    hasPhoto: !!u.photoFileId,
   };
   if (opts.fullNationalId && opts.crypto) {
     dto.nationalId = opts.crypto.decrypt(u.nationalIdEnc);

@@ -131,6 +131,8 @@ export interface MemberDto {
   status: MemberStatus;
   team: TeamSummaryDto | null;
   photoFileId: string | null;
+  /** Owner request A8: true when a photo is linked (`GET /members/:id/photo-url`). Always sent by the API. */
+  hasPhoto?: boolean;
 }
 
 export interface MembershipHistoryDto {

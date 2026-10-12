@@ -23,7 +23,8 @@ export interface PrintSheetProps {
 
 /**
  * The print page: one card per physical page at exactly the template size, `@page` margin 0.
- * Render it on its own route/window and call `window.print()` once fonts and images have loaded.
+ * Render it on its own route/window and call `window.print()` once fonts and images have loaded
+ * (`await document.fonts.ready; await waitForCardImages(sheetElement)`).
  */
 export function PrintSheet({ template, cards, logoUrl, includeStyles = true }: PrintSheetProps) {
   const { widthMm, heightMm } = resolveCardDimensions(template.size, template.orientation);

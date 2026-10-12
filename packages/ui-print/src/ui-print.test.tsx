@@ -16,6 +16,8 @@ import {
   WorkCard,
   assertSafeQrValue,
   buildCardModel,
+  cardInitials,
+  waitForCardImages,
   fitFontPt,
   isNationalIdLike,
   makeQrDataUrl,
@@ -267,5 +269,119 @@ describe('calibration card', () => {
     expect(html).toContain('اختبار المعايرة');
     expect(html).toContain('Nuzli calibration');
     expect(html).not.toMatch(/\dpx/);
+  });
+});
+
+describe('photo area (owner request A8)', () => {
+  const photoBox = (html: string) => {
+    const m = /data-photo-mm="([\d.]+)x([\d.]+)"/.exec(html);
+    return m ? { w: Number(m[1]), h: Number(m[2]) } : null;
+  };
+
+  it('built-in defaults reserve the photo area', () => {
+    expect(buildCardModel(template(), data).showPhoto).toBe(true);
+  });
+
+  it('shows the photo (object-fit: cover) in a thin #DDE9E1 frame with a 1 mm radius', () => {
+    const html = render(<WorkCard template={template()} data={data} photoUrl="/p.jpg" />);
+    expect(html).toContain('data-photo="image"');
+    expect(html).toMatch(/<img class="nz-photo" src="\/p.jpg"/);
+    expect(html).toContain('border:0.25mm solid #DDE9E1');
+    expect(html).toContain('border-radius:1mm');
+    expect(CARD_BASE_CSS).toMatch(/\.nz-photo \{[^}]*object-fit: cover/);
+  });
+
+  it('without a photo: initials of the first and last name on #F2F9F4 in #14593F, with a silhouette', () => {
+    const html = render(<WorkCard template={template()} data={data} />);
+    expect(html).toContain('data-photo="placeholder"');
+    expect(html).toContain('background:#F2F9F4');
+    expect(html).toContain('color:#14593F');
+    expect(html).toContain('nz-photo-silhouette');
+    expect(html).toContain('>م‌ق</span>');
+    expect(html).not.toContain('<img class="nz-photo"');
+  });
+
+  it('cardInitials skips particles and the article', () => {
+    expect(cardInitials('محمد بن عبدالرحمن القحطاني')).toBe('م‌ق');
+    expect(cardInitials('سارة الغامدي')).toBe('س‌غ');
+    expect(cardInitials('عبدالله آل سعود')).toBe('ع‌س');
+    expect(cardInitials('نورة')).toBe('ن');
+    expect(cardInitials('  ')).toBe('');
+    expect(cardInitials('john smith')).toBe('J‌S');
+  });
+
+  it('fields.photo=false leaves the photo area out, even with a URL', () => {
+    for (const layoutKey of LAYOUT_KEYS) {
+      const html = render(<WorkCard template={template(layoutKey, { fields: { photo: false } })} data={data} photoUrl="/p.jpg" />);
+      expect(html).not.toContain('nz-photo-frame');
+      expect(html).not.toContain('/p.jpg');
+    }
+  });
+
+  it('sizes per layout: classic ~22×29 at CR80, badge top-centre ≥ 22 mm wide, compact ~14×18 at 90×40 and 57×32', () => {
+    const classic = photoBox(render(<WorkCard template={template()} data={data} logoUrl="/l.png" />))!;
+    expect(classic.w).toBeGreaterThanOrEqual(21);
+    expect(classic.w).toBeLessThanOrEqual(23);
+    const badge = photoBox(render(<WorkCard template={template('VERTICAL_BADGE', {}, DEFAULT_CARD_SIZE, 'PORTRAIT')} data={data} logoUrl="/l.png" />))!;
+    expect(badge.w).toBeGreaterThanOrEqual(22);
+    expect(badge.h).toBeLessThanOrEqual(34.01);
+    for (const key of ['W90_H40', 'IN225_IN125'] as const) {
+      const size = BUILTIN_CARD_SIZES.find((s) => s.key === key)!;
+      const box = photoBox(render(<WorkCard template={template('COMPACT_LABEL', {}, size)} data={data} />))!;
+      expect(box.h).toBeCloseTo(18, 1);
+      expect(box.w).toBeCloseTo(13.5, 1);
+    }
+  });
+
+  it('compact labels below the minimum height leave the photo out', () => {
+    const html = render(<WorkCard template={template('COMPACT_LABEL', {}, { widthMm: 60, heightMm: 14 })} data={data} />);
+    expect(html).not.toContain('nz-photo-frame');
+  });
+
+  for (const layoutKey of LAYOUT_KEYS) {
+    for (const size of BUILTIN_CARD_SIZES) {
+      for (const orientation of ORIENTATIONS) {
+        it(`${layoutKey} ${size.key} ${orientation}: the 3:4 photo area fits inside the card, in mm`, () => {
+          const t = template(layoutKey, { fields: { validUntil: true } }, size, orientation);
+          const html = render(<WorkCard template={t} data={{ ...data, fullName: LONG_NAME }} logoUrl="/logo.png" />);
+          expect(html).not.toMatch(/\d(px)\b/);
+          const box = photoBox(html);
+          const { widthMm, heightMm } = resolveCardDimensions(size, orientation);
+          if (!box) {
+            // Only media too short (landscape badge) or too narrow (portrait labels) leave it out.
+            expect((layoutKey === 'VERTICAL_BADGE' && orientation === 'LANDSCAPE') || widthMm < 45).toBe(true);
+            return;
+          }
+          expect(box.h / box.w).toBeCloseTo(4 / 3, 2);
+          expect(box.w).toBeLessThan(widthMm * 0.6);
+          expect(box.h).toBeLessThan(heightMm * 0.9);
+          expect(html).toContain(LONG_NAME.slice(0, 10));
+        });
+      }
+    }
+  }
+});
+
+describe('waitForCardImages', () => {
+  function sheet(count: number) {
+    const root = document.createElement('div');
+    root.innerHTML = `<div class="nz-card">${'<img src="/x.jpg">'.repeat(count)}</div>`;
+    const imgs = Array.from(root.querySelectorAll('img'));
+    for (const img of imgs) Object.defineProperty(img, 'complete', { value: false, configurable: true });
+    return { root, imgs };
+  }
+
+  it('resolves when every card image has loaded or failed', async () => {
+    const { root, imgs } = sheet(2);
+    const p = waitForCardImages(root, 5000);
+    imgs[0]!.dispatchEvent(new Event('load'));
+    imgs[1]!.dispatchEvent(new Event('error'));
+    await expect(p).resolves.toEqual({ total: 2, loaded: 1, failed: 1, timedOut: false });
+  });
+
+  it('resolves after the timeout when an image never settles; no images → at once', async () => {
+    const { root } = sheet(1);
+    await expect(waitForCardImages(root, 20)).resolves.toMatchObject({ total: 1, timedOut: true });
+    await expect(waitForCardImages(document.createElement('div'))).resolves.toEqual({ total: 0, loaded: 0, failed: 0, timedOut: false });
   });
 });

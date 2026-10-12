@@ -9,12 +9,12 @@ import { sha256Hex } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import type { File as FileRow } from '@prisma/client';
-import { canReadFile, canUpload, ENTITY_FOLDERS, type FileEntity } from './file-policy';
+import { canReadFile, canUpload, ENTITY_FOLDERS, HOOKED_ENTITIES, type FileEntity } from './file-policy';
 import { detectFileType, EXTENSIONS, MAGIC_PROBE_BYTES, type DetectedType } from './magic-bytes';
 import { StorageService } from './storage.service';
 
 export const PENDING_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-/** READY logos / member photos that nothing links to are removed after this (review L3). */
+/** READY logos / user and member photos that nothing links to are removed after this (review L3, A8). */
 export const ORPHAN_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Prefix of upload keys: the only keys that ever get a presigned PUT (review M1). */
 export const PENDING_PREFIX = 'pending/';
@@ -41,8 +41,9 @@ export interface FileEntityHook {
   /**
    * Runs after the bytes were verified and the file is READY, and again on a repeated
    * confirm, so it must be idempotent. Throwing `TOO_MANY_PHOTOS` discards the upload.
+   * `ctx` is the request context of the confirm call (for audit entries), when known.
    */
-  onConfirmed(file: FileRow, user: AuthUser): Promise<void>;
+  onConfirmed(file: FileRow, user: AuthUser, ctx?: RequestContext): Promise<void>;
 }
 
 @Injectable()
@@ -64,7 +65,9 @@ export class FilesService {
   /** Step 1: register a PENDING file and hand out a short-lived PUT URL. */
   async presign(input: PresignUploadInput, user: AuthUser): Promise<PresignedUpload> {
     if (!canUpload(user, input.entityType, input.kind, input.entityId)) throw new AppError('FORBIDDEN');
-    await this.hooks.get(input.entityType)?.beforePresign(input, user);
+    const hook = this.hooks.get(input.entityType);
+    if (!hook && HOOKED_ENTITIES.has(input.entityType)) throw new AppError('FORBIDDEN');
+    await hook?.beforePresign(input, user);
     const id = randomUUID();
     const key = buildPendingKey(input.contentType, id);
     const ttl = await this.settings.get('PRESIGNED_URL_TTL_SECONDS');
@@ -100,13 +103,13 @@ export class FilesService {
    * deleted, so re-using the old PUT URL cannot change what was verified. The sha256 of the
    * final bytes is always recorded. Any failure deletes both objects.
    */
-  async confirm(id: string, user: AuthUser): Promise<{ id: string; status: 'READY' }> {
+  async confirm(id: string, user: AuthUser, ctx?: RequestContext): Promise<{ id: string; status: 'READY' }> {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.deletedAt || file.uploadedById !== user.id) throw new AppError('NOT_FOUND');
     const hook = this.hooks.get(file.entityType as FileEntity);
     if (file.status === 'READY') {
       // A retried confirm (e.g. the client lost the first answer) still links the file.
-      await hook?.onConfirmed(file, user);
+      await hook?.onConfirmed(file, user, ctx);
       return { id, status: 'READY' };
     }
 
@@ -128,7 +131,7 @@ export class FilesService {
       // A concurrent confirm may have finished first and removed the pending object.
       const again = await this.prisma.file.findUnique({ where: { id } });
       if (again?.status === 'READY' && !again.deletedAt) {
-        await hook?.onConfirmed(again, user);
+        await hook?.onConfirmed(again, user, ctx);
         return { id, status: 'READY' };
       }
       throw err;
@@ -158,14 +161,14 @@ export class FilesService {
       // Lost a race with another confirm of the same file: keep the winner's state.
       const again = await this.prisma.file.findUnique({ where: { id } });
       if (again?.status === 'READY' && !again.deletedAt) {
-        await hook?.onConfirmed(again, user);
+        await hook?.onConfirmed(again, user, ctx);
         return { id, status: 'READY' };
       }
       throw new AppError('FILE_NOT_UPLOADED');
     }
     if (hook) {
       try {
-        await hook.onConfirmed({ ...file, status: 'READY', storageKey: finalKey, sha256: actual }, user);
+        await hook.onConfirmed({ ...file, status: 'READY', storageKey: finalKey, sha256: actual }, user, ctx);
       } catch (err) {
         if (err instanceof AppError && err.code === 'TOO_MANY_PHOTOS') {
           await this.storage.delete(finalKey).catch(() => undefined);
@@ -234,8 +237,9 @@ export class FilesService {
 
   /**
    * Security review L3: confirmed logos and member photos that nothing links to after 24 h
-   * (an upload whose `POST /logos` never came) are deleted. Violation and task files are
-   * linked by their hooks at confirm time.
+   * (an upload whose `POST /logos` never came) are deleted. Owner request A8: the same for user
+   * photos — a photo whose confirm was refused (scope changed) or that lost a replace race.
+   * Violation and task files are linked by their hooks at confirm time.
    */
   @Cron(CronExpression.EVERY_HOUR, { name: 'files-orphans' })
   async cleanupOrphans(now = new Date()): Promise<number> {
@@ -247,6 +251,7 @@ export class FilesService {
         OR: [
           { entityType: 'logo', logo: { is: null } },
           { entityType: 'member_photo', memberPhotos: { none: {} } },
+          { entityType: 'user_photo', userPhotos: { none: {} } },
         ],
       },
       select: { id: true, storageKey: true },

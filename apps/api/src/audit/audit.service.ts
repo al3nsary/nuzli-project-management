@@ -88,6 +88,11 @@ export const AuditAction = {
   MEMBER_DUPLICATE_REJECTED: 'member.duplicate_rejected',
   CARDS_PREVIEW_FULL_IDS: 'cards.preview_full_ids',
   CARDS_PRINT_DATA_REISSUED: 'cards.print_data_reissued',
+  // Owner request A8 — personal photos (before/after carry file ids only):
+  USER_PHOTO_UPDATED: 'user.photo_updated',
+  USER_PHOTO_REMOVED: 'user.photo_removed',
+  MEMBER_PHOTO_UPDATED: 'member.photo_updated',
+  MEMBER_PHOTO_REMOVED: 'member.photo_removed',
 } as const;
 
 export interface AuditEntryInput {

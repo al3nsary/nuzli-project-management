@@ -123,6 +123,8 @@ export interface SupervisorRow {
   nationalIdEnc: Uint8Array;
   nationalIdFirst: string;
   nationalIdLast2: string;
+  /** The supervisor's own profile photo (owner request A8). */
+  photoFileId?: string | null;
 }
 
 export function supervisorCard(
@@ -141,7 +143,7 @@ export function supervisorCard(
     teamName: config.fields.teamName ? (team?.name ?? '') : '',
     teamColor: team?.hex ?? DEFAULT_TEAM_COLOR,
     qrValue: u.id,
-    photoFileId: null,
+    photoFileId: config.fields.photo ? (u.photoFileId ?? null) : null,
     roleLabel: SUPERVISOR_ROLE_LABEL,
     ...(config.fields.validUntil && config.validUntil ? { validUntil: config.validUntil } : {}),
   };

@@ -89,6 +89,9 @@ export interface UserDto {
   lastLoginAt?: string | null;
   createdAt: string;
   preferences: UserPreferences;
+  /** Owner request A8: profile photo (`GET /users/:id/photo-url`, `GET /me/photo-url`). Always sent by the API. */
+  photoFileId?: string | null;
+  hasPhoto?: boolean;
 }
 
 export interface AuthSession {

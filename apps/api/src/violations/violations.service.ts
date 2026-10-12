@@ -151,6 +151,7 @@ export class ViolationsService {
         fullName: true,
         nationalIdFirst: true,
         nationalIdLast4: true,
+        photoFileId: true,
         memberships: {
           where: { validTo: null },
           take: 1,
@@ -171,6 +172,9 @@ export class ViolationsService {
           teamId: team?.id ?? null,
           teamName: team?.name ?? null,
           teamColor: team?.color.hex ?? null,
+          // Owner request A8: monitors confirm identity with GET /members/:id/photo-url.
+          photoFileId: m.photoFileId,
+          hasPhoto: !!m.photoFileId,
         };
       }),
     };
