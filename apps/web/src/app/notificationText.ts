@@ -1,5 +1,5 @@
 import type { NotificationDto } from '@nuzli/shared';
-import { tKey } from '../i18n';
+import { formatDate, tKey } from '../i18n';
 import { roleLabel } from '../components/ui';
 
 /** The Arabic sentence for a notification, built from its type and payload. */
@@ -13,6 +13,10 @@ export function notificationText(n: NotificationDto): string {
     supervisor: str('supervisorName'),
     member: str('memberName'),
     type: str('typeName'),
+    task: str('taskName'),
+    project: str('projectName'),
+    author: str('authorName'),
+    date: str('endDate') ? formatDate(str('endDate')) : '',
   });
 }
 
@@ -31,6 +35,11 @@ export function notificationLink(n: NotificationDto): string | null {
       return typeof n.payload?.violationId === 'string'
         ? `/violations?open=${encodeURIComponent(n.payload.violationId)}`
         : '/violations';
+    case 'TASK_ASSIGNED':
+    case 'TASK_MENTIONED':
+    case 'TASK_DUE_SOON':
+    case 'TASK_OVERDUE':
+      return typeof n.payload?.projectId === 'string' ? `/projects/${encodeURIComponent(n.payload.projectId)}` : '/my-tasks';
     default:
       return null;
   }

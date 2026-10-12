@@ -63,6 +63,12 @@ const TeamViolationsPage = lazyPage(
   'TeamViolationsPage',
 );
 
+// Phase 4: projects and the Gantt (dnd-kit, exceljs and the scheduling engine stay lazy).
+const ProjectsPage = lazyPage(() => import('../pages/projects/ProjectsPage'), 'ProjectsPage');
+const ProjectPage = lazyPage(() => import('../pages/projects/ProjectPage'), 'ProjectPage');
+const MyTasksPage = lazyPage(() => import('../pages/projects/MyTasksPage'), 'MyTasksPage');
+const CalendarsPage = lazyPage(() => import('../pages/settings/CalendarsPage'), 'CalendarsPage');
+
 export const routes: RouteObject[] = [
   {
     path: '/login',
@@ -273,6 +279,39 @@ export const routes: RouteObject[] = [
         element: (
           <RequirePermission permission="violations.readOwnTeams">
             <TeamViolationsPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'projects',
+        element: (
+          <RequirePermission permission="projects.readGranted">
+            <ProjectsPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'projects/:id',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="projects.readGranted">
+            <ProjectPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'my-tasks',
+        element: (
+          <RequirePermission permission="tasks.readAssigned">
+            <MyTasksPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'settings/calendars',
+        element: (
+          <RequirePermission permission="projects.manage">
+            <CalendarsPage />
           </RequirePermission>
         ),
       },

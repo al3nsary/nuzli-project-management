@@ -26,6 +26,7 @@ import { useAudit, useRegistrations, useTeams, useUsers } from '../api/queries';
 import { TeamBadge } from '../theme/TeamBadge';
 import { formatDateTime, formatNumber, t, tKey } from '../i18n';
 import { MonitorHome } from './violations/MonitorHome';
+import { MyTasksSummary, ProjectsKpi } from './projects/DashboardWidgets';
 import { PageHeader, roleLabel } from '../components/ui';
 
 function Kpi({
@@ -187,6 +188,8 @@ function AdminDashboard() {
 
         <TeamsKpi />
 
+        <ProjectsKpi />
+
         <Card>
           <Group justify="space-between" align="flex-start" wrap="nowrap" mb="sm">
             <Text fw={600}>{t('dash.activeByRole')}</Text>
@@ -327,14 +330,8 @@ export function DashboardPage() {
         <AdminDashboard />
       ) : user.role === 'SUPERVISOR' ? (
         <Stack gap="lg">
+          <MyTasksSummary />
           <MyTeams />
-          <ComingSoon
-            lead={t('dash.supervisorLead')}
-            items={[
-              { icon: IconListCheck, text: t('dash.supervisor.tasks') },
-              { icon: IconShieldCheck, text: t('dash.supervisor.violations') },
-            ]}
-          />
         </Stack>
       ) : (
         <MonitorHome />

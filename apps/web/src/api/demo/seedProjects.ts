@@ -202,7 +202,8 @@ export function buildProjectSeed(now: Date = new Date()): ProjectSeed {
             type: 'TASK',
             parentId: gid,
             sortOrder: l + 1,
-            assigneeId: (g + l) % 4 === 0 ? supervisors[String(1 + ((g + l) % 3))]! : null,
+            // Unassigned: the performance project must not flood «مهامي» with hundreds of tasks.
+            assigneeId: null,
           });
           if (prev) addDep(prev, id);
           prev = id;

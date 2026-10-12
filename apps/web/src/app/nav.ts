@@ -1,6 +1,9 @@
-import type { Permission } from '@nuzli/shared';
+import type { Permission, Role } from '@nuzli/shared';
 import {
   IconAlertOctagon,
+  IconCalendarCog,
+  IconChartArcs,
+  IconChecklist,
   IconCamera,
   IconChartBar,
   IconClipboardList,
@@ -32,6 +35,8 @@ export interface NavItem {
   badge?: 'registrations' | 'outbox';
   /** Extra data-dependent rule (the API still enforces): supervisor violation visibility. */
   gate?: 'teamViolations';
+  /** Shown only to this role (in addition to the permission). */
+  role?: Role;
   /** Active only on an exact match (a parent of other items, e.g. /teams vs /teams/formation). */
   end?: boolean;
 }
@@ -42,6 +47,10 @@ export interface NavItem {
  */
 export const NAV: NavItem[] = [
   { to: '/', label: 'nav.dashboard', icon: IconLayoutDashboard, end: true },
+  // Phase 4 — projects and the Gantt (brief §6)
+  { to: '/projects', label: 'nav.projects', icon: IconChartArcs, permission: 'projects.readGranted' },
+  // Admins hold every permission but are not assigned tasks: «مهامي» is for supervisors.
+  { to: '/my-tasks', label: 'nav.myTasks', icon: IconChecklist, permission: 'tasks.updateAssigned', role: 'SUPERVISOR' },
   // Phase 2 — teams and work cards (brief §5, §8)
   { to: '/teams', label: 'nav.teams', icon: IconUsersGroup, permission: 'teams.readOwn', end: true },
   { to: '/teams/formation', label: 'nav.formation', icon: IconArrowsExchange, permission: 'members.move' },
@@ -107,6 +116,12 @@ export const NAV: NavItem[] = [
     label: 'nav.notifications',
     icon: IconBell,
     permission: 'notifications.read',
+  },
+  {
+    to: '/settings/calendars',
+    label: 'nav.calendars',
+    icon: IconCalendarCog,
+    permission: 'projects.manage',
   },
   {
     to: '/settings/reference',

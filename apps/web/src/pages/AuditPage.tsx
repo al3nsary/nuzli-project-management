@@ -74,6 +74,26 @@ export const AUDIT_ACTIONS = [
   'member.duplicate_rejected',
   'cards.preview_full_ids',
   'cards.print_data_reissued',
+  // Phase 4
+  'project.created',
+  'project.updated',
+  'project.archived',
+  'project.access_granted',
+  'project.access_revoked',
+  'project.exported',
+  'task.created',
+  'task.updated',
+  'task.archived',
+  'task.moved',
+  'task.comment_added',
+  'task.attachment_added',
+  'task.attachment_removed',
+  'dependency.created',
+  'dependency.deleted',
+  'calendar.created',
+  'calendar.updated',
+  'calendar_exception.created',
+  'calendar_exception.deleted',
 ] as const;
 
 const ENTITY_TYPES = [
@@ -89,6 +109,10 @@ const ENTITY_TYPES = [
   'logo',
   'print_batch',
   'card_print_batch',
+  'project',
+  'task',
+  'dependency',
+  'calendar',
   'violation',
   'violation_type',
   'violation_file',
@@ -100,9 +124,13 @@ function display(value: unknown, field: string): string {
   if (field === 'status') {
     const v = String(value);
     // Account statuses and violation statuses share the field name.
-    return hasKey(`status.${v}`) ? tKey(`status.${v}`, 'common.none') : tKey(`vstatus.${v}`, 'common.none');
+    if (hasKey(`status.${v}`)) return tKey(`status.${v}`, 'common.none');
+    if (hasKey(`taskStatus.${v}`)) return tKey(`taskStatus.${v}`, 'common.none');
+    if (hasKey(`projectStatus.${v}`)) return tKey(`projectStatus.${v}`, 'common.none');
+    return tKey(`vstatus.${v}`, 'common.none');
   }
   if (field === 'severity') return tKey(`severity.${String(value)}`, 'common.none');
+  if (field === 'priority') return tKey(`priority.${String(value)}`, 'common.none');
   if (typeof value === 'boolean') return value ? t('common.yes') : t('common.no');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);

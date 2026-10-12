@@ -259,7 +259,9 @@ export function Layout() {
   const teamGate = useTeamViolationsVisible(
     can(user, 'violations.readOwnTeams') && !can(user, 'violations.readAll'),
   );
-  const items = NAV.filter((item) => !item.permission || can(user, item.permission)).filter(
+  const items = NAV.filter((item) => !item.permission || can(user, item.permission))
+    .filter((item) => !item.role || item.role === user?.role)
+    .filter(
     (item) =>
       item.gate !== 'teamViolations' || (!can(user, 'violations.readAll') && teamGate.visible),
   );

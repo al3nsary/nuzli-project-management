@@ -214,12 +214,7 @@ export function projectProgress(roots: ReadonlyArray<Pick<StoredTask, 'type' | '
   return Math.round((weights > 0 ? weighted / weights : plain / roots.length) * 100) / 100;
 }
 
-/** Asia/Riyadh is UTC+03:00 all year. */
-export const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000;
-
-export function riyadhToday(now: Date = new Date()): string {
-  return new Date(now.getTime() + RIYADH_OFFSET_MS).toISOString().slice(0, 10);
-}
+export { RIYADH_OFFSET_MS, riyadhToday } from './today';
 
 export const DUE_SOON_WORKING_DAYS = 2;
 

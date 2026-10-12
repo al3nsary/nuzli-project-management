@@ -1,0 +1,336 @@
+/* Gantt (ADR-016/077). Logical properties for the HTML parts; the timeline box is LTR. */
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: row; /* RTL: the grid (first) sits on the right */
+  height: 100%;
+  min-height: 320px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  font-size: var(--fs-sm);
+}
+
+.grid {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-inline-end: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 0;
+}
+.gridHeader {
+  display: flex;
+  align-items: flex-end;
+  border-block-end: 1px solid var(--line);
+  background: var(--ground);
+  flex: none;
+}
+.headCell {
+  padding-inline: 6px;
+  padding-block-end: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gridBody {
+  overflow-anchor: none;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  position: relative;
+  outline: none;
+}
+.gridBody::-webkit-scrollbar {
+  display: none;
+}
+.row {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  border-block-end: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  cursor: default;
+}
+.row:hover {
+  background: color-mix(in srgb, var(--field) 5%, transparent);
+}
+.row[aria-selected='true'] {
+  background: color-mix(in srgb, var(--field) 10%, transparent);
+}
+.row:focus-visible {
+  outline: 2px solid var(--field) !important;
+  outline-offset: -2px;
+}
+.cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  min-width: 0;
+  height: 100%;
+}
+.caret,
+.caretSpacer {
+  flex: none;
+  width: 20px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+}
+.caret:hover {
+  color: var(--ink);
+}
+.name {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.name[data-kind='GROUP'] {
+  font-weight: 600;
+}
+.name:hover {
+  text-decoration: underline;
+}
+.diamond {
+  width: 8px;
+  height: 8px;
+  background: var(--ink);
+  transform: rotate(45deg);
+  flex: none;
+}
+.lateDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--breach);
+}
+.assignee {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+  border-radius: 4px;
+  padding-block: 1px;
+}
+.assigneeName {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.assigneeTeam {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  direction: ltr;
+}
+.timeHeader {
+  flex: none;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: var(--ground);
+}
+.headerSvg {
+  position: absolute;
+  top: 0;
+  font-family: var(--font-body);
+}
+.headBg {
+  fill: var(--ground);
+}
+.headTop {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+.headText {
+  font-size: 11px;
+  fill: var(--muted);
+}
+.headHijri {
+  font-size: 10.5px;
+  fill: var(--field);
+}
+.headSep {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.todayMark {
+  fill: var(--field);
+}
+.body {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  overscroll-behavior: contain;
+  /* The windowed SVG moves as we scroll; browser scroll anchoring must not chase it. */
+  overflow-anchor: none;
+}
+.svg {
+  position: absolute;
+  font-family: var(--font-body);
+  touch-action: pan-x pan-y;
+  user-select: none;
+}
+.weekend {
+  fill: color-mix(in srgb, var(--muted) 10%, transparent);
+}
+.holiday {
+  fill: color-mix(in srgb, var(--signal) 18%, transparent);
+}
+.rowLine {
+  stroke: color-mix(in srgb, var(--line) 55%, transparent);
+  stroke-width: 1;
+}
+.today {
+  stroke: var(--field);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+.arrow {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.25;
+}
+.arrowActive {
+  fill: none;
+  stroke: var(--field);
+  stroke-width: 2;
+}
+.arrowHead {
+  fill: var(--muted);
+}
+.bar {
+  cursor: grab;
+}
+.dragging {
+  opacity: 0.85;
+  cursor: grabbing;
+}
+.task {
+  fill: color-mix(in srgb, var(--field) 28%, var(--surface));
+  stroke: var(--field);
+  stroke-width: 1;
+}
+.taskLate {
+  fill: color-mix(in srgb, var(--breach) 14%, var(--surface));
+  stroke: var(--breach);
+  stroke-width: 1.5;
+}
+.taskDone {
+  fill: color-mix(in srgb, var(--ok) 30%, var(--surface));
+  stroke: var(--ok);
+  stroke-width: 1;
+}
+.progress {
+  fill: var(--field);
+  opacity: 0.75;
+  pointer-events: none;
+}
+.vest {
+  pointer-events: none;
+}
+.group {
+  fill: var(--ink);
+}
+.groupProgress {
+  fill: var(--field);
+  pointer-events: none;
+}
+.milestone {
+  fill: var(--ink);
+}
+.milestoneDone {
+  fill: var(--ok);
+}
+.barLabel {
+  font-size: 11px;
+  fill: var(--muted);
+  pointer-events: none;
+}
+.resize {
+  fill: transparent;
+  cursor: ew-resize;
+}
+.linkHandle {
+  fill: var(--surface);
+  stroke: var(--field);
+  stroke-width: 1.5;
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+.bar:hover .linkHandle,
+.linkTarget .linkHandle {
+  opacity: 1;
+}
+.linkTarget rect {
+  stroke-width: 2.5;
+}
+.linkLine {
+  stroke: var(--field);
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+}
+.dragTip {
+  position: absolute;
+  inset-block-end: 12px;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  background: var(--ink);
+  color: var(--ground);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: var(--fs-xs);
+  pointer-events: none;
+  z-index: 2;
+}
+
+@media (hover: none) {
+  .linkHandle {
+    opacity: 0.8;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .linkHandle {
+    transition: none;
+  }
+}
