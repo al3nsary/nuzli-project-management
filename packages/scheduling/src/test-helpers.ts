@@ -57,3 +57,43 @@ export function fs(predecessorId: string, successorId: string, lagDays = 0): Sch
 export function byId<T extends ScheduleTask>(tasks: readonly T[]): Record<string, T> {
   return Object.fromEntries(tasks.map((t) => [t.id, t]));
 }
+
+/**
+ * An HOUR-project task: end derived from start + hours on `calendar`, and
+ * `durationDays` derived the way the engine derives it, so a consistent plan
+ * reports no changes.
+ */
+export function htask(
+  id: string,
+  startDate: string,
+  hours: number,
+  opts: {
+    parentId?: string | null;
+    sortOrder?: number;
+    type?: TaskType;
+    progress?: number;
+    calendar?: Calendar | WorkCalendar;
+  } = {},
+): TestTask {
+  const cal = WorkCalendar.from(opts.calendar);
+  const type = opts.type ?? (hours === 0 ? 'MILESTONE' : 'TASK');
+  const minutes = Math.round(hours * 60);
+  const endDate = cal.endFromDurationMinutes(startDate, minutes);
+  const first = cal.nextWorkingMinute(startDate).slice(0, 10);
+  const last = minutes > 0 ? cal.addWorkingMinutes(endDate, -1).slice(0, 10) : first;
+  return {
+    id,
+    parentId: opts.parentId ?? null,
+    sortOrder: opts.sortOrder ?? 0,
+    type,
+    startDate,
+    endDate,
+    durationDays: minutes > 0 ? cal.workingDaysBetween(first, last) : 0,
+    durationHours: hours,
+    progress: opts.progress ?? 0,
+  };
+}
+
+export function fsh(predecessorId: string, successorId: string, lagHours = 0): ScheduleDependency {
+  return { predecessorId, successorId, type: 'FS', lagDays: 0, lagHours };
+}

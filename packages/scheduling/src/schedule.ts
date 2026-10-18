@@ -1,8 +1,9 @@
 import { WorkCalendar } from './calendar';
-import { fromDayNumber, toDayNumber, type IsoDate } from './dates';
+import { fromDayNumber, toDayNumber, type IsoDate, type LocalDateTime } from './dates';
 import { CycleError, TaskEditError } from './errors';
 import { KIND_MILESTONE, buildModel, cloneModel, emit, rollUpModel, type Model } from './model';
 import type { ScheduleInput, ScheduleResult, ScheduleTask, TaskEditResult } from './types';
+import { minutesToHours, unitsFor, type Units } from './units';
 
 /**
  * Reschedules a project.
@@ -25,6 +26,10 @@ import type { ScheduleInput, ScheduleResult, ScheduleTask, TaskEditResult } from
  *   the same number of working days, just enough for the group's start to meet
  *   the constraint.
  *
+ * HOUR projects (`durationUnit: 'HOUR'`) follow the same rules in working
+ * minutes: for `P -FS(lag)-> S`, S may start no earlier than P's end plus
+ * `lag` working minutes, snapped forward to the next working minute.
+ *
  * `SS`, `FF` and `SF` dependencies are accepted and ignored (modelled for later).
  * Dependencies that reference unknown task ids are ignored.
  *
@@ -33,14 +38,15 @@ import type { ScheduleInput, ScheduleResult, ScheduleTask, TaskEditResult } from
  */
 export function schedule<T extends ScheduleTask>(input: ScheduleInput<T>): ScheduleResult<T> {
   const cal = WorkCalendar.from(input.calendar);
-  const before = buildModel(input.tasks);
+  const u = unitsFor(cal, input.durationUnit);
+  const before = buildModel(input.tasks, undefined, u);
   const after = cloneModel(before);
-  rollUpModel(after, cal);
+  rollUpModel(after, u);
   if (input.autoSchedule !== false) {
-    forwardPass(input, after, cal);
-    rollUpModel(after, cal);
+    forwardPass(input, after, u);
+    rollUpModel(after, u);
   }
-  return emit(input.tasks, before, after);
+  return emit(input.tasks, before, after, u);
 }
 
 /**
@@ -48,11 +54,7 @@ export function schedule<T extends ScheduleTask>(input: ScheduleInput<T>): Sched
  * `n + i` is the end of summary task i. Edges: FS `end(P) -> start(S)`;
  * hierarchy `start(g) -> start(child)` and `end(child) -> end(g)`.
  */
-function forwardPass<T extends ScheduleTask>(
-  input: ScheduleInput<T>,
-  m: Model,
-  cal: WorkCalendar,
-): void {
+function forwardPass<T extends ScheduleTask>(input: ScheduleInput<T>, m: Model, u: Units): void {
   const { tree, summary } = m;
   const n = tree.n;
   const N = 2 * n;
@@ -72,7 +74,7 @@ function forwardPass<T extends ScheduleTask>(
     if (p === s) throw new CycleError([d.predecessorId, d.predecessorId]);
     fsPred.push(p);
     fsSucc.push(s);
-    fsLag.push(Math.trunc(d.lagDays) || 0);
+    fsLag.push(u.readLag(d));
   }
   const F = fsPred.length;
 
@@ -154,7 +156,7 @@ function forwardPass<T extends ScheduleTask>(
     live++;
     if (indeg[v] === 0) queue[tail++] = v;
   }
-  /** Working days every leaf under summary g is pushed by (inherited + own). */
+  /** Working units every leaf under summary g is pushed by (inherited + own). */
   const shift = new Int32Array(n);
   const { start, end, dur, kind } = m;
   const parent = tree.parent;
@@ -176,19 +178,19 @@ function forwardPass<T extends ScheduleTask>(
         const inherited = p >= 0 ? shift[p]! : 0;
         let earliest = -Infinity;
         for (let k = inStart[v]!; k < inStart[v + 1]!; k++) {
-          const e = cal.addWorkingDaysNum(end[inPred[k]!]!, 1 + inLag[k]!);
+          const e = u.fsEarliest(end[inPred[k]!]!, inLag[k]!);
           if (e > earliest) earliest = e;
         }
-        const base = inherited > 0 ? cal.addWorkingDaysNum(start[v]!, inherited) : start[v]!;
+        const base = inherited > 0 ? u.shiftStart(start[v]!, inherited) : start[v]!;
         if (summary[v]) {
-          // Start of summary g: children are shifted by the same working-day delta.
-          const own = earliest > base ? cal.workingDaysBetweenNum(base + 1, earliest) : 0;
+          // Start of summary g: children are shifted by the same working-unit delta.
+          const own = earliest > base ? u.delta(base, earliest) : 0;
           shift[v] = inherited + own;
         } else {
           const s = earliest > base ? earliest : base;
           if (s !== start[v]) {
             start[v] = s;
-            end[v] = kind[v] === KIND_MILESTONE ? s : cal.endFromDurationNum(s, dur[v]!);
+            end[v] = kind[v] === KIND_MILESTONE ? s : u.endFrom(s, dur[v]!);
             if (kind[v] === KIND_MILESTONE) dur[v] = 0;
           }
         }
@@ -254,17 +256,23 @@ function finishEdit<T extends ScheduleTask>(
   state: ScheduleInput<T>,
   edited: T[],
   touched: string[],
+  u: Units,
 ): TaskEditResult<T> {
   const result = schedule({ ...state, tasks: edited, changed: touched });
+  // HOUR dates compare as instants, so `…T09:00:00` and `…T09:00` are equal.
+  const same = u.hour
+    ? (a: string, b: string): boolean => a === b || u.parse(a) === u.parse(b)
+    : (a: string, b: string): boolean => a === b;
   const changedIds: string[] = [];
   const changes: T[] = [];
   for (let i = 0; i < state.tasks.length; i++) {
     const before = state.tasks[i]!;
     const after = result.tasks[i]!;
     if (
-      before.startDate !== after.startDate ||
-      before.endDate !== after.endDate ||
+      !same(before.startDate, after.startDate) ||
+      !same(before.endDate, after.endDate) ||
       before.durationDays !== after.durationDays ||
+      before.durationHours !== after.durationHours ||
       before.progress !== after.progress
     ) {
       changedIds.push(after.id);
@@ -274,73 +282,88 @@ function finishEdit<T extends ScheduleTask>(
   return { tasks: result.tasks, changedIds, changes };
 }
 
+/** Smallest duration a resize leaves in an HOUR project: one quarter-hour. */
+const MIN_RESIZE_MINUTES = 15;
+
 /**
  * Moves a task so it starts on `newStart` (snapped forward to a working day),
  * keeping its duration in working days, then reschedules its successors.
  * Moving a group shifts all of its leaf descendants by the same number of
  * working days (forwards or backwards).
  *
+ * In HOUR projects `newStart` is a local date-time, it snaps forward to the
+ * next working minute, and the duration and group delta are working minutes.
+ *
  * @returns the full updated list plus the batch of changed tasks for one request.
  */
 export function moveTask<T extends ScheduleTask>(
   state: ScheduleInput<T>,
   id: string,
-  newStart: IsoDate,
+  newStart: IsoDate | LocalDateTime,
 ): TaskEditResult<T> {
   const cal = WorkCalendar.from(state.calendar);
+  const u = unitsFor(cal, state.durationUnit);
   const ctx: ScheduleInput<T> = { ...state, calendar: cal };
   const tasks = state.tasks.slice();
   const i = locate(tasks, id);
-  const target = cal.addWorkingDaysNum(toDayNumber(newStart), 0);
-  const m = buildModel(tasks);
+  const target = u.snapStart(u.parse(newStart));
+  const m = buildModel(tasks, undefined, u);
   const touched: string[] = [];
   const shiftLeaf = (k: number, s: number): void => {
     const t = tasks[k]!;
     const milestone = m.kind[k] === KIND_MILESTONE;
-    const d = milestone ? 0 : Math.max(0, Math.trunc(t.durationDays));
-    tasks[k] = {
-      ...t,
-      startDate: fromDayNumber(s),
-      endDate: fromDayNumber(cal.endFromDurationNum(s, d)),
-      durationDays: d,
-    };
+    const d = milestone ? 0 : u.readDuration(t);
+    tasks[k] = u.hour
+      ? {
+          ...t,
+          startDate: u.format(s),
+          endDate: u.format(u.endFrom(s, d)),
+          durationHours: minutesToHours(d),
+        }
+      : {
+          ...t,
+          startDate: fromDayNumber(s),
+          endDate: fromDayNumber(cal.endFromDurationNum(s, d)),
+          durationDays: d,
+        };
     touched.push(t.id);
   };
   if (!m.summary[i]) {
     shiftLeaf(i, target);
   } else {
-    // Signed working-day delta between the group's rolled-up start and the target.
-    rollUpModel(m, cal);
-    const from = m.start[i]!;
-    const delta =
-      target >= from
-        ? cal.workingDaysBetweenNum(from + 1, target)
-        : -cal.workingDaysBetweenNum(target, from - 1);
+    // Signed working-unit delta between the group's rolled-up start and the target.
+    rollUpModel(m, u);
+    const delta = u.delta(m.start[i]!, target);
     const stack = [i];
     while (stack.length > 0) {
       const v = stack.pop()!;
       for (let j = m.tree.childStart[v]!; j < m.tree.childStart[v + 1]!; j++) {
         const c = m.tree.childList[j]!;
         if (m.summary[c]) stack.push(c);
-        else if (delta !== 0) shiftLeaf(c, cal.addWorkingDaysNum(m.start[c]!, delta));
+        else if (delta !== 0) shiftLeaf(c, u.shiftStart(m.start[c]!, delta));
       }
     }
     touched.push(id);
   }
-  return finishEdit(ctx, tasks, touched);
+  return finishEdit(ctx, tasks, touched, u);
 }
 
 /**
  * Changes a task's end to `newEnd` (snapped back to a working day, never before
  * its start), recomputes its duration in working days, then reschedules its
  * successors. Groups (rolled up) and milestones (duration 0) cannot be resized.
+ *
+ * In HOUR projects `newEnd` is a local date-time snapped back to the end of
+ * the previous working minute (13:30 → 13:00), and the duration is never less
+ * than 15 minutes.
  */
 export function resizeTask<T extends ScheduleTask>(
   state: ScheduleInput<T>,
   id: string,
-  newEnd: IsoDate,
+  newEnd: IsoDate | LocalDateTime,
 ): TaskEditResult<T> {
   const cal = WorkCalendar.from(state.calendar);
+  const u = unitsFor(cal, state.durationUnit);
   const ctx: ScheduleInput<T> = { ...state, calendar: cal };
   const tasks = state.tasks.slice();
   const i = locate(tasks, id);
@@ -348,6 +371,18 @@ export function resizeTask<T extends ScheduleTask>(
   const hasChildren = tasks.some((x) => x.parentId === id);
   if (hasChildren || t.type === 'GROUP' || t.type === 'MILESTONE') {
     throw new TaskEditError('NOT_RESIZABLE', `Task "${id}" cannot be resized`);
+  }
+  if (u.hour) {
+    const s = u.snapStart(u.parse(t.startDate));
+    const e = cal.prevWorkingEndNum(u.parse(newEnd));
+    const d = Math.max(MIN_RESIZE_MINUTES, cal.workingMinutesBetweenNum(s, e));
+    tasks[i] = {
+      ...t,
+      startDate: u.format(s),
+      endDate: u.format(u.endFrom(s, d)),
+      durationHours: minutesToHours(d),
+    };
+    return finishEdit(ctx, tasks, [id], u);
   }
   const s = cal.addWorkingDaysNum(toDayNumber(t.startDate), 0);
   let e = toDayNumber(newEnd);
@@ -359,5 +394,5 @@ export function resizeTask<T extends ScheduleTask>(
     endDate: fromDayNumber(cal.endFromDurationNum(s, d)),
     durationDays: d,
   };
-  return finishEdit(ctx, tasks, [id]);
+  return finishEdit(ctx, tasks, [id], u);
 }

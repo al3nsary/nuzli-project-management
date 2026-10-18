@@ -4,10 +4,10 @@
  *
  * @internal
  */
-import type { WorkCalendar } from './calendar';
-import { fromDayNumber, toDayNumber } from './dates';
+import { MINUTES_PER_DAY, fromDayNumber, toDayNumber } from './dates';
 import { HierarchyError } from './errors';
 import type { ScheduleResult, ScheduleTask } from './types';
+import { minutesToHours, type Units } from './units';
 
 export interface Tree {
   readonly n: number;
@@ -104,7 +104,11 @@ export interface Model {
   readonly prog: Float64Array;
 }
 
-export function buildModel(tasks: readonly ScheduleTask[], tree: Tree = buildTree(tasks)): Model {
+export function buildModel(
+  tasks: readonly ScheduleTask[],
+  tree: Tree = buildTree(tasks),
+  units?: Units,
+): Model {
   const n = tasks.length;
   const kind = new Uint8Array(n);
   const summary = new Uint8Array(n);
@@ -116,9 +120,15 @@ export function buildModel(tasks: readonly ScheduleTask[], tree: Tree = buildTre
     const t = tasks[i]!;
     kind[i] = t.type === 'GROUP' ? KIND_GROUP : t.type === 'MILESTONE' ? KIND_MILESTONE : KIND_TASK;
     summary[i] = tree.childStart[i + 1]! > tree.childStart[i]! ? 1 : 0;
-    start[i] = toDayNumber(t.startDate);
-    end[i] = toDayNumber(t.endDate);
-    dur[i] = Math.max(0, Math.trunc(t.durationDays));
+    if (units?.hour) {
+      start[i] = units.parse(t.startDate);
+      end[i] = units.parse(t.endDate);
+      dur[i] = units.readDuration(t);
+    } else {
+      start[i] = toDayNumber(t.startDate);
+      end[i] = toDayNumber(t.endDate);
+      dur[i] = Math.max(0, Math.trunc(t.durationDays));
+    }
     prog[i] = t.progress;
   }
   return { tree, kind, summary, start, end, dur, prog };
@@ -142,7 +152,7 @@ const round2 = (x: number): number => Math.round(x * 100) / 100;
  * Rolls every summary task up from its children, bottom-up (reverse BFS order,
  * so it is iterative and safe at any depth).
  */
-export function rollUpModel(m: Model, cal: WorkCalendar): void {
+export function rollUpModel(m: Model, units: Units): void {
   const { order, childStart, childList } = m.tree;
   for (let k = order.length - 1; k >= 0; k--) {
     const g = order[k]!;
@@ -166,7 +176,7 @@ export function rollUpModel(m: Model, cal: WorkCalendar): void {
     if (e < s) e = s;
     m.start[g] = s;
     m.end[g] = e;
-    m.dur[g] = cal.workingDaysBetweenNum(s, e);
+    m.dur[g] = units.span(s, e);
     m.prog[g] = round2(weights > 0 ? weighted / weights : plain / (to - from));
   }
 }
@@ -176,7 +186,9 @@ export function emit<T extends ScheduleTask>(
   tasks: readonly T[],
   before: Model,
   after: Model,
+  units?: Units,
 ): ScheduleResult<T> {
+  if (units?.hour) return emitHours(tasks, before, after, units);
   const out: T[] = new Array<T>(tasks.length);
   const changedIds: string[] = [];
   for (let i = 0; i < tasks.length; i++) {
@@ -191,6 +203,57 @@ export function emit<T extends ScheduleTask>(
         startDate: startChanged ? fromDayNumber(after.start[i]!) : t.startDate,
         endDate: endChanged ? fromDayNumber(after.end[i]!) : t.endDate,
         durationDays: after.dur[i]!,
+        progress: after.prog[i]!,
+      };
+      changedIds.push(t.id);
+    } else {
+      out[i] = t;
+    }
+  }
+  return { tasks: out, changedIds };
+}
+
+/**
+ * HOUR-mode {@link emit}: dates are minute numbers, `durationHours` comes from
+ * working minutes, and `durationDays` is derived (working days the task touches).
+ */
+function emitHours<T extends ScheduleTask>(
+  tasks: readonly T[],
+  before: Model,
+  after: Model,
+  units: Units,
+): ScheduleResult<T> {
+  const cal = units.cal;
+  const out: T[] = new Array<T>(tasks.length);
+  const changedIds: string[] = [];
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i]!;
+    const s = after.start[i]!;
+    const e = after.end[i]!;
+    const mins = after.dur[i]!;
+    const hours = minutesToHours(mins);
+    const days =
+      mins > 0 && e > s
+        ? cal.workingDaysBetweenNum(
+            Math.floor(cal.nextWorkingMinuteNum(s) / MINUTES_PER_DAY),
+            Math.floor(cal.addWorkingMinutesNum(e, -1) / MINUTES_PER_DAY),
+          )
+        : 0;
+    const startChanged = before.start[i] !== s;
+    const endChanged = before.end[i] !== e;
+    if (
+      startChanged ||
+      endChanged ||
+      t.durationHours !== hours ||
+      t.durationDays !== days ||
+      t.progress !== after.prog[i]
+    ) {
+      out[i] = {
+        ...t,
+        startDate: startChanged ? units.format(s) : t.startDate,
+        endDate: endChanged ? units.format(e) : t.endDate,
+        durationDays: days,
+        durationHours: hours,
         progress: after.prog[i]!,
       };
       changedIds.push(t.id);

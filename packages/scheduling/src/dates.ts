@@ -85,3 +85,49 @@ export function dayOfWeek(date: IsoDate): number {
 export function addCalendarDays(date: IsoDate, days: number): IsoDate {
   return fromDayNumber(toDayNumber(date) + days);
 }
+
+// ------------------------------------------------------------------ local date-times (HOUR projects)
+
+/**
+ * A local wall-clock date-time, `YYYY-MM-DDTHH:MM`, in the project's time zone
+ * (Asia/Riyadh, UTC+3, no daylight saving). It is handled as naive local time.
+ */
+export type LocalDateTime = string;
+
+/** Minutes in a calendar day. */
+export const MINUTES_PER_DAY = 1440;
+
+const LOCAL_RE =
+  /^(-?\d{4,6}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:\+03:00)?$/;
+
+/**
+ * Converts a local date-time to a **minute number**: minutes since
+ * 1970-01-01T00:00 local (`dayNumber * 1440 + minuteOfDay`).
+ *
+ * Accepted: `YYYY-MM-DD` (midnight), `YYYY-MM-DDTHH:MM`, with optional seconds
+ * (truncated) and an optional explicit `+03:00` (Riyadh) suffix. Any other
+ * offset, including `Z`, is rejected so a UTC instant is never read as wall time.
+ *
+ * @throws RangeError on anything else.
+ */
+export function toMinuteNumber(dt: LocalDateTime): number {
+  const m = LOCAL_RE.exec(dt);
+  if (!m) throw new RangeError(`Invalid local date-time "${dt}" (expected YYYY-MM-DDTHH:MM)`);
+  const day = toDayNumber(m[1]!);
+  if (m[2] === undefined) return day * MINUTES_PER_DAY;
+  const h = Number(m[2]);
+  const mi = Number(m[3]);
+  if (h > 23 || mi > 59 || (m[4] !== undefined && Number(m[4]) > 59)) {
+    throw new RangeError(`Invalid local date-time "${dt}"`);
+  }
+  return day * MINUTES_PER_DAY + h * 60 + mi;
+}
+
+/** Converts a minute number back to `YYYY-MM-DDTHH:MM`. */
+export function fromMinuteNumber(minute: number): LocalDateTime {
+  const day = Math.floor(minute / MINUTES_PER_DAY);
+  const mod = minute - day * MINUTES_PER_DAY;
+  const h = Math.floor(mod / 60);
+  const mi = mod - h * 60;
+  return `${fromDayNumber(day)}T${h < 10 ? '0' : ''}${h}:${mi < 10 ? '0' : ''}${mi}`;
+}
