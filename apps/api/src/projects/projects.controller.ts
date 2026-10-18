@@ -40,11 +40,13 @@ import { TaskCollabService } from './task-collab.service';
 import { TasksService } from './tasks.service';
 
 const READ_ANY = ['projects.readAll', 'projects.readGranted'] as const;
+/** A9 (ADR-092): a task and its thread, attachments, checklist and time log — admins, and supervisors for their own tasks (the service applies the scope). */
+export const TASK_READ = ['projects.readAll', 'tasks.readAssigned'] as const;
 
 /**
  * Phase 4 (brief §6, docs/API.md "Phase 4"). Guards check the permission from the shared
- * matrix; the services apply the project scope (ADMIN all; SUPERVISOR granted or assigned —
- * anything else is 404) and ADR-007 for supervisors' own tasks.
+ * matrix; the services apply the scope. Since A9 (ADR-092) only admins reach projects (a
+ * supervisor gets 403 here); supervisors reach the tasks assigned to them through /tasks.
  */
 @ApiTags('projects')
 @ApiBearerAuth()
@@ -57,7 +59,7 @@ export class ProjectsController {
 
   @Get()
   @RequireAnyPermission(...READ_ANY)
-  @ApiOperation({ summary: 'المشاريع حسب النطاق (المدير الكل؛ المشرف الممنوحة أو التي لديه فيها مهمة)' })
+  @ApiOperation({ summary: 'المشاريع (المدير؛ القوالب في /project-templates)' })
   list(@ZodQuery(projectListQuerySchema) q: z.output<typeof projectListQuerySchema>, @CurrentUser() viewer: AuthUser): Promise<ProjectDto[]> {
     return this.projects.list(q, viewer);
   }
@@ -210,7 +212,7 @@ export class TasksController {
   }
 
   @Get(':id')
-  @RequireAnyPermission(...READ_ANY)
+  @RequireAnyPermission(...TASK_READ)
   @ApiOperation({ summary: 'مهمة' })
   get(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<TaskDto> {
     return this.tasks.get(id, viewer);
@@ -236,7 +238,7 @@ export class TasksController {
   }
 
   @Get(':id/comments')
-  @RequireAnyPermission(...READ_ANY)
+  @RequireAnyPermission(...TASK_READ)
   @ApiOperation({ summary: 'تعليقات المهمة' })
   comments(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<TaskCommentDto[]> {
     return this.collab.comments(id, viewer);
@@ -255,14 +257,14 @@ export class TasksController {
   }
 
   @Get(':id/activity')
-  @RequireAnyPermission(...READ_ANY)
+  @RequireAnyPermission(...TASK_READ)
   @ApiOperation({ summary: 'سجل نشاط المهمة (من سجل التدقيق)' })
   activity(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<ActivityDto[]> {
     return this.collab.activity(id, viewer);
   }
 
   @Get(':id/attachments')
-  @RequireAnyPermission(...READ_ANY)
+  @RequireAnyPermission(...TASK_READ)
   @ApiOperation({ summary: 'مرفقات المهمة' })
   attachments(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<TaskAttachmentDto[]> {
     return this.collab.attachments(id, viewer);
@@ -281,7 +283,7 @@ export class TasksController {
   }
 
   @Get(':id/attachments/:fileId/url')
-  @RequireAnyPermission(...READ_ANY)
+  @RequireAnyPermission(...TASK_READ)
   @ApiOperation({ summary: 'رابط تنزيل مؤقت لمرفق' })
   attachmentUrl(
     @Param('id', UuidPipe) id: string,

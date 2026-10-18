@@ -27,7 +27,7 @@ describe('TaskDueService — daily reminders', () => {
 
   it('sends TASK_OVERDUE and TASK_DUE_SOON once per task (working days of the project calendar)', async () => {
     const { fake, service } = setup();
-    expect(await service.run(NOW)).toEqual({ overdue: 1, dueSoon: 1 });
+    expect(await service.run(NOW)).toEqual({ overdue: 1, dueSoon: 1, deadlinePassed: 0 });
     expect(fake.data.notifications.map((n) => [n.type, (n.payload as { taskId: string }).taskId])).toEqual([
       ['TASK_OVERDUE', 'late'],
       ['TASK_DUE_SOON', 'soon'],
@@ -35,8 +35,8 @@ describe('TaskDueService — daily reminders', () => {
     expect(fake.data.tasks.find((t) => t.id === 'late')?.overdueNotifiedAt).toEqual(NOW);
 
     // Idempotent: a second run (or the next day) sends nothing new.
-    expect(await service.run(NOW)).toEqual({ overdue: 0, dueSoon: 0 });
-    expect(await service.run(new Date('2026-10-13T04:00:00Z'))).toEqual({ overdue: 0, dueSoon: 0 });
+    expect(await service.run(NOW)).toEqual({ overdue: 0, dueSoon: 0, deadlinePassed: 0 });
+    expect(await service.run(new Date('2026-10-13T04:00:00Z'))).toEqual({ overdue: 0, dueSoon: 0, deadlinePassed: 0 });
     expect(fake.data.notifications).toHaveLength(2);
   });
 
@@ -52,6 +52,21 @@ describe('TaskDueService — daily reminders', () => {
     const soon = fake.data.tasks.find((t) => t.id === 'soon')!;
     // What ProjectStore.persist does when the end date moves.
     Object.assign(soon, { endDate: d('2026-10-14'), dueSoonNotifiedAt: null, overdueNotifiedAt: null });
-    expect(await service.run(NOW)).toEqual({ overdue: 0, dueSoon: 1 });
+    expect(await service.run(NOW)).toEqual({ overdue: 0, dueSoon: 1, deadlinePassed: 0 });
+  });
+
+  it('A9: a passed deadline notifies TASK_DEADLINE_PASSED once (assignee + project owner); DONE and future deadlines do not', async () => {
+    const { fake, service } = setup();
+    fake.data.users.push({ id: 'owner', fullName: 'المالك', role: 'ADMIN', status: 'ACTIVE' });
+    fake.data.projects[0]!.ownerId = 'owner';
+    fake.data.tasks.find((t) => t.id === 'later')!.deadline = d('2026-10-10');
+    fake.data.tasks.find((t) => t.id === 'late-done')!.deadline = d('2026-10-01');
+    fake.data.tasks.find((t) => t.id === 'soon')!.deadline = d('2026-10-20');
+    const first = await service.run(NOW);
+    expect(first.deadlinePassed).toBe(1);
+    const sent = fake.data.notifications.filter((n) => n.type === 'TASK_DEADLINE_PASSED');
+    expect(sent.map((n) => n.userId).sort()).toEqual(['owner', 'sup1']);
+    expect(sent[0]!.payload).toMatchObject({ taskId: 'later', deadline: '2026-10-10' });
+    expect((await service.run(NOW)).deadlinePassed).toBe(0);
   });
 });

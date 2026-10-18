@@ -141,7 +141,8 @@ describe('login throttling and lockout (security review M5)', () => {
   it('unknown account, wrong password and locked account all answer INVALID_CREDENTIALS', async () => {
     expect(await code(setup({ user: null }).auth.login('ghost@example.sa', 'whatever-1', ctx()))).toBe('INVALID_CREDENTIALS');
     expect(await code(setup().auth.login(USER.email, 'wrong-pass-1', ctx()))).toBe('INVALID_CREDENTIALS');
-    const locked = setup({ user: { lockedUntil: new Date('2026-10-12T09:00:00Z') } });
+    // Locked for another hour from now (a fixed date here expired on 2026-10-12).
+    const locked = setup({ user: { lockedUntil: new Date(Date.now() + 3_600_000) } });
     // Even the right password: a locked account never says "locked".
     expect(await code(locked.auth.login(USER.email, 'Correct-Pass-1', ctx()))).toBe('INVALID_CREDENTIALS');
   });

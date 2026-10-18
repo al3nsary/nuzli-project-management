@@ -3,6 +3,7 @@ import type { File as FileRow } from '@prisma/client';
 import {
   can,
   type ActivityDto,
+  type CommentReadDto,
   type PermissionSubject,
   type PresignUploadInput,
   type TaskAttachmentDto,
@@ -25,11 +26,56 @@ type CommentInput = z.output<typeof taskCommentSchema>;
 
 export const ACTIVITY_LIMIT = 200;
 
+const COMMENT_SELECT = {
+  id: true,
+  body: true,
+  mentions: true,
+  createdAt: true,
+  author: { select: { id: true, fullName: true } },
+  replyTo: { select: { id: true, body: true, author: { select: { fullName: true } } } },
+} as const;
+
+/** First characters of a comment for quotes and the hub (whitespace collapsed). */
+export function preview(body: string, max = 160): string {
+  const flat = body.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
 /**
- * Comments with @mentions, the per-task activity (read from the audit log) and attachments
- * through the generic presign → PUT → confirm flow with `entityType: 'task'` (brief §6.1
- * "Collaboration"). Everyone who can see the project reads; comments need `tasks.comment`;
- * uploads are for admins (`tasks.manage`) and the task's assignee.
+ * Notification / e-mail preview: a 10-digit number starting with 1 or 2 (a national ID or
+ * Iqama, Western or Arabic-Indic digits) is masked, since payloads and e-mails must never carry
+ * national IDs (brief §13).
+ */
+export function notificationPreview(body: string): string {
+  return preview(body, 120).replace(/(?<![0-9٠-٩])[12١٢][0-9٠-٩]{9}(?![0-9٠-٩])/g, '••••••••••');
+}
+
+type CommentRow = {
+  id: string;
+  body: string;
+  mentions: string[];
+  createdAt: Date;
+  author: { id: string; fullName: string };
+  replyTo?: { id: string; body: string; author: { fullName: string } } | null;
+};
+
+function toCommentDto(r: CommentRow): TaskCommentDto {
+  return {
+    id: r.id,
+    author: r.author,
+    body: r.body,
+    mentions: r.mentions,
+    createdAt: r.createdAt.toISOString(),
+    replyTo: r.replyTo ? { id: r.replyTo.id, authorName: r.replyTo.author.fullName, bodyPreview: preview(r.replyTo.body, 120) } : null,
+  };
+}
+
+/**
+ * Comments with @mentions (a flat, chat-style thread with optional quotes), the per-task
+ * activity (read from the audit log) and attachments through the generic presign → PUT →
+ * confirm flow with `entityType: 'task'` (brief §6.1 "Collaboration"). Since A9 (ADR-092) a
+ * supervisor reaches all of it only for tasks assigned to them; admins for every task.
+ * Comments need `tasks.comment`; uploads are for admins (`tasks.manage`) and the assignee.
  */
 @Injectable()
 export class TaskCollabService implements FileEntityHook, OnModuleInit {
@@ -51,31 +97,21 @@ export class TaskCollabService implements FileEntityHook, OnModuleInit {
 
   async comments(taskId: string, viewer: Viewer): Promise<TaskCommentDto[]> {
     await this.store.visibleTask(taskId, viewer);
-    const rows = await this.prisma.taskComment.findMany({
-      where: { taskId },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, body: true, mentions: true, createdAt: true, author: { select: { id: true, fullName: true } } },
-    });
-    return rows.map((r) => ({ id: r.id, author: r.author, body: r.body, mentions: r.mentions, createdAt: r.createdAt.toISOString() }));
+    const rows = await this.prisma.taskComment.findMany({ where: { taskId }, orderBy: { createdAt: 'asc' }, select: COMMENT_SELECT });
+    return rows.map(toCommentDto);
   }
 
-  /** Users who may be mentioned: active admins, and supervisors who can see the project. */
-  async mentionable(projectId: string, ids: string[]): Promise<Set<string>> {
+  /**
+   * Users who can open the task and so may be mentioned (A9, ADR-092): active admins and the
+   * task's assignee (an active supervisor). Other supervisors would get a link they cannot open.
+   */
+  async mentionable(task: { assigneeId: string | null }, ids: string[]): Promise<Set<string>> {
     if (!ids.length) return new Set();
     const rows = await this.prisma.user.findMany({
       where: {
         id: { in: ids },
         status: 'ACTIVE',
-        OR: [
-          { role: 'ADMIN' },
-          {
-            role: 'SUPERVISOR',
-            OR: [
-              { projectAccess: { some: { projectId } } },
-              { assignedTasks: { some: { projectId, archivedAt: null } } },
-            ],
-          },
-        ],
+        OR: [{ role: 'ADMIN' }, ...(task.assigneeId ? [{ id: task.assigneeId, role: 'SUPERVISOR' as const }] : [])],
       },
       select: { id: true },
     });
@@ -86,18 +122,29 @@ export class TaskCollabService implements FileEntityHook, OnModuleInit {
     const task = await this.store.visibleTask(taskId, viewer);
     if (task.project.archivedAt) throw new AppError('PROJECT_ARCHIVED');
     const mentions = [...new Set(input.mentions)];
-    const allowed = await this.mentionable(task.projectId, mentions);
+    const allowed = await this.mentionable(task, mentions);
     const invalid = mentions.filter((m) => !allowed.has(m));
     if (invalid.length) {
       throw new AppError('VALIDATION_FAILED', {
-        fieldErrors: { mentions: ['يمكن الإشارة فقط إلى من يملك صلاحية الوصول إلى المشروع'] },
+        fieldErrors: { mentions: ['يمكن الإشارة فقط إلى من يستطيع فتح هذه المهمة'] },
         userIds: invalid,
       });
     }
+    const replyToId = input.replyToId ?? null;
+    if (replyToId) {
+      const quoted = await this.prisma.taskComment.findFirst({ where: { id: replyToId, taskId }, select: { id: true } });
+      if (!quoted) throw new AppError('COMMENT_REPLY_INVALID');
+    }
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.taskComment.create({
-        data: { taskId, authorId: viewer.id, body: input.body, mentions },
-        select: { id: true, body: true, mentions: true, createdAt: true, author: { select: { id: true, fullName: true } } },
+        data: { taskId, authorId: viewer.id, body: input.body, mentions, replyToId },
+        select: COMMENT_SELECT,
+      });
+      // The author has read the thread up to their own comment.
+      await tx.taskCommentRead.upsert({
+        where: { userId_taskId: { userId: viewer.id, taskId } },
+        create: { userId: viewer.id, taskId, lastReadAt: created.createdAt },
+        update: { lastReadAt: created.createdAt },
       });
       await this.audit.logCtx(
         ctx,
@@ -105,26 +152,48 @@ export class TaskCollabService implements FileEntityHook, OnModuleInit {
           action: AuditAction.TASK_COMMENT_ADDED,
           entityType: 'task',
           entityId: taskId,
-          after: { commentId: created.id, length: input.body.length, mentions: mentions.length },
+          after: { commentId: created.id, length: input.body.length, mentions: mentions.length, ...(replyToId ? { replyToId } : {}) },
         },
         tx,
       );
       return created;
     });
-    const notify = mentions.filter((m) => m !== viewer.id);
-    if (notify.length) {
-      this.notifications.safe(
-        this.notifications.notify(notify, 'TASK_MENTIONED', {
-          taskId,
-          taskName: task.name,
-          projectId: task.projectId,
-          projectName: task.project.name,
-          commentId: row.id,
-          authorName: row.author.fullName,
-        }),
-      );
-    }
-    return { id: row.id, author: row.author, body: row.body, mentions: row.mentions, createdAt: row.createdAt.toISOString() };
+    const payload = {
+      taskId,
+      taskName: task.name,
+      projectId: task.projectId,
+      projectName: task.project.name,
+      commentId: row.id,
+      authorName: row.author.fullName,
+      preview: notificationPreview(row.body),
+    };
+    const mentioned = mentions.filter((m) => m !== viewer.id);
+    if (mentioned.length) this.notifications.safe(this.notifications.notify(mentioned, 'TASK_MENTIONED', payload));
+    const followers = (await this.followers(task, viewer.id)).filter((u) => !mentioned.includes(u));
+    if (followers.length) this.notifications.safe(this.notifications.notify(followers, 'TASK_COMMENTED', payload));
+    return toCommentDto(row);
+  }
+
+  /**
+   * A9 `TASK_COMMENTED` recipients: the assignee and everyone who commented before, minus the
+   * author, limited to people who can still open the task (active admins, the assignee).
+   */
+  async followers(task: { id: string; assigneeId: string | null }, authorId: string): Promise<string[]> {
+    const earlier = await this.prisma.taskComment.findMany({ where: { taskId: task.id }, select: { authorId: true }, distinct: ['authorId'] });
+    const candidates = [...new Set([...(task.assigneeId ? [task.assigneeId] : []), ...earlier.map((c) => c.authorId)])].filter((u) => u !== authorId);
+    if (!candidates.length) return [];
+    return [...(await this.mentionable(task, candidates))];
+  }
+
+  /** `POST /tasks/:id/comments/read` — the viewer read the thread up to now. */
+  async markRead(taskId: string, viewer: Viewer, now: Date = new Date()): Promise<CommentReadDto> {
+    await this.store.visibleTask(taskId, viewer);
+    const row = await this.prisma.taskCommentRead.upsert({
+      where: { userId_taskId: { userId: viewer.id, taskId } },
+      create: { userId: viewer.id, taskId, lastReadAt: now },
+      update: { lastReadAt: now },
+    });
+    return { taskId, lastReadAt: row.lastReadAt.toISOString() };
   }
 
   // ─────────────────────────────────────────── activity

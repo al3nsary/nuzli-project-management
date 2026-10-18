@@ -158,7 +158,25 @@ export class NotificationsService {
           authorName: String(payload.authorName ?? ''),
           taskName: String(payload.taskName ?? ''),
           projectName: String(payload.projectName ?? ''),
-          url: `${web}/projects/${String(payload.projectId ?? '')}?task=${String(payload.taskId ?? '')}`,
+          // A9: the hub opens the thread for admins and the assigned supervisor alike.
+          url: `${web}/hub?task=${String(payload.taskId ?? '')}`,
+        });
+      case 'TASK_COMMENTED':
+        return emails.taskCommented({
+          name: to.fullName,
+          authorName: String(payload.authorName ?? ''),
+          taskName: String(payload.taskName ?? ''),
+          projectName: String(payload.projectName ?? ''),
+          preview: String(payload.preview ?? ''),
+          url: `${web}/hub?task=${String(payload.taskId ?? '')}`,
+        });
+      case 'TASK_DEADLINE_PASSED':
+        return emails.taskDeadlinePassed({
+          name: to.fullName,
+          taskName: String(payload.taskName ?? ''),
+          projectName: String(payload.projectName ?? ''),
+          deadline: String(payload.deadline ?? ''),
+          url: `${web}/my-tasks?task=${String(payload.taskId ?? '')}`,
         });
       default:
         return null;

@@ -97,6 +97,10 @@ export const NotificationType = {
   TASK_MENTIONED: 'TASK_MENTIONED',
   TASK_DUE_SOON: 'TASK_DUE_SOON',
   TASK_OVERDUE: 'TASK_OVERDUE',
+  /** A9: a comment on a task (to the assignee and earlier commenters, not the author). */
+  TASK_COMMENTED: 'TASK_COMMENTED',
+  /** A9: the task deadline passed and the task is not DONE (once per deadline). */
+  TASK_DEADLINE_PASSED: 'TASK_DEADLINE_PASSED',
   VIOLATION_OBJECTION: 'VIOLATION_OBJECTION',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];

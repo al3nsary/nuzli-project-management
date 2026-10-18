@@ -12,6 +12,8 @@ const DUE_SOON_LOOKAHEAD_DAYS = 31;
 export interface DueRunResult {
   dueSoon: number;
   overdue: number;
+  /** A9: TASK_DEADLINE_PASSED sent. */
+  deadlinePassed: number;
 }
 
 /**
@@ -34,7 +36,9 @@ export class TaskDueService {
   async cronRun(): Promise<void> {
     try {
       const r = await this.run();
-      if (r.dueSoon || r.overdue) this.logger.log(`Task reminders: ${r.dueSoon} due soon, ${r.overdue} overdue`);
+      if (r.dueSoon || r.overdue || r.deadlinePassed) {
+        this.logger.log(`Task reminders: ${r.dueSoon} due soon, ${r.overdue} overdue, ${r.deadlinePassed} past deadline`);
+      }
     } catch (err) {
       this.logger.error(`Task reminders failed: ${(err as Error).message}`);
     }
@@ -87,7 +91,35 @@ export class TaskDueService {
         soonSent++;
       }
     }
-    return { dueSoon: soonSent, overdue: overdueSent };
+    // A9: the deadline (separate from the end date) passed — once per deadline, to the assignee
+    // and the project owner. Changing the deadline resets the column (ProjectStore.persist).
+    const late = await this.prisma.task.findMany({
+      where: {
+        archivedAt: null,
+        status: { not: 'DONE' },
+        project: { archivedAt: null, isTemplate: false },
+        deadlineNotifiedAt: null,
+        deadline: { lt: dateOf(today) },
+      },
+      select: { ...select, deadline: true, project: { select: { name: true, calendarId: true, ownerId: true } } },
+    });
+    let deadlineSent = 0;
+    for (const t of late) {
+      if (!(await this.claim(t.id, 'deadlineNotifiedAt', now))) continue;
+      const to = [...new Set([t.assigneeId, t.project.ownerId].filter((u): u is string => !!u))];
+      await this.notifications
+        .notify(to, 'TASK_DEADLINE_PASSED', {
+          taskId: t.id,
+          taskName: t.name,
+          projectId: t.projectId,
+          projectName: t.project.name,
+          deadline: t.deadline ? isoOf(t.deadline) : null,
+          endDate: isoOf(t.endDate),
+        })
+        .catch((err: unknown) => this.logger.warn(`Deadline reminder for task ${t.id} failed: ${(err as Error).message}`));
+      deadlineSent++;
+    }
+    return { dueSoon: soonSent, overdue: overdueSent, deadlinePassed: deadlineSent };
   }
 
   private async calendars(ids: string[]): Promise<Map<string, WorkCalendar>> {
@@ -100,7 +132,7 @@ export class TaskDueService {
   }
 
   /** Conditional update: only the run that flips the column from NULL notifies. */
-  private async claim(id: string, column: 'dueSoonNotifiedAt' | 'overdueNotifiedAt', now: Date): Promise<boolean> {
+  private async claim(id: string, column: 'dueSoonNotifiedAt' | 'overdueNotifiedAt' | 'deadlineNotifiedAt', now: Date): Promise<boolean> {
     const res = await this.prisma.task.updateMany({ where: { id, [column]: null }, data: { [column]: now } });
     return res.count === 1;
   }

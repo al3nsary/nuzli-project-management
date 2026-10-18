@@ -34,6 +34,11 @@ function t(id: string, over: Partial<StoredTask> = {}): StoredTask {
     assigneeId: null,
     description: null,
     version: 0,
+    plannedCost: 0,
+    actualCost: 0,
+    deadline: null,
+    barColor: null,
+    labelIds: [],
     ...over,
   };
 }

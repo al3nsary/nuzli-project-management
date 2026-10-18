@@ -71,7 +71,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     'teams.createOwn',
     'teams.manageOwn',
     'members.manageOwn',
-    'projects.readGranted',
+    // A9 (ADR-092): no `projects.readGranted` — supervisors see only the tasks assigned to them
+    // (my tasks, the task itself, its comments, attachments, checklist and time log), never a project.
     'tasks.readAssigned',
     'tasks.updateAssigned',
     'tasks.comment',

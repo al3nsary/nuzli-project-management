@@ -7,25 +7,33 @@ import {
   type ProjectDto,
   type TaskDto,
 } from '@nuzli/shared';
-import { isoOf, projectProgress, type StoredTask } from './task-engine';
+import { deadlinePassed, fromCents, isoOf, projectProgress, riyadhToday, toCents, type StoredTask } from './task-engine';
 
 type Viewer = PermissionSubject & { id: string };
 
 /**
- * Project data scope (ADR-007, docs/API.md "Phase 4"): ADMIN (`projects.readAll`) sees every
- * project; a SUPERVISOR (`projects.readGranted`) sees non-archived projects they were granted
- * or where a non-archived task is assigned to them. Anything else is invisible (→ 404).
+ * Project data scope. ADMIN (`projects.readAll`) sees every project. Since owner request A9
+ * (ADR-092) nobody else sees a project: supervisors work only through the tasks assigned to
+ * them (`taskScopeWhere`). The `project_access` table is kept but grants nothing (→ 404).
+ * `projects.readGranted` still opens a granted, non-archived project for a role that holds it
+ * (none does today) so the table keeps a meaning for later.
  */
 export function projectScopeWhere(viewer: Viewer): Prisma.ProjectWhereInput {
   if (can(viewer, 'projects.readAll')) return {};
   if (can(viewer, 'projects.readGranted')) {
-    return {
-      archivedAt: null,
-      OR: [
-        { access: { some: { userId: viewer.id } } },
-        { tasks: { some: { assigneeId: viewer.id, archivedAt: null } } },
-      ],
-    };
+    return { archivedAt: null, isTemplate: false, access: { some: { userId: viewer.id } } };
+  }
+  return { id: { in: [] } };
+}
+
+/**
+ * Task data scope (A9, ADR-092): ADMIN every task; a SUPERVISOR (`tasks.readAssigned`) only the
+ * live tasks assigned to them in non-archived, non-template projects. Anything else → 404.
+ */
+export function taskScopeWhere(viewer: Viewer): Prisma.TaskWhereInput {
+  if (can(viewer, 'projects.readAll')) return {};
+  if (can(viewer, 'tasks.readAssigned')) {
+    return { assigneeId: viewer.id, project: { archivedAt: null, isTemplate: false } };
   }
   return { id: { in: [] } };
 }
@@ -48,6 +56,11 @@ export const STORED_TASK_SELECT = {
   assigneeId: true,
   description: true,
   version: true,
+  plannedCost: true,
+  actualCost: true,
+  deadline: true,
+  barColor: true,
+  labels: { select: { labelId: true } },
 } satisfies Prisma.TaskSelect;
 
 export type StoredTaskRow = Prisma.TaskGetPayload<{ select: typeof STORED_TASK_SELECT }>;
@@ -70,6 +83,11 @@ export function toStored(r: StoredTaskRow): StoredTask {
     assigneeId: r.assigneeId,
     description: r.description,
     version: r.version,
+    plannedCost: Number(r.plannedCost),
+    actualCost: Number(r.actualCost),
+    deadline: r.deadline ? isoOf(r.deadline) : null,
+    barColor: r.barColor,
+    labelIds: r.labels.map((l) => l.labelId).sort(),
   };
 }
 
@@ -93,7 +111,14 @@ export const TASK_DTO_SELECT = {
 
 export type TaskDtoRow = Prisma.TaskGetPayload<{ select: typeof TASK_DTO_SELECT }>;
 
-export function toTaskDto(r: TaskDtoRow, attachments: ReadonlyMap<string, number>, wbs?: string): TaskDto {
+/** A9 extras loaded next to the task rows (ProjectStore.taskExtras). */
+export interface TaskExtras {
+  checklist: ReadonlyMap<string, { total: number; done: number }>;
+  customValues: ReadonlyMap<string, Record<string, unknown>>;
+  today: string;
+}
+
+export function toTaskDto(r: TaskDtoRow, attachments: ReadonlyMap<string, number>, wbs?: string, extras?: TaskExtras): TaskDto {
   const team = r.assignee?.ledTeams[0];
   const s = toStored(r);
   return {
@@ -117,6 +142,15 @@ export function toTaskDto(r: TaskDtoRow, attachments: ReadonlyMap<string, number
     version: s.version,
     commentCount: r._count.comments,
     attachmentCount: attachments.get(s.id) ?? 0,
+    plannedCost: s.plannedCost,
+    actualCost: s.actualCost,
+    overBudget: toCents(s.actualCost) > toCents(s.plannedCost),
+    deadline: s.deadline,
+    deadlinePassed: deadlinePassed(s, extras?.today ?? riyadhToday()),
+    barColor: s.barColor,
+    labelIds: s.labelIds,
+    checklist: extras?.checklist.get(s.id) ?? { total: 0, done: 0 },
+    customValues: extras?.customValues.get(s.id) ?? {},
   };
 }
 
@@ -130,15 +164,37 @@ export const PROJECT_SELECT = {
   autoSchedule: true,
   createdAt: true,
   archivedAt: true,
+  budget: true,
+  currency: true,
+  isTemplate: true,
   owner: { select: { id: true, fullName: true } },
 } satisfies Prisma.ProjectSelect;
 
 export type ProjectRow = Prisma.ProjectGetPayload<{ select: typeof PROJECT_SELECT }>;
 
 export interface ProjectStats {
-  roots: Array<Pick<StoredTask, 'type' | 'durationDays' | 'progress'>>;
+  roots: Array<Pick<StoredTask, 'type' | 'durationDays' | 'progress'> & Partial<Pick<StoredTask, 'plannedCost' | 'actualCost'>>>;
   endDate: string | null;
   taskCount: number;
+}
+
+/** A9 project money: totals are the sums of the root tasks (each root already rolled up). */
+export function projectMoney(budget: number | null, roots: ProjectStats['roots']) {
+  let planned = 0;
+  let actual = 0;
+  for (const r of roots) {
+    planned += toCents(r.plannedCost ?? 0);
+    actual += toCents(r.actualCost ?? 0);
+  }
+  const budgetCents = budget === null ? null : toCents(budget);
+  return {
+    budget,
+    plannedCost: fromCents(planned),
+    actualCost: fromCents(actual),
+    costVariance: fromCents(planned - actual),
+    budgetVariance: budgetCents === null ? null : fromCents(budgetCents - actual),
+    budgetUsedPct: budgetCents ? Math.round((actual / budgetCents) * 10000) / 100 : null,
+  };
 }
 
 export function toProjectDto(p: ProjectRow, stats: ProjectStats): ProjectDto {
@@ -155,6 +211,9 @@ export function toProjectDto(p: ProjectRow, stats: ProjectStats): ProjectDto {
     progress: projectProgress(stats.roots),
     taskCount: stats.taskCount,
     createdAt: p.createdAt.toISOString(),
+    currency: p.currency,
+    isTemplate: p.isTemplate,
+    ...projectMoney(p.budget === null ? null : Number(p.budget), stats.roots),
   };
 }
 

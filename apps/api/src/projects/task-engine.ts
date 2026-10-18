@@ -34,6 +34,14 @@ export interface StoredTask {
   assigneeId: string | null;
   description: string | null;
   version: number;
+  /** A9 budget (2 decimals). Groups hold the sum of their children (rollUpCosts). */
+  plannedCost: number;
+  actualCost: number;
+  /** A9: `YYYY-MM-DD` or null. */
+  deadline: string | null;
+  barColor: string | null;
+  /** A9: label ids, sorted (persisted in task_labels, versioned like a column). */
+  labelIds: string[];
 }
 
 /** Fields compared to decide whether a task really changed (→ `version + 1`). */
@@ -50,6 +58,11 @@ export const VERSIONED_FIELDS = [
   'priority',
   'assigneeId',
   'description',
+  'plannedCost',
+  'actualCost',
+  'deadline',
+  'barColor',
+  'labelIds',
 ] as const satisfies ReadonlyArray<keyof StoredTask>;
 export type VersionedField = (typeof VERSIONED_FIELDS)[number];
 
@@ -184,9 +197,57 @@ export function recompute<T extends StoredTask>(input: RecomputeInput<T>): T[] {
     throw engineError(err);
   }
   const wbs = computeWbs(scheduled);
-  return scheduled.map((t) => {
-    const code = wbs.get(t.id) ?? '';
-    return t.wbsCache === code ? t : { ...t, wbsCache: code };
+  return rollUpCosts(
+    scheduled.map((t) => {
+      const code = wbs.get(t.id) ?? '';
+      return t.wbsCache === code ? t : { ...t, wbsCache: code };
+    }),
+  );
+}
+
+/** Money in integer cents, so sums never drift (numeric(14,2) in the database). */
+export const toCents = (v: number): number => Math.round(v * 100);
+export const fromCents = (c: number): number => c / 100;
+
+/**
+ * A9 budget roll-up: every task that has children gets planned/actual cost = the sum of its
+ * children (recursively, so = the sum of its leaves), like dates and progress. Leaves keep
+ * their own values. Tasks whose values do not change keep their object identity.
+ */
+export function rollUpCosts<T extends StoredTask>(tasks: T[]): T[] {
+  const children = new Map<string, T[]>();
+  const ids = new Set(tasks.map((t) => t.id));
+  for (const t of tasks) {
+    if (!t.parentId || !ids.has(t.parentId)) continue;
+    const list = children.get(t.parentId);
+    if (list) list.push(t);
+    else children.set(t.parentId, [t]);
+  }
+  if (!children.size) return tasks;
+  const sums = new Map<string, { planned: number; actual: number }>();
+  const visit = (t: T, depth: number): { planned: number; actual: number } => {
+    const cached = sums.get(t.id);
+    if (cached) return cached;
+    const kids = children.get(t.id);
+    let out: { planned: number; actual: number };
+    if (!kids || depth > tasks.length) out = { planned: toCents(t.plannedCost), actual: toCents(t.actualCost) };
+    else {
+      out = { planned: 0, actual: 0 };
+      for (const k of kids) {
+        const s = visit(k, depth + 1);
+        out.planned += s.planned;
+        out.actual += s.actual;
+      }
+    }
+    sums.set(t.id, out);
+    return out;
+  };
+  return tasks.map((t) => {
+    if (!children.has(t.id)) return t;
+    const s = visit(t, 0);
+    const planned = fromCents(s.planned);
+    const actual = fromCents(s.actual);
+    return planned === t.plannedCost && actual === t.actualCost ? t : { ...t, plannedCost: planned, actualCost: actual };
   });
 }
 
@@ -210,11 +271,22 @@ export function diffTasks<T extends StoredTask>(before: ReadonlyMap<string, T>, 
   for (const a of after) {
     const b = before.get(a.id);
     if (!b) continue;
-    const fields = VERSIONED_FIELDS.filter((f) => b[f] !== a[f]);
+    const fields = VERSIONED_FIELDS.filter((f) => !sameValue(b[f], a[f]));
     if (fields.length) versioned.push({ before: b, after: a, fields });
     else if (b.wbsCache !== a.wbsCache) wbsOnly.push(a);
   }
   return { versioned, wbsOnly };
+}
+
+/** Field equality; label id lists compare as sets. */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    const x = [...a].sort();
+    const y = [...b].sort();
+    return x.every((v, i) => v === y[i]);
+  }
+  return a === b;
 }
 
 /** `{ field: value }` for the given fields — audit before/after snapshots. */
@@ -268,6 +340,11 @@ export function dueFlags(
   if (t.status === 'DONE') return { overdue: false, dueSoon: false };
   if (t.endDate < today) return { overdue: true, dueSoon: false };
   return { overdue: false, dueSoon: t.endDate <= cal.addWorkingDays(today, DUE_SOON_WORKING_DAYS) };
+}
+
+/** A9: the deadline is before today (Riyadh) and the task is not DONE. */
+export function deadlinePassed(t: Pick<StoredTask, 'deadline' | 'status'>, today: string): boolean {
+  return !!t.deadline && t.status !== 'DONE' && t.deadline < today;
 }
 
 /** `YYYY-MM-DD` + n calendar days. */

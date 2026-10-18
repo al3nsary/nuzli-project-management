@@ -230,7 +230,7 @@ describe('TasksService — assignee and supervisor rules (ADR-007)', () => {
     expect(fake.t(G).progress).toBe(25);
   });
 
-  it('anything else from a supervisor is 403; another project is 404', async () => {
+  it('anything else from a supervisor is 403; a task not assigned to them is 404', async () => {
     const { fake, service } = setup({
       tasks: [
         task({ id: A, projectId: P, assigneeId: 'sup1' }),
@@ -241,9 +241,9 @@ describe('TasksService — assignee and supervisor rules (ADR-007)', () => {
     });
     await expectCode(service.update(A, { version: 0, startDate: '2026-10-13' }, SUP, ctx), 'FORBIDDEN');
     await expectCode(service.update(A, { version: 0, progress: 10, name: 'اسم' }, SUP, ctx), 'FORBIDDEN');
-    // Visible (sup1 has a task in P) but not assigned to them.
-    await expectCode(service.update(B, { version: 0, progress: 10 }, SUP, ctx), 'FORBIDDEN');
-    // No grant and no task in P2.
+    // A9 (ADR-092): a task not assigned to the supervisor is invisible, even in a project where they have one.
+    await expectCode(service.update(B, { version: 0, progress: 10 }, SUP, ctx), 'NOT_FOUND');
+    // Another project.
     await expectCode(service.update(C, { version: 0, progress: 10 }, SUP, ctx), 'NOT_FOUND');
     await expectCode(service.update(A, { version: 0, progress: 10 }, SUP2, ctx), 'NOT_FOUND');
     expect(fake.calls.taskUpdates).toBe(0);

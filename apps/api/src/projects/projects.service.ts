@@ -31,6 +31,8 @@ import {
   type ProjectStats,
 } from './project-dto';
 import { ProjectStore, WRITE_TX_OPTIONS, mapTaskDbError } from './project-store';
+import { FIELD_SELECT, LABEL_SELECT, toFieldDto, toLabelDto } from './task-details.service';
+import { TemplatesService } from './templates.service';
 import { dateOf, isoOf, projectProgress } from './task-engine';
 import { buildTasksWorkbook, compareWbs } from './tasks-export';
 
@@ -39,7 +41,7 @@ type CreateProject = z.output<typeof createProjectSchema>;
 type UpdateProject = z.output<typeof updateProjectSchema>;
 type GrantAccess = z.output<typeof grantProjectAccessSchema>;
 
-const PROJECT_FIELDS = ['name', 'description', 'startDate', 'status', 'calendarId', 'autoSchedule'] as const;
+const PROJECT_FIELDS = ['name', 'description', 'startDate', 'status', 'calendarId', 'autoSchedule', 'budget', 'currency'] as const;
 
 /** Projects, access grants, the Gantt payload and the Excel export (brief §6.1). */
 @Injectable()
@@ -48,6 +50,7 @@ export class ProjectsService {
     private readonly prisma: PrismaService,
     private readonly store: ProjectStore,
     private readonly audit: AuditService,
+    private readonly templates: TemplatesService,
   ) {}
 
   private async dto(p: ProjectRow, stats?: ProjectStats): Promise<ProjectDto> {
@@ -63,7 +66,8 @@ export class ProjectsService {
           : { archivedAt: null, ...(q.status ? { status: q.status } : {}) };
     const rows = await this.prisma.project.findMany({
       where: {
-        AND: [projectScopeWhere(viewer), status, q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {}],
+        // A9: templates are listed by GET /project-templates only.
+        AND: [projectScopeWhere(viewer), { isTemplate: false }, status, q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {}],
       },
       select: PROJECT_SELECT,
       orderBy: { createdAt: 'desc' },
@@ -87,6 +91,10 @@ export class ProjectsService {
   }
 
   async create(input: CreateProject, viewer: Viewer, ctx: RequestContext): Promise<ProjectDto> {
+    if (input.fromTemplateId) {
+      const cal = input.calendarId ? await this.calendarIdOrDefault(input.calendarId) : null;
+      return this.templates.createFromTemplate({ ...input, fromTemplateId: input.fromTemplateId }, cal, viewer, ctx);
+    }
     const calendarId = await this.calendarIdOrDefault(input.calendarId);
     const p = await this.prisma.$transaction(async (tx) => {
       const created = await tx.project.create({
@@ -99,6 +107,8 @@ export class ProjectsService {
           autoSchedule: input.autoSchedule,
           ownerId: viewer.id,
           createdById: viewer.id,
+          budget: input.budget ?? null,
+          currency: input.currency ?? 'SAR',
           ...(input.status === 'ARCHIVED' ? { archivedAt: new Date() } : {}),
         },
         select: PROJECT_SELECT,
@@ -133,6 +143,8 @@ export class ProjectsService {
       status: cur.status,
       calendarId: cur.calendarId,
       autoSchedule: cur.autoSchedule,
+      budget: cur.budget === null ? null : Number(cur.budget),
+      currency: cur.currency,
     };
     const changed = PROJECT_FIELDS.filter((f) => input[f] !== undefined && input[f] !== before[f]);
     if (!changed.length) return this.dto(cur);
@@ -243,25 +255,39 @@ export class ProjectsService {
 
   // ─────────────────────────────────────────── Gantt (one call for the whole chart)
 
+  /**
+   * The whole chart in one call; since A9 also the labels, custom fields and per-task extras
+   * (costs, deadline flag, bar colour, labels, checklist counts, custom values). The calendar
+   * tab can use this payload or `GET /projects/:id/calendar`.
+   */
   async gantt(id: string, viewer: Viewer): Promise<GanttDto> {
     const p = await this.store.visibleProject(id, viewer);
-    const [rows, deps, calendar] = await Promise.all([
+    const [rows, deps, calendar, labels, fields] = await Promise.all([
       this.prisma.task.findMany({ where: { projectId: id, archivedAt: null }, select: TASK_DTO_SELECT }),
       this.prisma.taskDependency.findMany({ where: { projectId: id }, select: DEPENDENCY_SELECT, orderBy: { createdAt: 'asc' } }),
       this.prisma.calendar.findUnique({ where: { id: p.calendarId }, select: CALENDAR_SELECT }),
+      this.prisma.projectLabel.findMany({ where: { projectId: id }, select: LABEL_SELECT, orderBy: { name: 'asc' } }),
+      this.prisma.customField.findMany({ where: { projectId: id }, select: FIELD_SELECT, orderBy: [{ sort: 'asc' }, { name: 'asc' }] }),
     ]);
     if (!calendar) throw new AppError('NOT_FOUND');
     const ids = new Set(rows.map((r) => r.id));
-    const counts = await this.store.attachmentCounts([...ids]);
+    const [counts, extras] = await Promise.all([this.store.attachmentCounts([...ids]), this.store.taskExtras([...ids])]);
     const stored = rows.map(toStored);
     const wbs = computeWbs(stored);
     const tasks = rows
-      .map((r) => toTaskDto(r, counts, wbs.get(r.id)))
+      .map((r) => toTaskDto(r, counts, wbs.get(r.id), extras))
       .sort((a, b) => compareWbs(a.wbs, b.wbs));
     const roots = stored.filter((t) => !t.parentId || !ids.has(t.parentId));
     const endDate = stored.reduce<string | null>((m, t) => (m === null || t.endDate > m ? t.endDate : m), null);
     const project = toProjectDto(p, { roots, endDate, taskCount: stored.length });
-    return { project, tasks, dependencies: deps.map(toDependencyDto), calendar: toCalendarDto(calendar) };
+    return {
+      project,
+      tasks,
+      dependencies: deps.map(toDependencyDto),
+      calendar: toCalendarDto(calendar),
+      labels: labels.map(toLabelDto),
+      customFields: fields.map(toFieldDto),
+    };
   }
 
   // ─────────────────────────────────────────── Excel (ADR-019)

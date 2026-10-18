@@ -93,6 +93,27 @@ export const AuditAction = {
   USER_PHOTO_REMOVED: 'user.photo_removed',
   MEMBER_PHOTO_UPDATED: 'member.photo_updated',
   MEMBER_PHOTO_REMOVED: 'member.photo_removed',
+  // Owner request A9 — projects (ADR-092..097):
+  TASK_DUPLICATED: 'task.duplicated',
+  TASK_RESTORED: 'task.restored',
+  TASK_CUSTOM_VALUE_SET: 'task.custom_value_set',
+  TASK_CHECKLIST_REORDERED: 'task.checklist_reordered',
+  LABEL_CREATED: 'label.created',
+  LABEL_UPDATED: 'label.updated',
+  LABEL_DELETED: 'label.deleted',
+  CUSTOM_FIELD_CREATED: 'custom_field.created',
+  CUSTOM_FIELD_UPDATED: 'custom_field.updated',
+  CUSTOM_FIELD_DELETED: 'custom_field.deleted',
+  CHECKLIST_ITEM_CREATED: 'checklist_item.created',
+  CHECKLIST_ITEM_UPDATED: 'checklist_item.updated',
+  CHECKLIST_ITEM_DELETED: 'checklist_item.deleted',
+  PROJECT_SAVED_AS_TEMPLATE: 'project.saved_as_template',
+  PORTFOLIO_CREATED: 'portfolio.created',
+  PORTFOLIO_UPDATED: 'portfolio.updated',
+  PORTFOLIO_DELETED: 'portfolio.deleted',
+  TIME_ENTRY_CREATED: 'time_entry.created',
+  TIME_ENTRY_UPDATED: 'time_entry.updated',
+  TIME_ENTRY_DELETED: 'time_entry.deleted',
 } as const;
 
 export interface AuditEntryInput {

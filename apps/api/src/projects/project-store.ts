@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { WorkCalendar } from '@nuzli/scheduling';
-import type { DependencyType, PermissionSubject, TaskDto, TaskVersionConflictDetails } from '@nuzli/shared';
+import type { DependencyType, PermissionSubject, TaskDto, TaskPrevious, TaskPreviousMap, TaskVersionConflictDetails } from '@nuzli/shared';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import type { RequestContext } from '../common/request';
@@ -11,10 +11,12 @@ import {
   STORED_TASK_SELECT,
   TASK_DTO_SELECT,
   projectScopeWhere,
+  taskScopeWhere,
   toStored,
   toTaskDto,
   type ProjectRow,
   type ProjectStats,
+  type TaskExtras,
 } from './project-dto';
 import {
   dateOf,
@@ -23,6 +25,7 @@ import {
   normalizeLeaf,
   pick,
   recompute,
+  riyadhToday,
   workCalendarOf,
   type StoredTask,
   type VersionedField,
@@ -55,6 +58,8 @@ export interface PersistOptions {
   ctx: RequestContext;
   /** A task to insert (built with a server-generated id before recomputing). */
   inserted?: StoredTask;
+  /** A9: several tasks to insert (duplicate, templates), parents before children. */
+  insertedMany?: StoredTask[];
   /** Tasks the user edited: audited with `explicitAction`; others that moved get `task.moved` + `auto: true`. */
   explicit: ReadonlySet<string>;
   explicitAction: string;
@@ -83,11 +88,22 @@ export class ProjectStore {
     return p;
   }
 
-  /** A task (not archived) of a project the viewer can see, else 404. */
-  async visibleTask(id: string, viewer: Viewer) {
-    const t = await this.prisma.task.findFirst({
-      where: { id, archivedAt: null, project: projectScopeWhere(viewer) },
-      select: { id: true, projectId: true, assigneeId: true, name: true, project: { select: { name: true, archivedAt: true } } },
+  /**
+   * A task (not archived) the viewer may see, else 404 (A9, ADR-092): admins any task;
+   * supervisors only a task assigned to them in a live project.
+   */
+  async visibleTask(id: string, viewer: Viewer, db: Db = this.prisma) {
+    const t = await db.task.findFirst({
+      where: { AND: [{ id, archivedAt: null }, taskScopeWhere(viewer)] },
+      select: {
+        id: true,
+        projectId: true,
+        parentId: true,
+        assigneeId: true,
+        createdById: true,
+        name: true,
+        project: { select: { name: true, archivedAt: true, isTemplate: true } },
+      },
     });
     if (!t) throw new AppError('NOT_FOUND');
     return t;
@@ -99,7 +115,7 @@ export class ProjectStore {
     const [roots, agg] = await Promise.all([
       db.task.findMany({
         where: { projectId: { in: projectIds }, parentId: null, archivedAt: null },
-        select: { projectId: true, type: true, durationDays: true, progress: true },
+        select: { projectId: true, type: true, durationDays: true, progress: true, plannedCost: true, actualCost: true },
       }),
       db.task.groupBy({
         by: ['projectId'],
@@ -109,7 +125,13 @@ export class ProjectStore {
       }),
     ]);
     for (const r of roots) {
-      out.get(r.projectId)?.roots.push({ type: r.type, durationDays: r.durationDays, progress: Number(r.progress) });
+      out.get(r.projectId)?.roots.push({
+        type: r.type,
+        durationDays: r.durationDays,
+        progress: Number(r.progress),
+        plannedCost: Number(r.plannedCost),
+        actualCost: Number(r.actualCost),
+      });
     }
     for (const a of agg) {
       const s = out.get(a.projectId);
@@ -131,17 +153,42 @@ export class ProjectStore {
     return new Map(rows.filter((r) => r.entityId).map((r) => [r.entityId as string, r._count._all]));
   }
 
+  /** A9: checklist counts and custom values per task id. */
+  async taskExtras(taskIds: string[], db: Db = this.prisma, now: Date = new Date()): Promise<TaskExtras> {
+    const today = riyadhToday(now);
+    if (!taskIds.length) return { checklist: new Map(), customValues: new Map(), today };
+    const [items, values] = await Promise.all([
+      db.taskChecklistItem.groupBy({ by: ['taskId', 'done'], where: { taskId: { in: taskIds } }, _count: { _all: true } }),
+      db.taskCustomValue.findMany({ where: { taskId: { in: taskIds } }, select: { taskId: true, fieldId: true, value: true } }),
+    ]);
+    const checklist = new Map<string, { total: number; done: number }>();
+    for (const g of items) {
+      const c = checklist.get(g.taskId) ?? { total: 0, done: 0 };
+      c.total += g._count._all;
+      if (g.done) c.done += g._count._all;
+      checklist.set(g.taskId, c);
+    }
+    const customValues = new Map<string, Record<string, unknown>>();
+    for (const v of values) {
+      const m = customValues.get(v.taskId) ?? {};
+      m[v.fieldId] = v.value;
+      customValues.set(v.taskId, m);
+    }
+    return { checklist, customValues, today };
+  }
+
   /** TaskDtos in the order of `ids` (WBS from the refreshed cache). */
   async taskDtos(ids: string[], db: Db = this.prisma): Promise<TaskDto[]> {
     if (!ids.length) return [];
-    const [rows, counts] = await Promise.all([
+    const [rows, counts, extras] = await Promise.all([
       db.task.findMany({ where: { id: { in: ids } }, select: TASK_DTO_SELECT }),
       this.attachmentCounts(ids, db),
+      this.taskExtras(ids, db),
     ]);
     const byId = new Map(rows.map((r) => [r.id, r]));
     return ids.flatMap((id) => {
       const r = byId.get(id);
-      return r ? [toTaskDto(r, counts)] : [];
+      return r ? [toTaskDto(r, counts, undefined, extras)] : [];
     });
   }
 
@@ -201,12 +248,29 @@ export class ProjectStore {
    * audits each changed task. Returns the ids to send back (new + changed + renumbered).
    */
   async persist(tx: Db, state: WriteState, finals: StoredTask[], opts: PersistOptions): Promise<string[]> {
+    return (await this.persistDetailed(tx, state, finals, opts)).ids;
+  }
+
+  /**
+   * `persist` plus the A9 undo contract (ADR-095): `previous` holds, per changed existing task,
+   * the before-values of exactly the fields that changed (wire format), so the client can send
+   * them back through the batch endpoint as the inverse operation.
+   */
+  async persistDetailed(
+    tx: Db,
+    state: WriteState,
+    finals: StoredTask[],
+    opts: PersistOptions,
+  ): Promise<{ ids: string[]; previous: TaskPreviousMap }> {
     const diff = diffTasks(state.before, finals);
     const audits: Array<{ action: string; entityType: string; entityId: string; before?: unknown; after?: unknown }> = [];
     const ids: string[] = [];
+    const previous: TaskPreviousMap = {};
 
-    if (opts.inserted) {
-      const t = finals.find((f) => f.id === opts.inserted!.id) ?? opts.inserted;
+    const inserts = [...(opts.inserted ? [opts.inserted] : []), ...(opts.insertedMany ?? [])];
+    const finalById = new Map(finals.map((f) => [f.id, f]));
+    for (const draft of inserts) {
+      const t = finalById.get(draft.id) ?? draft;
       await tx.task.create({
         data: {
           id: t.id,
@@ -224,15 +288,27 @@ export class ProjectStore {
           priority: t.priority,
           assigneeId: t.assigneeId,
           description: t.description,
+          plannedCost: t.plannedCost,
+          actualCost: t.actualCost,
+          deadline: t.deadline ? dateOf(t.deadline) : null,
+          barColor: t.barColor,
           createdById: opts.ctx.actorId,
         },
       });
+      if (t.labelIds.length) {
+        await tx.taskLabel.createMany({ data: t.labelIds.map((labelId) => ({ taskId: t.id, labelId })), skipDuplicates: true });
+      }
       ids.push(t.id);
       audits.push({
         action: AuditAction.TASK_CREATED,
         entityType: 'task',
         entityId: t.id,
-        after: { ...pick(t, ['name', 'type', 'parentId', 'startDate', 'endDate', 'durationDays', 'assigneeId']), wbs: t.wbsCache, ...opts.auditExtra },
+        after: {
+          ...pick(t, ['name', 'type', 'parentId', 'startDate', 'endDate', 'durationDays', 'assigneeId']),
+          ...(t.plannedCost ? { plannedCost: t.plannedCost } : {}),
+          wbs: t.wbsCache,
+          ...opts.auditExtra,
+        },
       });
     }
 
@@ -246,8 +322,11 @@ export class ProjectStore {
         data.dueSoonNotifiedAt = null;
         data.overdueNotifiedAt = null;
       }
+      if (fields.includes('deadline')) data.deadlineNotifiedAt = null;
       const res = await tx.task.updateMany({ where: { id: after.id, version: before.version }, data });
       if (res.count !== 1) throw versionConflict([{ id: after.id, currentVersion: null }]);
+      if (fields.includes('labelIds')) await this.writeLabels(tx, after.id, before.labelIds, after.labelIds);
+      previous[after.id] = previousOf(before, fields);
       ids.push(after.id);
       const isExplicit = opts.explicit.has(after.id);
       audits.push({
@@ -265,7 +344,26 @@ export class ProjectStore {
     }
 
     await this.audit.logMany(opts.ctx, audits, tx);
-    return ids;
+    return { ids, previous };
+  }
+
+  /** Replaces a task's label rows (the task row itself carries the version). */
+  private async writeLabels(tx: Db, taskId: string, before: string[], after: string[]): Promise<void> {
+    const gone = before.filter((l) => !after.includes(l));
+    const added = after.filter((l) => !before.includes(l));
+    if (gone.length) await tx.taskLabel.deleteMany({ where: { taskId, labelId: { in: gone } } });
+    if (added.length) await tx.taskLabel.createMany({ data: added.map((labelId) => ({ taskId, labelId })), skipDuplicates: true });
+  }
+
+  /** Throws LABEL_NOT_IN_PROJECT unless every id is a label of the project. */
+  async assertLabels(tx: Db, projectId: string, labelIds: readonly string[]): Promise<void> {
+    const unique = [...new Set(labelIds)];
+    if (!unique.length) return;
+    const rows = await tx.projectLabel.findMany({ where: { id: { in: unique }, projectId }, select: { id: true } });
+    if (rows.length !== unique.length) {
+      const ok = new Set(rows.map((r) => r.id));
+      throw new AppError('LABEL_NOT_IN_PROJECT', { labelIds: unique.filter((l) => !ok.has(l)) });
+    }
   }
 
   /**
@@ -306,9 +404,22 @@ function assignField(
     case 'assigneeId':
       data.assigneeId = t.assigneeId;
       break;
+    case 'deadline':
+      data.deadline = t.deadline ? dateOf(t.deadline) : null;
+      break;
+    case 'labelIds':
+      // Written to task_labels by writeLabels.
+      break;
     default:
       (data as Record<string, unknown>)[f] = t[f];
   }
+}
+
+/** Before-values of the changed fields in wire format (the undo contract, ADR-095). */
+export function previousOf(t: StoredTask, fields: readonly VersionedField[]): TaskPrevious {
+  const out: Record<string, unknown> = {};
+  for (const f of fields) out[f] = f === 'labelIds' ? [...t.labelIds] : t[f];
+  return out as TaskPrevious;
 }
 
 export function versionConflict(conflicts: TaskVersionConflictDetails['conflicts']): AppError {

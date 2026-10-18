@@ -148,6 +148,22 @@ export const emails = {
     });
   },
 
+  taskCommented(p: { name: string; authorName: string; taskName: string; projectName: string; preview: string; url: string }) {
+    return layout('تعليق جديد على مهمة', {
+      greeting: hello(p.name),
+      paragraphs: [`كتب ${p.authorName} تعليقًا على المهمة «${p.taskName}» في مشروع «${p.projectName}»:`, `«${p.preview}»`],
+      action: { label: 'فتح المحادثة', url: p.url },
+    });
+  },
+
+  taskDeadlinePassed(p: { name: string; taskName: string; projectName: string; deadline: string; url: string }) {
+    return layout('تجاوزت مهمة موعدها النهائي', {
+      greeting: hello(p.name),
+      paragraphs: [`تجاوزت المهمة «${p.taskName}» في مشروع «${p.projectName}» موعدها النهائي (${p.deadline}) ولم تكتمل بعد.`],
+      action: { label: 'فتح المهمة', url: p.url },
+    });
+  },
+
   taskDueSoon(p: { name: string; taskName: string; projectName: string; endDate: string; url: string }) {
     return layout('مهمة تقترب من موعد نهايتها', {
       greeting: hello(p.name),

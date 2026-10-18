@@ -162,7 +162,7 @@ Scope: MONITOR creates and reads what they recorded; ADMIN reads and manages all
 
 ## Phase 4 — projects, tasks, Gantt
 
-Scope: ADMIN creates and manages projects and tasks. SUPERVISOR sees projects they were granted (`project_access`) or where they have an assigned task, sees all tasks of those projects read-only, and may change **progress, status** of tasks assigned to them and comment (ADR-007).
+Scope: ADMIN creates and manages projects and tasks. **Superseded by A9 (ADR-092):** SUPERVISOR no longer sees projects; they reach only the tasks assigned to them (see "A9 — projects"). They may change **progress, status** of those tasks and comment (ADR-007).
 
 | Method | Path | Body | Response |
 |---|---|---|---|
@@ -194,3 +194,81 @@ Scope: ADMIN creates and manages projects and tasks. SUPERVISOR sees projects th
 - Audit: `project.created|updated|archived|access_granted|access_revoked|exported`, `task.created|updated|archived|moved|comment_added|attachment_added|attachment_removed`, `dependency.created|deleted`, `calendar.created|updated`, `calendar_exception.created|deleted`.
 
 Notifications: `TASK_ASSIGNED` on (re)assignment, `TASK_MENTIONED`, and a daily scheduled job for `TASK_DUE_SOON` (end within 2 working days) and `TASK_OVERDUE` (end passed, not DONE), each sent once per task (`due_soon_notified_at`, `overdue_notified_at`).
+
+## A9 — projects (owner request A9, ADR-092..097)
+
+Schemas and DTO types are in `@nuzli/shared` (`schemas/projects.ts` additions and `schemas/projects-a9.ts`). Everything is additive: new DTO fields are optional in the shared types (older clients compile) and always sent by the API.
+
+### Supervisor scope (ADR-092)
+- SUPERVISOR no longer holds `projects.readGranted`: `GET /projects`, `/projects/:id`, `/gantt`, `/export.xlsx`, `/budget`, `/people`, `/dashboard`, `/calendar`, `/labels`, `/custom-fields`, `/project-templates`, `/portfolios`, `/reports/projects`, `/workload` → **403**. `project_access` rows are kept (admin routes unchanged) but grant nothing.
+- Supervisors keep, **for tasks assigned to them only** (any other task → **404**): `GET /tasks/mine`, `GET /tasks/:id`, `PATCH /tasks/:id` (progress/status), `GET/POST /tasks/:id/comments`, `POST /tasks/:id/comments/read`, `GET /tasks/:id/activity`, `GET/POST /tasks/:id/attachments` (+ `/:fileId/url`, delete own upload), `GET /tasks/:id/checklist`, `PATCH /tasks/:id/checklist/:itemId` (`done` only), `GET /tasks/:id/labels`, `GET /tasks/:id/custom-fields`, `GET/POST /tasks/:id/time-entries`, `GET /me/time-entries`, `PATCH/DELETE /time-entries/:id` (own), `GET /hub`, `GET /attachments`.
+- Mentions: only users who can open the task (active admins + the assignee); others → 400 `VALIDATION_FAILED`.
+
+### Changed request schemas
+| Schema | New fields |
+|---|---|
+| [createProjectSchema] | `budget?: number \| null` (≥ 0, 2 decimals), `currency?: 'XXX'` (default `SAR`), `fromTemplateId?: uuid` |
+| [updateProjectSchema] | `budget?`, `currency?` (no `fromTemplateId`) |
+| [createTaskSchema] / [updateTaskSchema] | `plannedCost?`, `actualCost?` (≥ 0, 2 decimals; ignored on groups), `deadline?: 'YYYY-MM-DD' \| null`, `barColor?: '#RRGGBB' \| null` |
+| [taskBatchSchema] `changes[]` | `name?`, `priority?`, `assigneeId?: uuid \| null`, `plannedCost?`, `actualCost?`, `deadline?`, `barColor?`, `labelIds?: uuid[]` (replaces the set) |
+| [taskCommentSchema] | `replyToId?: uuid \| null` (a comment of the same task, else 400 `COMMENT_REPLY_INVALID`) |
+
+### Changed responses
+- `ProjectDto` + `budget: number|null`, `currency`, `plannedCost`, `actualCost`, `costVariance` (= planned − actual), `budgetVariance` (= budget − actual, null without budget), `budgetUsedPct` (actual / budget × 100, 2 decimals; null without or with a zero budget), `isTemplate`.
+- `TaskDto` + `plannedCost`, `actualCost`, `overBudget`, `deadline`, `deadlinePassed` (deadline < today Riyadh and not DONE), `barColor`, `labelIds: string[]`, `checklist: { total, done }`, `customValues: Record<fieldId, value>`. Groups carry the **sum** of their children's costs (persisted, versioned like dates).
+- `GanttDto` + `labels: LabelDto[]`, `customFields: CustomFieldDto[]`.
+- `TaskCommentDto` + `replyTo: { id, authorName, bodyPreview } | null`.
+- `TaskUpdateResult`, `TaskBatchResult` + `previous: TaskPreviousMap`; `TaskArchiveResult` + `previous`, `deletedDependencies: DependencyDto[]`.
+- `GET /projects` excludes templates. `DueRunResult` (internal) + `deadlinePassed`.
+
+### Undo contract (ADR-095)
+Every write that changes existing tasks returns `previous: Record<taskId, TaskPrevious>` — for each changed task (edited, shifted by the engine or rolled up) exactly the fields that changed, with their **before** values in wire format (`startDate`, `endDate`, `durationDays`, `parentId`, `sortOrder`, `name`, `type`, `progress`, `status`, `priority`, `assigneeId`, `description`, `plannedCost`, `actualCost`, `deadline`, `barColor`, `labelIds`). Inverse = `POST /projects/:id/tasks/batch { changes: Object.entries(previous).map(([id, p]) => ({ id, version: <version from the same response>, ...p })) }`; a `409` ends the redo chain. Inverse of a create/duplicate = `DELETE /tasks/:id` of the new ids; inverse of an archive = `POST /projects/:id/tasks/restore { ids: archivedIds }` then re-create `deletedDependencies`. `type` in `previous` (automatic GROUP promotion) is informational.
+
+### Endpoints
+| Method | Path | Permission | Body / query | Response |
+|---|---|---|---|---|
+| GET | `/projects/:id/budget` | readAll | — | `BudgetReportDto` (totals, `budgetVariance`, `budgetUsedPct`, `loggedMinutes`, `byGroup` (roots), `byAssignee` (+`loggedMinutes`), `byLabel` (a task with 2 labels counts in both; `label: null` = none), `overBudgetTasks`) |
+| GET | `/projects/:id/people` | readAll | — | `ProjectPersonDto[]` (assignee + team colour, `taskCount`, `doneCount`, `overdueCount`, `progress`, costs, `budgetShare` %, `loggedMinutes`; `assignee: null` = unassigned) |
+| GET | `/projects/:id/dashboard` | readAll | — | `ProjectDashboardDto` (`kpis`, `statusDistribution`, `priorityDistribution`, `overdue` top 20 with `daysOverdue`, `budgetBurn.plannedByWeek` (planned cost spread over working days, Sunday weeks, cumulative), `upcoming` deadlines/ends/milestones in 14 days) |
+| GET | `/projects/:id/calendar?from&to` | readAll | [calendarRangeQuerySchema] ≤ 366 days | `ProjectCalendarDto` (calendar + tasks overlapping the range or with a deadline in it) |
+| GET/POST | `/projects/:id/labels` | readAll / tasks.manage | [labelSchema] `{ name, color }` | `LabelDto[]` / `201 LabelDto`; duplicate name → 409 `NAME_TAKEN` |
+| PATCH/DELETE | `/labels/:id` | tasks.manage | [updateLabelSchema] | `LabelDto` / `200 { affected: TaskDto[], previous }` (removed from its tasks with `version + 1`) |
+| GET | `/tasks/:id/labels` | task read | — | `LabelDto[]` |
+| POST | `/tasks/:id/labels` | tasks.manage | [taskLabelSchema] `{ labelId }` | `200 TaskUpdateResult`; other project's label → 400 `LABEL_NOT_IN_PROJECT` |
+| DELETE | `/tasks/:id/labels/:labelId` | tasks.manage | — | `200 TaskUpdateResult` |
+| GET/POST | `/projects/:id/custom-fields` | readAll / tasks.manage | [customFieldSchema] `{ name, type: TEXT\|NUMBER\|DROPDOWN\|DATE\|CHECKBOX, options?, sort? }` | `CustomFieldDto[]` / `201`; DROPDOWN without options → 400 `CUSTOM_FIELD_OPTIONS_REQUIRED` |
+| PATCH/DELETE | `/custom-fields/:id` | tasks.manage | [updateCustomFieldSchema] (type fixed) | `CustomFieldDto` / `204` (values dropped) |
+| GET | `/tasks/:id/custom-fields` | task read | — | `Array<CustomFieldDto & { value }>` |
+| PUT | `/tasks/:id/custom-values/:fieldId` | tasks.manage | [customValueSchema] `{ value }` (`null` clears) | `CustomValueDto`; wrong type → 400 `CUSTOM_FIELD_VALUE_INVALID` (`normalizeCustomValue` in shared) |
+| GET/POST | `/tasks/:id/checklist` | task read / tasks.manage | [checklistItemSchema] `{ text, afterId? }` | `ChecklistItemDto[]` / `201` |
+| PATCH/DELETE | `/tasks/:id/checklist/:itemId` | manage or assignee (`done` only) / tasks.manage | [updateChecklistItemSchema] `{ text?, done? }` | `ChecklistItemDto` (`doneBy`, `doneAt`) / `204` |
+| POST | `/tasks/:id/checklist/reorder` | tasks.manage | [checklistReorderSchema] `{ ids }` (all items) | `200 ChecklistItemDto[]` |
+| POST | `/tasks/:id/duplicate` | tasks.manage | [duplicateTaskSchema] `{ withSubtasks = true }` | `201 DuplicateTaskResult { tasks, affected, idMap, dependencies, previous }` — names + « (نسخة)», placed right after the original, inner deps remapped, labels/custom values/checklist copied, no comments/attachments/time |
+| POST | `/projects/:id/tasks/bulk` | tasks.manage | [taskBulkSchema] `{ ids (≤1000), versions: Record<id, version>, patch: { status?, priority?, assigneeId?, labelIdsAdd?, labelIdsRemove?, progress?, barColor?, shiftWorkingDays? } }` | `200 TaskBulkResult { tasks, previous }`; any stale version → 409, nothing written |
+| POST | `/projects/:id/tasks/bulk-archive` | tasks.manage | [taskBulkArchiveSchema] `{ ids, versions }` | `200 TaskBulkArchiveResult { archivedIds, affected, previous, deletedDependencies }` |
+| POST | `/projects/:id/tasks/restore` | tasks.manage | [taskRestoreSchema] `{ ids }` | `200 TaskRestoreResult { restored, affected, previous }`; parent still archived → 400 `TASK_PARENT_INVALID` |
+| GET/PUT/DELETE | `/me/view-prefs` | profile.update | GET `?projectId&key`; PUT [putViewPrefSchema] `{ projectId?, key, value }`; DELETE `?projectId&key` | `ViewPrefDto[]` / `ViewPrefDto` / `204`; JSON > 32 KB → **413** `VIEW_PREF_TOO_LARGE`; keys like `gantt.columns`, `gantt.views`, `list.columns` |
+| POST | `/projects/:id/save-as-template` | projects.create | [saveAsTemplateSchema] `{ name?, description? }` | `201 ProjectDto` (`isTemplate: true`) |
+| GET | `/project-templates` | readAll | — | `ProjectDto[]` |
+| POST | `/projects` + `fromTemplateId` | projects.create | [createProjectSchema] | `201 ProjectDto`; not a template → 409 `NOT_A_TEMPLATE` |
+| GET/POST | `/portfolios` | readAll / projects.manage | [portfolioSchema] `{ name, description?, projectIds? }` | `PortfolioDto[]` / `201 PortfolioDto`; name taken → 409 |
+| GET | `/portfolios/:id` | readAll | — | `PortfolioSummaryDto` (`projects[]` with `overdueCount`, `leafCount`, `doneCount`; `totals`: progress weighted by leaf count, budget, costs, date span, overdue, `byStatus`) |
+| PATCH/DELETE | `/portfolios/:id` | projects.manage | [updatePortfolioSchema] (`projectIds` replaces) | `PortfolioDto` / `204` |
+| POST / DELETE | `/portfolios/:id/projects[/:projectId]` | projects.manage | [portfolioProjectSchema] `{ projectId }` | `200 PortfolioDto` |
+| GET/POST | `/tasks/:id/time-entries` | task read / manage or assignee | [timeEntrySchema] `{ date, minutes 1..1440, note?, userId? (admin) }` | `TimeEntryDto[]` / `201`; supervisor on another task → 404, `userId` by a supervisor → 403 |
+| PATCH/DELETE | `/time-entries/:id` | owner or admin | [updateTimeEntrySchema] | `TimeEntryDto` / `204`; someone else's entry → 404 |
+| GET | `/me/time-entries?from&to` | manage or updateAssigned | [timeRangeQuerySchema] (default last 31 days, ≤ 366) | `TimeEntryDto[]` |
+| GET | `/workload?from&to&userIds=a,b` | readAll | [workloadQuerySchema] (≤ 92 days) | `WorkloadDto` (per user per day `assignedMinutes` = 480 per working day of each assigned TASK, `loggedMinutes`, `taskCount`) |
+| GET | `/reports/projects?status=` | readAll | [projectReportQuerySchema] | `ProjectReportRow[]` (`project`, `leafCount`, `doneCount`, `overdueCount`, `deadlinePassedCount`, `milestoneCount`) |
+| GET | `/hub?projectId&filter=all\|new\|mentioned\|assigned\|created&q&page&pageSize` | tasks.comment | [hubQuerySchema] | `HubPageDto { items: HubItemDto[], total, page, pageSize, counts: Record<filter, n>, unreadTotal }`; item = `task`, `project`, `path` (ancestor names), `commentCount`, `unreadCount`, `lastReadAt`, `lastComment` (preview) |
+| POST | `/tasks/:id/comments/read` | tasks.comment | — | `200 CommentReadDto { taskId, lastReadAt }` (posting a comment also marks it read for the author) |
+| GET | `/attachments?projectId&type=image\|pdf\|other&uploadedBy&from&to&q&page&pageSize` | readAll or readAssigned | [attachmentBrowseQuerySchema] | `Paginated<AttachmentBrowseDto>` (file meta + `task` + `project` + `uploadedBy`); download via `GET /tasks/:id/attachments/:fileId/url` |
+
+### New error codes
+`LABEL_NOT_IN_PROJECT` (400), `CUSTOM_FIELD_VALUE_INVALID` (400), `CUSTOM_FIELD_OPTIONS_REQUIRED` (400), `VIEW_PREF_TOO_LARGE` (413), `NOT_A_TEMPLATE` (409), `TIME_ENTRY_NOT_ALLOWED` (403), `COMMENT_REPLY_INVALID` (400).
+
+### Notifications
+`TASK_COMMENTED` → the assignee and earlier commenters who can still open the task, never the author; users mentioned in the same comment get only `TASK_MENTIONED`. `TASK_DEADLINE_PASSED` → once per deadline (`deadline_notified_at`, reset when the deadline changes), to the assignee and the project owner, from the daily 07:00 job. Payloads carry `taskId, taskName, projectId, projectName` (+ `commentId, authorName, preview` with national-ID-like numbers masked, or `deadline, endDate`). Mention/comment e-mails link to `/hub?task=`.
+
+### Audit actions
+`task.duplicated`, `task.restored`, `task.custom_value_set`, `task.checklist_reordered`, `label.created|updated|deleted`, `custom_field.created|updated|deleted`, `checklist_item.created|updated|deleted`, `project.saved_as_template`, `portfolio.created|updated|deleted`, `time_entry.created|updated|deleted`. Bulk/batch writes reuse `task.updated` / `task.moved` with `after.bulk` / `after.batch`; label changes appear as `labelIds` in `task.updated`. View preferences and read marks are personal UI state and not audited (ADR-097).

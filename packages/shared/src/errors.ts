@@ -62,6 +62,14 @@ export const ERRORS = {
   TASK_PARENT_INVALID: 'لا يمكن وضع المهمة تحت نفسها أو تحت إحدى مهامها الفرعية أو تحت معلَم.',
   PROJECT_ARCHIVED: 'هذا المشروع مؤرشف، فلا يمكن تعديله.',
   CALENDAR_DATE_EXISTS: 'يوجد استثناء في هذا التاريخ في التقويم مسبقًا.',
+  // A9 — budget, labels, custom fields, view prefs, templates, time log
+  LABEL_NOT_IN_PROJECT: 'الوسم لا يتبع هذا المشروع. حدّث الصفحة واختر وسمًا من المشروع نفسه.',
+  CUSTOM_FIELD_VALUE_INVALID: 'القيمة لا تناسب نوع الحقل المخصّص.',
+  CUSTOM_FIELD_OPTIONS_REQUIRED: 'أضف خيارًا واحدًا على الأقل لحقل القائمة المنسدلة.',
+  VIEW_PREF_TOO_LARGE: 'الإعداد المحفوظ أكبر من المسموح (٣٢ كيلوبايت).',
+  NOT_A_TEMPLATE: 'هذا المشروع ليس قالبًا.',
+  TIME_ENTRY_NOT_ALLOWED: 'تسجّل الوقت على المهام المسندة إليك فقط.',
+  COMMENT_REPLY_INVALID: 'التعليق المقتبس ليس في هذه المهمة.',
 
   // violations
   LOCATION_REQUIRED: 'الموقع الجغرافي مطلوب لتسجيل المخالفة.',

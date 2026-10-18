@@ -214,6 +214,30 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
     expect(bad.body.code).toBe('VALIDATION_FAILED');
   });
 
+  it('A9: supervisors get 403 on every project route; they keep their task routes (scope in the service)', async () => {
+    const sup = tokenFor('00000000-0000-4000-8000-0000000000b6', 'SUPERVISOR');
+    const monitor = tokenFor('00000000-0000-4000-8000-0000000000b7', 'MONITOR');
+    const admin = tokenFor('00000000-0000-4000-8000-0000000000b8', 'ADMIN');
+    const pid = '00000000-0000-4000-8000-0000000000e1';
+    const http = () => request(app.getHttpServer());
+    for (const path of ['/projects', `/projects/${pid}`, `/projects/${pid}/gantt`, `/projects/${pid}/export.xlsx`, `/projects/${pid}/budget`, `/projects/${pid}/dashboard`, `/projects/${pid}/people`, `/projects/${pid}/labels`, '/project-templates', '/portfolios', '/reports/projects', '/workload?from=2026-10-01&to=2026-10-31']) {
+      await http().get(`/api/v1${path}`).set('Authorization', `Bearer ${sup}`).expect(403);
+    }
+    await http().post(`/api/v1/projects/${pid}/tasks/bulk`).set('Authorization', `Bearer ${sup}`).send({}).expect(403);
+    await http().post(`/api/v1/tasks/${pid}/duplicate`).set('Authorization', `Bearer ${sup}`).send({}).expect(403);
+    await http().get('/api/v1/hub').set('Authorization', `Bearer ${monitor}`).expect(403);
+    await http().get('/api/v1/attachments').set('Authorization', `Bearer ${monitor}`).expect(403);
+    await http().get('/api/v1/me/time-entries').set('Authorization', `Bearer ${monitor}`).expect(403);
+    // Validation runs before the service: a bulk without any change, a too-large view pref key.
+    const bad = await http()
+      .post(`/api/v1/projects/${pid}/tasks/bulk`)
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ ids: [pid], versions: { [pid]: 0 }, patch: {} })
+      .expect(400);
+    expect(bad.body.code).toBe('VALIDATION_FAILED');
+    await http().put('/api/v1/me/view-prefs').set('Authorization', `Bearer ${admin}`).send({ key: 'Not A Key', value: 1 }).expect(400);
+  });
+
   it('generates an OpenAPI document from the zod schemas', () => {
     const doc = SwaggerModule.createDocument(app, new DocumentBuilder().setTitle('t').build());
     expect(Object.keys(doc.paths)).toEqual(
@@ -230,6 +254,39 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
     // Phase 4.
     expect(Object.keys(doc.paths)).toEqual(
       expect.arrayContaining(['/api/v1/projects', '/api/v1/projects/{id}/gantt', '/api/v1/projects/{id}/tasks', '/api/v1/projects/{id}/tasks/batch', '/api/v1/projects/{id}/dependencies', '/api/v1/projects/{id}/access/{userId}', '/api/v1/projects/{id}/export.xlsx', '/api/v1/tasks/mine', '/api/v1/tasks/{id}', '/api/v1/tasks/{id}/comments', '/api/v1/tasks/{id}/activity', '/api/v1/tasks/{id}/attachments/{fileId}', '/api/v1/dependencies/{id}', '/api/v1/calendars/{id}/exceptions/{exId}']),
+    );
+    // A9.
+    expect(Object.keys(doc.paths)).toEqual(
+      expect.arrayContaining([
+        '/api/v1/projects/{id}/budget',
+        '/api/v1/projects/{id}/people',
+        '/api/v1/projects/{id}/dashboard',
+        '/api/v1/projects/{id}/calendar',
+        '/api/v1/projects/{id}/labels',
+        '/api/v1/projects/{id}/custom-fields',
+        '/api/v1/projects/{id}/tasks/bulk',
+        '/api/v1/projects/{id}/tasks/bulk-archive',
+        '/api/v1/projects/{id}/tasks/restore',
+        '/api/v1/projects/{id}/save-as-template',
+        '/api/v1/tasks/{id}/duplicate',
+        '/api/v1/tasks/{id}/labels/{labelId}',
+        '/api/v1/tasks/{id}/custom-values/{fieldId}',
+        '/api/v1/tasks/{id}/checklist/{itemId}',
+        '/api/v1/tasks/{id}/checklist/reorder',
+        '/api/v1/tasks/{id}/time-entries',
+        '/api/v1/tasks/{id}/comments/read',
+        '/api/v1/labels/{id}',
+        '/api/v1/custom-fields/{id}',
+        '/api/v1/time-entries/{id}',
+        '/api/v1/me/view-prefs',
+        '/api/v1/me/time-entries',
+        '/api/v1/project-templates',
+        '/api/v1/portfolios/{id}/projects/{projectId}',
+        '/api/v1/reports/projects',
+        '/api/v1/workload',
+        '/api/v1/hub',
+        '/api/v1/attachments',
+      ]),
     );
     const createViolation = doc.paths['/api/v1/violations']?.post?.requestBody as { content: Record<string, { schema: { required?: string[] } }> };
     expect(createViolation.content['application/json']?.schema.required).toEqual(

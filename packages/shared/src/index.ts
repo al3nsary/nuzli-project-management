@@ -9,4 +9,5 @@ export * from './schemas/auth-users';
 export * from './schemas/teams';
 export * from './schemas/violations';
 export * from './schemas/projects';
+export * from './schemas/projects-a9';
 export * from './schemas/cards-settings';

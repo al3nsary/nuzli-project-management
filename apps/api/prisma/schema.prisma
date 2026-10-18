@@ -125,56 +125,61 @@ enum CardLayoutKey {
 
 /// Registration requests are folded into users.status = PENDING (ADR-008).
 model User {
-  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  fullName            String     @map("full_name")
-  email               String     @unique
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName           String     @map("full_name")
+  email              String     @unique
   /// E.164, e.g. +966512345678
-  mobile              String     @unique
+  mobile             String     @unique
   /// AES-256-GCM ciphertext (iv|tag|data), see ADR-011.
-  nationalIdEnc       Bytes      @map("national_id_enc")
+  nationalIdEnc      Bytes      @map("national_id_enc")
   /// HMAC-SHA256 blind index for uniqueness and exact lookup.
-  nationalIdHash      String     @unique @map("national_id_hash")
+  nationalIdHash     String     @unique @map("national_id_hash")
   /// Last two digits, kept for masking without decrypting.
-  nationalIdLast2     String     @map("national_id_last2") @db.Char(2)
-  nationalIdFirst     String     @map("national_id_first") @db.Char(1)
-  passwordHash        String?    @map("password_hash")
-  role                Role
-  requestedRole       Role?      @map("requested_role")
-  requestedTeamName   String?    @map("requested_team_name")
-  status              UserStatus @default(PENDING)
-  rejectionReason     String?    @map("rejection_reason")
-  mustChangePassword  Boolean    @default(false) @map("must_change_password")
-  failedLoginCount    Int        @default(0) @map("failed_login_count")
-  lockedUntil         DateTime?  @map("locked_until") @db.Timestamptz(3)
-  lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(3)
-  preferences         Json       @default("{}")
-  approvedAt          DateTime?  @map("approved_at") @db.Timestamptz(3)
-  approvedById        String?    @map("approved_by") @db.Uuid
-  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById         String?    @map("created_by") @db.Uuid
-  archivedAt          DateTime?  @map("archived_at") @db.Timestamptz(3)
+  nationalIdLast2    String     @map("national_id_last2") @db.Char(2)
+  nationalIdFirst    String     @map("national_id_first") @db.Char(1)
+  passwordHash       String?    @map("password_hash")
+  role               Role
+  requestedRole      Role?      @map("requested_role")
+  requestedTeamName  String?    @map("requested_team_name")
+  status             UserStatus @default(PENDING)
+  rejectionReason    String?    @map("rejection_reason")
+  mustChangePassword Boolean    @default(false) @map("must_change_password")
+  failedLoginCount   Int        @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  preferences        Json       @default("{}")
+  approvedAt         DateTime?  @map("approved_at") @db.Timestamptz(3)
+  approvedById       String?    @map("approved_by") @db.Uuid
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById        String?    @map("created_by") @db.Uuid
+  archivedAt         DateTime?  @map("archived_at") @db.Timestamptz(3)
   /// Profile photo (owner request A8). The old file is deleted on replacement.
-  photoFileId         String?    @map("photo_file_id") @db.Uuid
+  photoFileId        String?    @map("photo_file_id") @db.Uuid
 
-  photo               File?                   @relation("UserPhoto", fields: [photoFileId], references: [id])
-  refreshTokens       RefreshToken[]
-  actionTokens        ActionToken[]
-  ledTeams            Team[]                  @relation("TeamSupervisor")
-  supervisorHistory   TeamSupervisorHistory[]
-  member              TeamMember?             @relation("MemberUser")
-  assignedTasks       Task[]                  @relation("TaskAssignee")
-  ownedProjects       Project[]               @relation("ProjectOwner")
-  projectAccess       ProjectAccess[]
-  recordedViolations  Violation[]             @relation("ViolationRecorder")
-  snapshotViolations  Violation[]             @relation("ViolationSupervisorSnapshot")
-  violationResponses  ViolationResponse[]
-  notifications       Notification[]
-  auditEntries        AuditLog[]
-  taskComments        TaskComment[]
-  printBatches        CardPrintBatch[]
-  printItems          CardPrintItem[]
-  movedMemberships    TeamMembership[]        @relation("MembershipMovedBy")
+  photo              File?                   @relation("UserPhoto", fields: [photoFileId], references: [id])
+  refreshTokens      RefreshToken[]
+  actionTokens       ActionToken[]
+  ledTeams           Team[]                  @relation("TeamSupervisor")
+  supervisorHistory  TeamSupervisorHistory[]
+  member             TeamMember?             @relation("MemberUser")
+  assignedTasks      Task[]                  @relation("TaskAssignee")
+  ownedProjects      Project[]               @relation("ProjectOwner")
+  projectAccess      ProjectAccess[]
+  recordedViolations Violation[]             @relation("ViolationRecorder")
+  snapshotViolations Violation[]             @relation("ViolationSupervisorSnapshot")
+  violationResponses ViolationResponse[]
+  notifications      Notification[]
+  auditEntries       AuditLog[]
+  taskComments       TaskComment[]
+  printBatches       CardPrintBatch[]
+  printItems         CardPrintItem[]
+  movedMemberships   TeamMembership[]        @relation("MembershipMovedBy")
+  // A9
+  timeEntries        TimeEntry[]
+  viewPrefs          UserViewPref[]
+  commentReads       TaskCommentRead[]
+  checklistDone      TaskChecklistItem[]     @relation("ChecklistDoneBy")
 
   @@index([role, status])
   @@index([status])
@@ -221,14 +226,14 @@ model ActionToken {
 // ───────────────────────────────────────────────────────────── teams
 
 model TeamColor {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String
-  hex       String   @unique @db.Char(7)
-  isActive  Boolean  @default(true) @map("is_active")
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById String? @map("created_by") @db.Uuid
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  hex         String   @unique @db.Char(7)
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?  @map("created_by") @db.Uuid
 
   teams Team[]
 
@@ -410,17 +415,25 @@ model Project {
   /// Phase 5: created from a template.
   templateOfId String?       @map("template_of_id") @db.Uuid
   isTemplate   Boolean       @default(false) @map("is_template")
+  /// A9: budget cap in `currency` (null = none). CHECK >= 0 in raw SQL.
+  budget       Decimal?      @db.Decimal(14, 2)
+  currency     String        @default("SAR") @db.Char(3)
   createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdById  String?       @map("created_by") @db.Uuid
   archivedAt   DateTime?     @map("archived_at") @db.Timestamptz(3)
 
-  calendar     Calendar         @relation(fields: [calendarId], references: [id])
-  owner        User             @relation("ProjectOwner", fields: [ownerId], references: [id])
+  calendar     Calendar           @relation(fields: [calendarId], references: [id])
+  owner        User               @relation("ProjectOwner", fields: [ownerId], references: [id])
+  /// ADR-092: kept for admins; grants nothing to supervisors since A9.
   access       ProjectAccess[]
   tasks        Task[]
   dependencies TaskDependency[]
   baselines    Baseline[]
+  labels       ProjectLabel[]
+  customFields CustomField[]
+  portfolios   PortfolioProject[]
+  viewPrefs    UserViewPref[]
 
   @@index([ownerId])
   @@index([calendarId])
@@ -446,37 +459,50 @@ model ProjectAccess {
 /// raw SQL: trigger tasks_assignee_supervisor_chk — assignee must be an ACTIVE SUPERVISOR.
 ///          CHECK (progress BETWEEN 0 AND 100); CHECK (type <> 'MILESTONE' OR duration_days = 0)
 model Task {
-  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId    String     @map("project_id") @db.Uuid
-  parentId     String?    @map("parent_id") @db.Uuid
-  sortOrder    Float      @default(0) @map("sort_order")
-  wbsCache     String     @default("") @map("wbs_cache")
-  name         String
-  type         TaskType   @default(TASK)
-  startDate    DateTime   @map("start_date") @db.Date
-  endDate      DateTime   @map("end_date") @db.Date
-  durationDays Int        @default(1) @map("duration_days")
-  progress     Decimal    @default(0) @db.Decimal(5, 2)
-  status       TaskStatus @default(NOT_STARTED)
-  priority     Priority   @default(MEDIUM)
-  assigneeId   String?    @map("assignee_id") @db.Uuid
-  description  String?
-  version      Int        @default(0)
-  dueSoonNotifiedAt DateTime? @map("due_soon_notified_at") @db.Timestamptz(3)
-  overdueNotifiedAt DateTime? @map("overdue_notified_at") @db.Timestamptz(3)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById  String?    @map("created_by") @db.Uuid
-  archivedAt   DateTime?  @map("archived_at") @db.Timestamptz(3)
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId          String     @map("project_id") @db.Uuid
+  parentId           String?    @map("parent_id") @db.Uuid
+  sortOrder          Float      @default(0) @map("sort_order")
+  wbsCache           String     @default("") @map("wbs_cache")
+  name               String
+  type               TaskType   @default(TASK)
+  startDate          DateTime   @map("start_date") @db.Date
+  endDate            DateTime   @map("end_date") @db.Date
+  durationDays       Int        @default(1) @map("duration_days")
+  progress           Decimal    @default(0) @db.Decimal(5, 2)
+  status             TaskStatus @default(NOT_STARTED)
+  priority           Priority   @default(MEDIUM)
+  assigneeId         String?    @map("assignee_id") @db.Uuid
+  description        String?
+  version            Int        @default(0)
+  dueSoonNotifiedAt  DateTime?  @map("due_soon_notified_at") @db.Timestamptz(3)
+  overdueNotifiedAt  DateTime?  @map("overdue_notified_at") @db.Timestamptz(3)
+  /// A9 budget (project currency). Groups hold the sum of their children (roll-up).
+  plannedCost        Decimal    @default(0) @map("planned_cost") @db.Decimal(14, 2)
+  actualCost         Decimal    @default(0) @map("actual_cost") @db.Decimal(14, 2)
+  /// A9: a deadline separate from the end date.
+  deadline           DateTime?  @db.Date
+  deadlineNotifiedAt DateTime?  @map("deadline_notified_at") @db.Timestamptz(3)
+  /// A9: custom bar colour '#RRGGBB'.
+  barColor           String?    @map("bar_color") @db.Char(7)
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById        String?    @map("created_by") @db.Uuid
+  archivedAt         DateTime?  @map("archived_at") @db.Timestamptz(3)
 
-  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  parent        Task?            @relation("TaskTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children      Task[]           @relation("TaskTree")
-  assignee      User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  predecessors  TaskDependency[] @relation("DepSuccessor")
-  successors    TaskDependency[] @relation("DepPredecessor")
+  project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent        Task?               @relation("TaskTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Task[]              @relation("TaskTree")
+  assignee      User?               @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  predecessors  TaskDependency[]    @relation("DepSuccessor")
+  successors    TaskDependency[]    @relation("DepPredecessor")
   comments      TaskComment[]
   baselineTasks BaselineTask[]
+  labels        TaskLabel[]
+  customValues  TaskCustomValue[]
+  checklist     TaskChecklistItem[]
+  timeEntries   TimeEntry[]
+  commentReads  TaskCommentRead[]
 
   @@index([projectId, parentId, sortOrder])
   @@index([assigneeId])
@@ -513,15 +539,188 @@ model TaskComment {
   authorId  String   @map("author_id") @db.Uuid
   body      String
   mentions  String[] @db.Uuid
+  /// A9: the quoted comment of the same task (flat chat).
+  replyToId String?  @map("reply_to_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  author User @relation(fields: [authorId], references: [id])
+  task    Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author  User          @relation(fields: [authorId], references: [id])
+  replyTo TaskComment?  @relation("CommentReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies TaskComment[] @relation("CommentReply")
 
   @@index([taskId, createdAt])
   @@index([authorId])
   @@map("task_comments")
+}
+
+// ───────────────────────────────────────────────────────────── A9 — projects (GanttPRO parity)
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DROPDOWN
+  DATE
+  CHECKBOX
+}
+
+/// Coloured tags of one project.
+model ProjectLabel {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  name        String
+  color       String   @db.Char(7)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?  @map("created_by") @db.Uuid
+
+  project Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   TaskLabel[]
+
+  @@unique([projectId, name])
+  @@map("project_labels")
+}
+
+model TaskLabel {
+  taskId    String   @map("task_id") @db.Uuid
+  labelId   String   @map("label_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task  Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label ProjectLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+  @@index([labelId])
+  @@map("task_labels")
+}
+
+model CustomField {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String          @map("project_id") @db.Uuid
+  name        String
+  type        CustomFieldType
+  /// DROPDOWN: string[] of allowed values (CHECK jsonb array in raw SQL).
+  options     Json            @default("[]")
+  sort        Float           @default(0)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?         @map("created_by") @db.Uuid
+
+  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  values  TaskCustomValue[]
+
+  @@unique([projectId, name])
+  @@map("custom_fields")
+}
+
+model TaskCustomValue {
+  taskId      String   @map("task_id") @db.Uuid
+  fieldId     String   @map("field_id") @db.Uuid
+  value       Json
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?  @map("updated_by") @db.Uuid
+
+  task  Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  field CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, fieldId])
+  @@index([fieldId])
+  @@map("task_custom_values")
+}
+
+model TaskChecklistItem {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId      String    @map("task_id") @db.Uuid
+  text        String
+  done        Boolean   @default(false)
+  sort        Float     @default(0)
+  doneById    String?   @map("done_by") @db.Uuid
+  doneAt      DateTime? @map("done_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?   @map("created_by") @db.Uuid
+
+  task   Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  doneBy User? @relation("ChecklistDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+
+  @@index([taskId, sort])
+  @@map("task_checklist_items")
+}
+
+/// Per-user UI preferences (columns, saved views). Uniqueness of (user, project, key) with a
+/// nullable project is two partial unique indexes in raw SQL.
+model UserViewPref {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  projectId String?  @map("project_id") @db.Uuid
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, projectId])
+  @@map("user_view_prefs")
+}
+
+model Portfolio {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?  @map("created_by") @db.Uuid
+
+  projects PortfolioProject[]
+
+  @@map("portfolios")
+}
+
+model PortfolioProject {
+  portfolioId String   @map("portfolio_id") @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([portfolioId, projectId])
+  @@index([projectId])
+  @@map("portfolio_projects")
+}
+
+/// Time log (minutes per user, task and day). CHECK 1..1440 in raw SQL.
+model TimeEntry {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  date      DateTime @db.Date
+  minutes   Int
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, date])
+  @@index([taskId])
+  @@map("time_entries")
+}
+
+/// Communication hub read state: the viewer read the task's comments up to `last_read_at`.
+model TaskCommentRead {
+  userId     String   @map("user_id") @db.Uuid
+  taskId     String   @map("task_id") @db.Uuid
+  lastReadAt DateTime @map("last_read_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([userId, taskId])
+  @@index([taskId])
+  @@map("task_comment_reads")
 }
 
 /// Phase 5 (schema only).
@@ -546,8 +745,8 @@ model BaselineTask {
   /// Planned duration and progress at snapshot time (Phase 5 variance: plan vs actual).
   durationDays Int      @default(0) @map("duration_days")
   progress     Decimal  @default(0) @db.Decimal(5, 2)
-  baseline   Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
-  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  baseline     Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@id([baselineId, taskId])
   @@index([taskId])
@@ -650,11 +849,11 @@ model ViolationResponse {
 }
 
 model ViolationVisibility {
-  teamId    String         @id @map("team_id") @db.Uuid
-  mode      VisibilityMode @default(INHERIT)
-  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
-  updatedById String?      @map("updated_by") @db.Uuid
-  team      Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId      String         @id @map("team_id") @db.Uuid
+  mode        VisibilityMode @default(INHERIT)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?        @map("updated_by") @db.Uuid
+  team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@map("violation_visibility")
 }
@@ -690,14 +889,14 @@ model File {
 }
 
 model Logo {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String
-  fileId      String   @unique @map("file_id") @db.Uuid
-  isDefault   Boolean  @default(false) @map("is_default")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById String?  @map("created_by") @db.Uuid
-  file        File     @relation(fields: [fileId], references: [id])
+  fileId      String         @unique @map("file_id") @db.Uuid
+  isDefault   Boolean        @default(false) @map("is_default")
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?        @map("created_by") @db.Uuid
+  file        File           @relation(fields: [fileId], references: [id])
   templates   CardTemplate[]
 
   @@map("logos")
@@ -718,18 +917,18 @@ model CardSize {
 }
 
 model CardTemplate {
-  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String
-  sizeId      String           @map("size_id") @db.Uuid
+  sizeId      String          @map("size_id") @db.Uuid
   orientation CardOrientation
-  layoutKey   CardLayoutKey    @map("layout_key")
-  config      Json             @default("{}")
-  isDefault   Boolean          @default(false) @map("is_default")
-  logoId      String?          @map("logo_id") @db.Uuid
-  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById String?          @map("created_by") @db.Uuid
-  archivedAt  DateTime?        @map("archived_at") @db.Timestamptz(3)
+  layoutKey   CardLayoutKey   @map("layout_key")
+  config      Json            @default("{}")
+  isDefault   Boolean         @default(false) @map("is_default")
+  logoId      String?         @map("logo_id") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?         @map("created_by") @db.Uuid
+  archivedAt  DateTime?       @map("archived_at") @db.Timestamptz(3)
 
   size    CardSize         @relation(fields: [sizeId], references: [id])
   logo    Logo?            @relation(fields: [logoId], references: [id])
@@ -740,18 +939,18 @@ model CardTemplate {
 }
 
 model CardPrintBatch {
-  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  idempotencyKey String          @unique @map("idempotency_key") @db.Uuid
-  templateId     String          @map("template_id") @db.Uuid
-  printedById    String          @map("printed_by") @db.Uuid
-  printedAt      DateTime        @default(now()) @map("printed_at") @db.Timestamptz(3)
-  cardCount      Int             @map("card_count")
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idempotencyKey   String   @unique @map("idempotency_key") @db.Uuid
+  templateId       String   @map("template_id") @db.Uuid
+  printedById      String   @map("printed_by") @db.Uuid
+  printedAt        DateTime @default(now()) @map("printed_at") @db.Timestamptz(3)
+  cardCount        Int      @map("card_count")
   /// Template snapshot (size, layout, config) at print time.
-  templateSnapshot Json          @default("{}") @map("template_snapshot")
+  templateSnapshot Json     @default("{}") @map("template_snapshot")
 
-  template CardTemplate    @relation(fields: [templateId], references: [id])
-  printedBy User           @relation(fields: [printedById], references: [id])
-  items    CardPrintItem[]
+  template  CardTemplate    @relation(fields: [templateId], references: [id])
+  printedBy User            @relation(fields: [printedById], references: [id])
+  items     CardPrintItem[]
 
   @@index([printedAt])
   @@index([printedById])
@@ -760,15 +959,15 @@ model CardPrintBatch {
 }
 
 model CardPrintItem {
-  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  batchId      String  @map("batch_id") @db.Uuid
-  memberId     String? @map("member_id") @db.Uuid
-  userId       String? @map("user_id") @db.Uuid
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batchId           String  @map("batch_id") @db.Uuid
+  memberId          String? @map("member_id") @db.Uuid
+  userId            String? @map("user_id") @db.Uuid
   /// Rendered values. The national ID inside is ALWAYS masked (security review M2).
-  renderedData Json    @map("rendered_data")
+  renderedData      Json    @map("rendered_data")
   /// FULL when the physical card carried the full national ID (decrypted from the DB on demand), else MASKED.
-  nationalIdPrinted String @default("MASKED") @map("national_id_printed")
-  savedBack    Boolean @default(false) @map("saved_back")
+  nationalIdPrinted String  @default("MASKED") @map("national_id_printed")
+  savedBack         Boolean @default(false) @map("saved_back")
 
   batch  CardPrintBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
   member TeamMember?    @relation(fields: [memberId], references: [id])
