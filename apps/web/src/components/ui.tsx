@@ -6,7 +6,7 @@ import type { Role, UserStatus } from '@nuzli/shared';
 import { formatSaudiMobileLocal } from '@nuzli/shared';
 import { t, tKey } from '../i18n';
 import { errorMessage } from '../api/errors';
-import { brandUrl } from './Brand';
+import { NozolyLogo } from './Brand';
 
 /** The page heading: the h1 that receives focus after navigation (rule 6). */
 export function PageHeader({
@@ -63,12 +63,12 @@ export function EmptyState({
   );
 }
 
-/** Before the session is known: the Muhsen mark on the ground, no spinner-only page. */
+/** Before the session is known: the Nozoly logo breathing on the page, no spinner-only page. */
 export function FullPageLoader() {
   return (
     <div className="nz-boot" role="status" aria-live="polite">
       <span className="nz-boot-mark" aria-hidden>
-        <img src={brandUrl('muhsen-mark-white.png')} alt="" width={30} height={30} />
+        <NozolyLogo width={132} decorative />
       </span>
       <span className="nz-boot-text">{t('app.loading')}</span>
     </div>

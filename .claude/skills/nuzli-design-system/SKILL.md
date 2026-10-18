@@ -1,86 +1,101 @@
 ---
 name: nuzli-design-system
-description: The visual identity of Nuzli (نُزلي) — real Nozoly and Muhsen logos, Muhsen-aligned colour tokens, typefaces, the "vest band" signature, the Muhsen-Control shell (sidebar, rail, top bar, palette), navigation rules and component rules. Load before building or changing any screen, card template, chart or navigation in apps/web or packages/ui-print.
+description: The visual identity of Nuzli (نُزلي) — white GanttPRO-clean surfaces with Nozoly indigo, the real Nozoly logo (Muhsen mark secondary), colour tokens, typefaces, the "vest band" signature, the shell (white left nav, rail, top bar, palette), navigation rules and component rules. Load before building or changing any screen, card template, chart or navigation in apps/web or packages/ui-print.
 ---
 
 # هوية نُزلي البصرية
 
-**Subject:** field operations within the **Muhsen (مُحسن)** hospitality system, built by **Nozoly (نُزلي)**: teams in coloured vests, monitors on site with a phone in the sun, Zebra plastic cards, and a project Gantt at the office.
+**Subject:** field operations and projects, built by **Nozoly (نُزلي)**: teams in coloured vests, monitors on site with a phone in the sun, Zebra plastic cards, and a project Gantt at the office.
 **The screen's job:** let the user find the right person or task fast and know which team it belongs to at a glance.
 
-Owner request A7 (2026-10-12): use the real Muhsen and Nozoly logos and make every detail of navigation professional. The reference implementation is the owner's own **Muhsen Control** (`Desktop/Muhsen-Control/app/01-style.html`, `04-shell.js`, `07-router.js`) for the desktop shell and the **Muhsen app** (`Desktop/Muhesn-App/app/01-style.html`) for mobile. **Read those files and copy literal values. Never approximate them, and never write into those folders.**
+**Owner request A9 (2026-10-19) — current identity:** «ليس بالضرورة أن تلتزم بهوية مُحسن، فقط هوية نزلي الزرقاء. اجعل النظام أبيض كما GanttPRO لتعبّر الألوان عن هويتها عند التصفح. فقط أضف لون نزلي الأزرق (أزرق نيلي).» So: **white, quiet chrome like GanttPRO; one brand colour, Nozoly indigo; team colours carry identity while browsing.** This replaces the A7 Muhsen-green shell (green gradient side, gold hairlines, gold mark tile) — none of that is used any more. Values live in `apps/web/src/theme/tokens.css`; the decision is in `docs/DECISIONS.md` (A9 identity ADR).
 
 ## Logos (`apps/web/public/brand/` — see its README)
 
+Logos are the real files: never recoloured, stretched, redrawn or edited. They are **placed**, not modified.
+
 | File | Where |
 |---|---|
-| `muhsen-mark-white.png` | Sidebar head: inside the 42×42 mark tile (radius 13, gold gradient `linear-gradient(150deg,#E7D1A2,#A8875A)`), 23×23 |
-| `muhsen-lockup-white.png` | Login hero on the green panel, 168px wide |
-| `nozoly-light.png` | Sidebar foot «تطوير نُزلي» on green, 96×26 |
-| `nozoly-green.png` | Login footer and light surfaces, 96×26; about dialog |
-| `muhsen-mark.png` | Light-surface contexts: print cards default logo, empty states (small, quiet) |
-| `muhsen-pattern.png` | The green login panel and the sidebar bottom, opacity ≤ .06 |
+| `nozoly-green.png` | **The identity.** Sidebar head (124px visible width), login/auth card top (220px desktop, 164px phone), boot loader (132px), PWA icons |
+| `nozoly-light.png` | Same places in **dark mode** (swapped by CSS `.nz-logo-day/.nz-logo-night`) |
+| `muhsen-mark.png` | Secondary: «منظومة مُحسن» line in the sidebar foot and the auth footer, 18–20px wide; print cards default logo |
+| `muhsen-mark-white.png` | The same line in dark mode |
+| `muhsen-lockup-white.png`, `muhsen-pattern.png`, `muhsen-app-icon-*` | Kept as files; not used by the A9 UI |
 
-Brand text: «نُزلي — إدارة المشاريع والفرق الميدانية», sub-line «منظومة مُحسن». Latin spelling: **Nozoly** / **Muhsen**. The logos are never recoloured, stretched, cropped or redrawn. Their accessible names are «شعار مُحسن» and «شعار نُزلي».
+`nozoly-*.png` are 540×156 with transparent margins: the artwork occupies x 14–415, y 44–141 and the mark alone x 14–169. `<NozolyLogo width mark? />` (`src/components/Brand.tsx`) shows the file inside a box sized to the artwork, so `width` is the **visible** width; `mark` shows the mark part only (the 68px rail, favicons). Accessible names: «شعار نُزلي», «شعار مُحسن». Brand text: «نُزلي — إدارة المشاريع والفرق الميدانية»; Latin spelling **Nozoly**.
 
-## Colour (literal from Muhsen Control — light / dark)
+## Colour (light / dark)
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--g` | `#14593F` | `#14593F` | Primary: buttons, links, focus |
-| `--g2` | `#0C3A29` | `#0C3A29` | Pressed, deep accents |
-| `--g3` | `#1D7452` | `#1D7452` | Hover |
-| `--live` | `#0B8A4B` | `#14C273` | Synced, done, online |
-| `--gold` | `#A8875A` | `#A8875A` | Brand accent (thin lines, active ring, mark tile) |
-| `--gold2` | `#B4935F` | `#C6A86F` | Focus ring (`:focus-visible{outline:2px solid var(--gold2); outline-offset:3px}`) |
-| `--gold3` | `#8A6C3C` | `#E7D1A2` | Gold text on light / dark |
-| `--amber` | `#B8791A` | `#E5A62F` | Pending, waiting for sync, warnings — sparingly |
-| `--red` | `#C0392B` | `#EC4F54` | Violations, destructive, errors |
-| `--blue` | `#1B6E9C` | `#3FA3DC` | Info |
-| `--ink` | `#0D1A13` | `#EDF5F0` | Text |
-| `--dim` | `#4C635A` | `#9FB6A9` | Secondary text |
-| `--dim2` | `#7A8F84` | `#6B857A` | Tertiary text, crumbs |
-| `--void` | `#EDF4EF` | `#060C09` | Page background |
-| `--deep` | `#F7FBF8` | `#0A140F` | Top bar base |
-| `--panel` | `#FFFFFF` | `#0F1C16` | Cards, tables, dialogs |
-| `--panel2` | `#F2F9F4` | `#14261F` | Zebra/hover rows, inputs |
-| `--line` | `#DDE9E1` | `#1C3128` | Borders |
-| `--line2` | `#C6DACE` | `#27473A` | Strong borders |
+| `--primary` | `#303F9F` | `#3F51B5` | Filled buttons, the create button, active bar (white text ≥ 6.9:1) |
+| `--primary-hover` | `#283593` | `#4A5CC4` | Hover |
+| `--primary-press` | `#1A237E` | `#303F9F` | Pressed |
+| `--tint` | `#E8EAF6` | `rgba(121,134,203,.16)` | Active nav item, light buttons, selected rows, empty-state icon tile |
+| `--focus` | `#5C6BC0` | `#7986CB` | Focus ring `:focus-visible{outline:2px solid var(--focus);outline-offset:3px}` |
+| `--accent` | `#303F9F` | `#7986CB` | Indigo as text/icons on surfaces |
+| `--link` | `#303F9F` | `#9FA8DA` | Links |
+| `--live` | `#2E7D32` | `#81C784` | Done, synced, online |
+| `--amber` | `#A35C00` | `#FFB74D` | Waiting, pending sync, warnings — sparingly |
+| `--red` | `#C62828` | `#EF6461` | Violations, destructive, errors, overdue |
+| `--blue` | `#1565C0` | `#64B5F6` | Info |
+| `--ink` | `#1F2430` | `#E7E9EE` | Text |
+| `--dim` | `#5E6676` | `#A3A9B6` | Secondary text (5.8:1) |
+| `--dim2` | `#6F7787` | `#8A91A0` | Tertiary text, crumbs (4.5:1) |
+| `--void` | `#F7F8FA` | `#0F1115` | Page background |
+| `--deep` | `#FFFFFF` | `#14171C` | Top bar |
+| `--panel` | `#FFFFFF` | `#171A21` | Cards, tables, dialogs, side nav |
+| `--panel2` | `#F5F6F9` | `#1D2129` | Zebra rows, quiet fills |
+| `--hover` / `--nav-sheen` | `#F1F3F7` | `rgba(255,255,255,.05)` | Hover rows and nav items |
+| `--line` | `#E6E8EC` | `#2A2F3A` | Borders, hairlines |
+| `--line2` | `#D5D9E0` | `#383E4B` | Strong borders, input borders |
 
-Status pills (background / text), light: live `#E4F2E9/#0B6540`, wait `#FBF1DE/#7F5310`, no `#FBE9E7/#93261C`, blue `#E7EEF6/#2A4A73`, gold `#F5EDDF/#6E5729`, grey `#EFF1ED/#5A6C63`. Dark: copy `--p*B/--p*T` from Muhsen Control lines 42–47.
+Status pills (background / text), light: live `#E7F4EA/#1B6E3A`, wait `#FFF3E0/#8A4B00`, no `#FDECEA/#B3261E`, blue `#E3F0FC/#0B57A4`, **brand** `#E8EAF6/#283593` (the old class `.pill.gold` maps to it), grey `#F1F3F6/#4A5262`. All ≥ 5.5:1. Dark: tinted 16 % backgrounds with light text (`tokens.css`).
 
-Shadow (light): `0 1px 2px rgba(11,53,39,.05), 0 4px 10px -4px rgba(11,53,39,.07), 0 18px 34px -22px rgba(11,53,39,.3)`. Lift: `0 2px 6px rgba(11,53,39,.07), 0 18px 34px -14px rgba(11,53,39,.22)`.
-Radius: `--r:16px` (cards), `--r2:22px` (dialogs), `--r3:12px` (inputs, buttons), `--r4:9px` (chips). Spacing `4·8·12·16·24·32·48`.
-Easing: `--e:cubic-bezier(.22,.7,.2,1)`, `--e2:cubic-bezier(.34,1.4,.44,1)` (playful, mark only), `--e3:cubic-bezier(.16,1,.3,1)`.
+Mantine: `field` (the primary colour name kept from phase 1) is the indigo ramp `#E8EAF6 … #303F9F (6) … #121858`; `primaryShade {light: 6, dark: 5}`. `ok/green`, `signal/yellow`, `breach/red`, `info/blue`, `slate/gray` are the status ramps; `gold` and `indigo` resolve to indigo. **Legacy aliases** keep every older screen correct: `--g/--g3/--g2` → primary/hover/press, `--gold/--gold3` → accent, `--gold2` → focus, `--field` → primary, `--ok/--signal/--breach` → live/amber/red, `--ground/--surface/--muted` → void/panel/dim. New code uses the semantic names.
 
-Rule: colour is for **state and team identity**, never decoration. A team colour always appears next to the team name.
+Shadow (light): `--shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.03)` — cards rely on a 1px `--line` border, not on shadow. `--lift: 0 4px 12px -2px rgba(16,24,40,.08), 0 16px 36px -10px rgba(16,24,40,.14)` for menus and popovers.
+Radius: `--r:12px` (cards), `--r2:16px` (dialogs, auth card), `--r3:8px` (inputs, buttons, nav items), `--r4:6px` (chips). Spacing `4·8·12·16·24·32·48`.
+Easing: `--e:cubic-bezier(.22,.7,.2,1)`, `--e3:cubic-bezier(.16,1,.3,1)`.
+
+Rule: colour is for **state and team identity**, never decoration. Indigo is the one brand colour (primary action, active item, focus, links). A team colour always appears next to the team name. No gradients or gold hairlines in chrome.
 
 ## Type
 
-- **UI and body:** `IBM Plex Sans Arabic` 400/500/600/700, self-hosted. This is the same as Muhsen Control. Body 14px, line-height 1.75, `font-feature-settings:"tnum" 1`.
-- **Display:** `Readex Pro`, used with restraint: page titles in the top bar (16.5px, letter-spacing −.3px), KPI numbers and card names.
+- **UI and body:** `IBM Plex Sans Arabic` 400/500/600/700, self-hosted. Body 14px, line-height 1.75, `font-feature-settings:"tnum" 1`.
+- **Display:** `Readex Pro`, used with restraint: page titles in the top bar (16.5px, −.3px), auth titles (24px), KPI numbers and card names.
 - **Data:** `IBM Plex Mono` for national IDs, WBS, coordinates and timestamps, with tabular numbers.
 
 ## The signature: the vest band (شريط السترة)
 
-Every team-bound object (team column, member chip, card print strip, Gantt assignee marker, chart legend) carries a **band** on its inline-start edge: 6px of the team colour, crossed by two 1.5px reflective lines at 30% white, like the reflective tape on a high-visibility vest. It is the one bold element; everything around it stays quiet.
+Every team-bound object (team column, member chip, card print strip, Gantt assignee marker, chart legend) carries a **band** on its inline-start edge: 6px of the team colour, crossed by two 1.5px reflective lines at 30% white, like the reflective tape on a high-visibility vest. On the white A9 surfaces it is the colour the user sees while browsing; everything around it stays quiet.
 
-## Shell (port of Muhsen Control)
+## Shell (A9, GanttPRO-like)
 
-- Grid: `[side | stage]`. Side is 276px open and 74px as a **mini rail**. Fold with the button in the side head or **Ctrl+B**, and remember the state per user in localStorage, wrapped in try/catch.
-- **Side** (light): background `linear-gradient(168deg,#1A6B4C 0%,#12513A 52%,#0D3E2C 100%)`. Ink `#F4FAF6`, dim `rgba(244,250,246,.82)`, dim2 `.62`, faint `.44`. Line `rgba(255,255,255,.11)`. A 1px gold hairline on the inline-end edge: `linear-gradient(180deg,transparent,var(--gold2),transparent)` at opacity .55. In dark mode use `linear-gradient(180deg,var(--deep),var(--void))`.
-  - Head: the mark tile, then the brand text (b 14px / span 10.5px), then the fold button.
-  - Groups: an uppercase-free label of 10.5px plus a fading line. Group by role: «الرئيسية» · «المشاريع» · «الفرق والكروت» · «المخالفات» · «الإدارة».
-  - Item: padding 10px 11px, radius 13, icon 18px, label 13px/700, count pill. **Active** (`.on`) uses background `linear-gradient(90deg,rgba(255,255,255,.18),rgba(255,255,255,.03))` and an inset ring `rgba(231,209,162,.55)`, with `aria-current="page"`. Hover nudges the item 2px *toward the reading direction*: physical `translateX` × `dirSign()`, because RTL does not flip it.
-  - Sub-items (kids): indented with a 2px gold-fading spine.
-  - Foot: the Nozoly logo with «تطوير نُزلي».
-  - On the mini rail, a red dot replaces the count, and a tooltip shows the label.
-- **Top bar** 66px: `color-mix(in srgb,var(--deep) 78%,transparent)` with a 16px backdrop blur and a bottom line. It gets a deeper shadow once the page scrolls. It holds the page title (h2) and a breadcrumb line under or next to it (11px, `--dim2`), with chips on the end side: offline/sync status, the notification bell with its count, the command palette button (**Ctrl+K**) and the user menu. Titles slide in at 10px over .4s with `--e`, with the direction sign applied.
-- **Mobile (<768px):** the side becomes a drawer from the inline-start, with a scrim of `rgba(16,25,20,.42)` and a focus trap; Esc closes it. Monitors get the Muhsen-app **bottom tab bar**: «تسجيل مخالفة · مخالفاتي · بانتظار المزامنة» plus «المزيد». Its shadow is `0 -1px 0 rgba(20,89,63,.07), 0 -16px 34px -26px rgba(11,53,39,.55)`, and it respects `env(safe-area-inset-bottom)`. Supervisors get «الرئيسية · مهامي · فرقي · المزيد».
+- Grid: `[side | stage]`. Side is **256px** open and **68px** as a mini rail. Fold with the button in the side head or **Ctrl+B**; remembered per user in localStorage (try/catch).
+- **Side:** white (`--nav-bg: #FFFFFF`; dark `#14171C`), a 1px `--line` border on its inline-end edge. No gradient, no pattern, no gold.
+  - Head (60px, same as the top bar): the Nozoly logo (124px visible width; the mark only, 34px, on the rail) linking home, and the fold button.
+  - **«+ إنشاء مشروع جديد»**: full-width indigo button (40px, radius 8) under the head, for users with `projects.create`; it opens the existing create dialog (`/projects?create=1`). On the rail: a square «+» with a tooltip.
+  - Items in GanttPRO's order (see `docs/navigation.md`): الرئيسية · كل المشاريع · المحافظ · مهامي · سجل وقتي · التقارير · عبء العمل — مركز التواصل · المرفقات · الإشعارات — the field-ops groups — الإدارة. The first three groups are `quiet` (a hairline separator, no heading); the others get an 11.5px `--nav-faint` heading under the hairline. Supervisors: «مهامي» leads (`lead: ['SUPERVISOR']`) and they see no project management.
+  - Item: padding 8px 12px, radius 8, min-height 38px, icon 18px, label 13.5px/500, text `#3D4452`. Hover background `#F1F3F7`. **Active** (`.on`, `aria-current="page"`): background `--tint #E8EAF6`, text and icon indigo `#303F9F`, label 600, and a **3px indigo bar on the inline-start edge** (`::before`, rounded on its inner side). No hover nudge.
+  - Sub-items (kids): indented 18px, 34px tall, the same active style.
+  - Count pills: red (act) or amber (waiting, e.g. unsynced violations). On the rail a red dot replaces the count; names in tooltips.
+  - Foot: «منظومة مُحسن» with the small Muhsen mark (mark only on the rail).
+- **Top bar** 60px: white (`--deep` at 92 % with a 12px blur) and a thin `--line` bottom border; a soft shadow once the page scrolls. Page title (h2) with the breadcrumb line (11px, `--dim2`); chips on the end side: sync status, notification bell, palette button (**Ctrl+K**), user menu.
+- **Pages being built** (`soon: true` in the registry): a real route, permission guard and `ComingSoonPage` — the page title, an indigo icon tile, a «قيد الإنشاء» brand pill, «قيد الإنشاء — يصل في هذا الإصدار» and one line on what the page will do.
+- **Mobile (<768px):** the side becomes a drawer from the inline-start (scrim, focus trap, Esc). Bottom tab bar: monitors «تسجيل مخالفة · مخالفاتي · بانتظار المزامنة · المزيد» (the first is the round indigo button); supervisors «مهامي · الرئيسية · فرقي · المزيد».
+
+## Public pages (login, register, pending, forgot/reset/change password)
+
+`AuthLayout`: a white page. The form card (max 440px, 560 for registration; 1px border, radius 16, padding 40) carries the **Nozoly logo at 220px** centred at its top, then the title (Readex 24px) and a sub-line (14px `--dim`). Login copy: «تسجيل الدخول إلى نُزلي» / «إدارة المشاريع والفرق الميدانية»; labels 13.5px/600; password show/hide; «نسيت كلمة المرور؟» under the password; full-width indigo «تسجيل الدخول». Demo quick logins are secondary **outline** buttons in a row under a «حسابات العرض التجريبية» separator. On desktop an indigo-tinted panel (no illustration) on the inline end: kicker «نُزلي», heading «كل ما يحتاجه فريقك في مكانٍ واحد», and three value lines with indigo icon tiles — «خطّط مشاريعك على مخطط جانت» · «تابع فرقك الميدانية» · «سجّل المخالفات حتى دون اتصال». Footer: «منظومة مُحسن» with the small Muhsen mark. Phones (360px): one column, the card flat on white, logo 164px.
+
+## App icons
+
+`apps/web/scripts/make-pwa-icons.mjs` (headless Chrome): `pwa-192/512` and `apple-touch-icon` are white with the full green Nozoly logo centred (78 % wide); `pwa-maskable-512` is indigo `#303F9F` full bleed with a white rounded tile (56 %, inside the safe circle) holding the logo; `favicon-32/64` show the mark part on a white rounded tile. Manifest `theme_color #303F9F`, `background_color #FFFFFF`.
 
 ## Navigation rules (professional details)
 
-1. **One source of truth:** `src/app/nav.ts` holds `{ id, path, label, icon, group, permission, badge?, children? }`. The sidebar, the mobile bar, breadcrumbs, the command palette and document titles all read it.
+1. **One source of truth:** `src/app/nav.ts` holds `{ id, path, label, title?, icon, group, permission?, anyOf?, role?, lead?, soon?, gate?, badge?, end?, key?, children? }`. The sidebar, the mobile bar, breadcrumbs, the command palette, routes for `soon` pages and document titles all read it.
 2. **Active state** matches the deepest route, so a group stays active on its child pages and a parent with children expands automatically.
 3. **Breadcrumbs** on every page below the top level, with entity names resolved from data (for example «الفرق › فريق الصقور › السجل»). They are not shown on top-level pages.
 4. **Document title** is `«{الصفحة} · نُزلي»`.
@@ -95,8 +110,9 @@ Every team-bound object (team column, member chip, card print strip, Gantt assig
 
 ## Components
 
-- Buttons: a verb that says what happens («اعتماد الطلب», «نقل العضو», «طباعة ٥ كروت»), never «إرسال» or «موافق». Primary is `--g` with white text; pressed is `scale(.985)`.
-- Empty states give one action. Errors say what happened and how to fix it, with no apology.
+- Buttons: a verb that says what happens («اعتماد الطلب», «نقل العضو», «طباعة ٥ كروت»), never «إرسال» or «موافق». Primary is `--primary` with white text, 40px, radius 8, weight 600; pressed is `scale(.985)`. Secondary is outline (`variant="default"`), quiet is `light` (indigo tint).
+- Cards: white, 1px `--line` border, radius 12, the whisper `--shadow`. KPI cards get a solid 3px top bar only when the number is a state (amber wait / red no).
+- Empty states give one action; the icon sits on an indigo tint tile. Errors say what happened and how to fix it, with no apology.
 - Tables: hover rows `--panel2`, 44px rows (48px on touch).
 - Touch targets are at least 44×44px.
-- Charts (ECharts): team series use team colours; everything else uses `--g`, `--gold`, `--amber`, `--red` and neutrals.
+- Charts (ECharts): team series use team colours; everything else uses `--primary`, `--amber`, `--red`, `--live` and neutrals.

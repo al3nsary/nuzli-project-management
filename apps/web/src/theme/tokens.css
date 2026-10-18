@@ -1,82 +1,86 @@
 /*
- * Nuzli design tokens — owner request A7: aligned with the Muhsen system.
- * Source of truth: .claude/skills/nuzli-design-system/SKILL.md, whose values are copied
- * literally from Muhsen Control (Desktop/Muhsen-Control/app/01-style.html, lines 14–107).
- * Light = Muhsen "day", dark = Muhsen "night".
+ * Nuzli design tokens — owner request A9 (2026-10-19): a white, GanttPRO-clean interface with
+ * Nozoly indigo (أزرق نيلي) as the one brand colour; team colours carry identity while browsing.
+ * Source of truth: .claude/skills/nuzli-design-system/SKILL.md (ADR in docs/DECISIONS.md).
  *
- * The legacy names (--ground, --surface, --field, --signal, --breach, --ok, --muted…) are kept
- * as aliases of the new tokens so every screen follows the palette; new code uses the new names.
+ * New code uses the semantic names (--primary, --accent, --tint, --focus, --live, --amber, --red,
+ * --blue). The Muhsen-era names (--g, --g2, --g3, --gold*, --mark-bg) and the phase 1–4 names
+ * (--ground, --surface, --field, --signal, --breach, --ok, --muted…) are kept as aliases so every
+ * existing screen recolours without edits.
  */
 :root {
-  /* Surfaces */
-  --void: #edf4ef;
-  --deep: #f7fbf8;
-  --panel: #ffffff;
-  --panel2: #f2f9f4;
-  --raise: #e7f1ea;
-  --line: #dde9e1;
-  --line2: #c6dace;
-  --hair: rgba(20, 89, 63, 0.2);
+  /* Surfaces — white like GanttPRO. */
+  --void: #f7f8fa; /* page */
+  --deep: #ffffff; /* top bar */
+  --panel: #ffffff; /* cards, tables, dialogs */
+  --panel2: #f5f6f9; /* zebra rows, inputs, quiet fills */
+  --raise: #eef0f4;
+  --hover: #f1f3f7;
+  --line: #e6e8ec;
+  --line2: #d5d9e0;
+  --hair: rgba(48, 63, 159, 0.16);
 
-  /* Brand */
-  --g: #14593f;
-  --g2: #0c3a29;
-  --g3: #1d7452;
-  --live: #0b8a4b;
-  --gold: #a8875a;
-  --gold2: #b4935f;
-  --gold3: #8a6c3c;
-  --amber: #b8791a;
-  --red: #c0392b;
-  --blue: #1b6e9c;
+  /* Nozoly indigo. */
+  --primary: #303f9f;
+  --primary-hover: #283593;
+  --primary-press: #1a237e;
+  --tint: #e8eaf6;
+  --tint2: #c5cae9;
+  --focus: #5c6bc0;
+  /* Indigo as text and icons on surfaces (same as --primary by day, lighter by night). */
+  --accent: #303f9f;
+  --on-primary: #ffffff;
+
+  /* Status (text contrast ≥ 4.5:1 on white). */
+  --live: #2e7d32;
+  --amber: #a35c00;
+  --red: #c62828;
+  --blue: #1565c0;
 
   /* Text */
-  --ink: #0d1a13;
-  --dim: #4c635a;
-  --dim2: #7a8f84;
-  --faint: #9ab0a3;
-  --on-g: #ffffff;
-  --link: var(--g);
+  --ink: #1f2430;
+  --dim: #5e6676;
+  --dim2: #6f7787;
+  --faint: #a3a9b5;
+  --link: var(--accent);
 
-  --sheen: rgba(20, 89, 63, 0.045);
-  --sheen2: rgba(20, 89, 63, 0.09);
-  --shadow: 0 1px 2px rgba(11, 53, 39, 0.05), 0 4px 10px -4px rgba(11, 53, 39, 0.07),
-    0 18px 34px -22px rgba(11, 53, 39, 0.3);
-  --lift: 0 2px 6px rgba(11, 53, 39, 0.07), 0 18px 34px -14px rgba(11, 53, 39, 0.22);
-  --scrim: rgba(16, 25, 20, 0.42);
+  --sheen: rgba(31, 36, 48, 0.035);
+  --sheen2: rgba(31, 36, 48, 0.065);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.03);
+  --lift: 0 4px 12px -2px rgba(16, 24, 40, 0.08), 0 16px 36px -10px rgba(16, 24, 40, 0.14);
+  --scrim: rgba(17, 22, 34, 0.4);
 
-  /* Side navigation: deep Muhsen green by day (the app header's identity). */
-  --nav-bg: linear-gradient(168deg, #1a6b4c 0%, #12513a 52%, #0d3e2c 100%);
-  --nav-ink: #f4faf6;
-  --nav-dim: rgba(244, 250, 246, 0.82);
-  --nav-dim2: rgba(244, 250, 246, 0.62);
-  --nav-faint: rgba(244, 250, 246, 0.44);
-  --nav-line: rgba(255, 255, 255, 0.11);
-  --nav-sheen: rgba(255, 255, 255, 0.08);
-  --nav-sheen2: rgba(255, 255, 255, 0.15);
-  --nav-on-bg: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.03));
-  --nav-on-ring: rgba(231, 209, 162, 0.55);
-  --nav-on-ink: #ffffff;
-  --mark-bg: linear-gradient(150deg, #e7d1a2, #a8875a);
+  /* Side navigation: white, like GanttPRO's left nav. */
+  --nav-bg: #ffffff;
+  --nav-ink: #1f2430;
+  --nav-dim: #3d4452;
+  --nav-dim2: #5e6676;
+  --nav-faint: #6f7787;
+  --nav-line: #e6e8ec;
+  --nav-sheen: #f1f3f7;
+  --nav-sheen2: #eceef3;
+  --nav-on-bg: #e8eaf6;
+  --nav-on-ink: #303f9f;
+  --nav-bar: #303f9f;
 
-  /* Status pills (background / text), literal from the Muhsen app. */
-  --p-live-b: #e4f2e9;
-  --p-live-t: #0b6540;
-  --p-wait-b: #fbf1de;
-  --p-wait-t: #7f5310;
-  --p-no-b: #fbe9e7;
-  --p-no-t: #93261c;
-  --p-blue-b: #e7eef6;
-  --p-blue-t: #2a4a73;
-  --p-gold-b: #f5eddf;
-  --p-gold-t: #6e5729;
-  --p-grey-b: #eff1ed;
-  --p-grey-t: #5a6c63;
+  /* Status pills (background / text). `brand` replaces the Muhsen-era `gold` pill. */
+  --p-live-b: #e7f4ea;
+  --p-live-t: #1b6e3a;
+  --p-wait-b: #fff3e0;
+  --p-wait-t: #8a4b00;
+  --p-no-b: #fdecea;
+  --p-no-t: #b3261e;
+  --p-blue-b: #e3f0fc;
+  --p-blue-t: #0b57a4;
+  --p-brand-b: #e8eaf6;
+  --p-brand-t: #283593;
+  --p-grey-b: #f1f3f6;
+  --p-grey-t: #4a5262;
 
-  /* Bottom tab bar (Muhsen app). */
+  /* Bottom tab bar (phones). */
   --tabs-bg: #ffffff;
-  --tabs-ink: #8c9b92;
-  --tabs-shadow: 0 -1px 0 rgba(20, 89, 63, 0.07), 0 -16px 34px -26px rgba(11, 53, 39, 0.55);
+  --tabs-ink: #6f7787;
+  --tabs-shadow: 0 -1px 0 #e6e8ec, 0 -12px 28px -24px rgba(16, 24, 40, 0.35);
 
   /* Scale */
   --s1: 4px;
@@ -86,16 +90,16 @@
   --s5: 24px;
   --s6: 32px;
   --s7: 48px;
-  --r: 16px;
-  --r2: 22px;
-  --r3: 12px;
-  --r4: 9px;
+  --r: 12px; /* cards */
+  --r2: 16px; /* dialogs */
+  --r3: 8px; /* inputs, buttons */
+  --r4: 6px; /* chips */
   --e: cubic-bezier(0.22, 0.7, 0.2, 1);
   --e2: cubic-bezier(0.34, 1.4, 0.44, 1);
   --e3: cubic-bezier(0.16, 1, 0.3, 1);
-  --side-w: 276px;
-  --side-mini: 74px;
-  --top-h: 66px;
+  --side-w: 256px;
+  --side-mini: 68px;
+  --top-h: 60px;
   /* Physical offsets are multiplied by this (skill nuzli-arabic-rtl): -1 in RTL. */
   --ds: -1;
 
@@ -111,15 +115,27 @@
   --fs-2xl: 1.75rem;
   --fs-3xl: 2.25rem;
 
+  /* Muhsen-era aliases (A7): green → indigo, gold → indigo accents and the focus ring. */
+  --g: var(--primary);
+  --g2: var(--primary-press);
+  --g3: var(--primary-hover);
+  --gold: var(--accent);
+  --gold2: var(--focus);
+  --gold3: var(--accent);
+  --on-g: var(--on-primary);
+  --mark-bg: var(--tint);
+  --p-gold-b: var(--p-brand-b);
+  --p-gold-t: var(--p-brand-t);
+
   /* Legacy aliases (phases 1–4). */
   --ground: var(--void);
   --surface: var(--panel);
-  --field: var(--g);
+  --field: var(--primary);
   --signal: var(--amber);
   --breach: var(--red);
   --ok: var(--live);
   --muted: var(--dim);
-  --on-field: var(--on-g);
+  --on-field: var(--on-primary);
   --sp-1: var(--s1);
   --sp-2: var(--s2);
   --sp-3: var(--s3);
@@ -139,115 +155,129 @@
   --ds: 1;
 }
 
-/* Dark = Muhsen "night". Applied for the dark scheme, and for "auto" on a dark system. */
+/*
+ * Dark: neutral near-black surfaces, indigo #7986CB accents. Filled buttons stay a deeper
+ * indigo (#3F51B5) so white text keeps ≥ 4.5:1. Applied for the dark scheme, and for "auto"
+ * on a dark system (the two blocks must stay identical).
+ */
 @media (prefers-color-scheme: dark) {
   :root:not([data-mantine-color-scheme='light']) {
-    --void: #060c09;
-    --deep: #0a140f;
-    --panel: #0f1c16;
-    --panel2: #14261f;
-    --raise: #183026;
-    --line: #1c3128;
-    --line2: #27473a;
-    --hair: rgba(198, 168, 111, 0.16);
-    --live: #14c273;
-    --gold2: #c6a86f;
-    --gold3: #e7d1a2;
-    --amber: #e5a62f;
-    --red: #ec4f54;
-    --blue: #3fa3dc;
-    --ink: #edf5f0;
-    --dim: #9fb6a9;
-    --dim2: #6b857a;
-    --faint: #405549;
-    --link: #4fe49f;
-    --sheen: rgba(255, 255, 255, 0.045);
-    --sheen2: rgba(255, 255, 255, 0.08);
-    --shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 20px 52px -30px rgba(0, 0, 0, 0.95);
-    --lift: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 30px 64px -32px rgba(0, 0, 0, 1);
-    --scrim: rgba(4, 9, 7, 0.72);
-    --nav-bg: linear-gradient(180deg, var(--deep), var(--void));
-    --nav-ink: #edf5f0;
-    --nav-dim: #9fb6a9;
-    --nav-dim2: #6b857a;
-    --nav-faint: #405549;
-    --nav-line: #1c3128;
-    --nav-sheen: rgba(255, 255, 255, 0.045);
-    --nav-sheen2: rgba(255, 255, 255, 0.09);
-    --nav-on-bg: linear-gradient(90deg, color-mix(in srgb, #14c273 18%, transparent), transparent);
-    --nav-on-ring: color-mix(in srgb, #14c273 26%, transparent);
-    --nav-on-ink: #edf5f0;
-    --mark-bg: linear-gradient(150deg, #e7d1a2, #a8875a);
-    --p-live-b: rgba(20, 194, 115, 0.15);
-    --p-live-t: #4fe49f;
-    --p-wait-b: rgba(229, 166, 47, 0.16);
-    --p-wait-t: #f2c069;
-    --p-no-b: rgba(236, 79, 84, 0.16);
-    --p-no-t: #ff8e91;
-    --p-blue-b: rgba(63, 163, 220, 0.16);
-    --p-blue-t: #82c8ed;
-    --p-gold-b: rgba(198, 168, 111, 0.16);
-    --p-gold-t: #e7d1a2;
+    --void: #0f1115;
+    --deep: #14171c;
+    --panel: #171a21;
+    --panel2: #1d2129;
+    --raise: #232834;
+    --hover: #1f232c;
+    --line: #2a2f3a;
+    --line2: #383e4b;
+    --hair: rgba(121, 134, 203, 0.22);
+    --primary: #3f51b5;
+    --primary-hover: #4a5cc4;
+    --primary-press: #303f9f;
+    --tint: rgba(121, 134, 203, 0.16);
+    --tint2: rgba(121, 134, 203, 0.28);
+    --focus: #7986cb;
+    --accent: #7986cb;
+    --live: #81c784;
+    --amber: #ffb74d;
+    --red: #ef6461;
+    --blue: #64b5f6;
+    --ink: #e7e9ee;
+    --dim: #a3a9b6;
+    --dim2: #8a91a0;
+    --faint: #5a6170;
+    --link: #9fa8da;
+    --sheen: rgba(255, 255, 255, 0.04);
+    --sheen2: rgba(255, 255, 255, 0.075);
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -24px rgba(0, 0, 0, 0.9);
+    --lift: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 56px -28px rgba(0, 0, 0, 1);
+    --scrim: rgba(5, 7, 10, 0.7);
+    --nav-bg: #14171c;
+    --nav-ink: #e7e9ee;
+    --nav-dim: #c3c8d2;
+    --nav-dim2: #a3a9b6;
+    --nav-faint: #8a91a0;
+    --nav-line: #2a2f3a;
+    --nav-sheen: rgba(255, 255, 255, 0.05);
+    --nav-sheen2: rgba(255, 255, 255, 0.08);
+    --nav-on-bg: rgba(121, 134, 203, 0.16);
+    --nav-on-ink: #aab3e3;
+    --nav-bar: #7986cb;
+    --p-live-b: rgba(76, 175, 80, 0.16);
+    --p-live-t: #81c784;
+    --p-wait-b: rgba(255, 167, 38, 0.16);
+    --p-wait-t: #ffb74d;
+    --p-no-b: rgba(239, 83, 80, 0.16);
+    --p-no-t: #ef9a9a;
+    --p-blue-b: rgba(66, 165, 245, 0.16);
+    --p-blue-t: #90caf9;
+    --p-brand-b: rgba(121, 134, 203, 0.18);
+    --p-brand-t: #aab3e3;
     --p-grey-b: rgba(255, 255, 255, 0.07);
-    --p-grey-t: #9fb6a9;
-    --tabs-bg: #0f1c16;
-    --tabs-ink: #6b857a;
-    --tabs-shadow: 0 -1px 0 #1c3128, 0 -16px 34px -26px rgba(0, 0, 0, 0.9);
+    --p-grey-t: #a3a9b6;
+    --tabs-bg: #171a21;
+    --tabs-ink: #8a91a0;
+    --tabs-shadow: 0 -1px 0 #2a2f3a, 0 -16px 34px -26px rgba(0, 0, 0, 0.9);
     color-scheme: dark;
   }
 }
 
 :root[data-mantine-color-scheme='dark'] {
-  --void: #060c09;
-  --deep: #0a140f;
-  --panel: #0f1c16;
-  --panel2: #14261f;
-  --raise: #183026;
-  --line: #1c3128;
-  --line2: #27473a;
-  --hair: rgba(198, 168, 111, 0.16);
-  --live: #14c273;
-  --gold2: #c6a86f;
-  --gold3: #e7d1a2;
-  --amber: #e5a62f;
-  --red: #ec4f54;
-  --blue: #3fa3dc;
-  --ink: #edf5f0;
-  --dim: #9fb6a9;
-  --dim2: #6b857a;
-  --faint: #405549;
-  --link: #4fe49f;
-  --sheen: rgba(255, 255, 255, 0.045);
-  --sheen2: rgba(255, 255, 255, 0.08);
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 20px 52px -30px rgba(0, 0, 0, 0.95);
-  --lift: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 30px 64px -32px rgba(0, 0, 0, 1);
-  --scrim: rgba(4, 9, 7, 0.72);
-  --nav-bg: linear-gradient(180deg, var(--deep), var(--void));
-  --nav-ink: #edf5f0;
-  --nav-dim: #9fb6a9;
-  --nav-dim2: #6b857a;
-  --nav-faint: #405549;
-  --nav-line: #1c3128;
-  --nav-sheen: rgba(255, 255, 255, 0.045);
-  --nav-sheen2: rgba(255, 255, 255, 0.09);
-  --nav-on-bg: linear-gradient(90deg, color-mix(in srgb, #14c273 18%, transparent), transparent);
-  --nav-on-ring: color-mix(in srgb, #14c273 26%, transparent);
-  --nav-on-ink: #edf5f0;
-  --mark-bg: linear-gradient(150deg, #e7d1a2, #a8875a);
-  --p-live-b: rgba(20, 194, 115, 0.15);
-  --p-live-t: #4fe49f;
-  --p-wait-b: rgba(229, 166, 47, 0.16);
-  --p-wait-t: #f2c069;
-  --p-no-b: rgba(236, 79, 84, 0.16);
-  --p-no-t: #ff8e91;
-  --p-blue-b: rgba(63, 163, 220, 0.16);
-  --p-blue-t: #82c8ed;
-  --p-gold-b: rgba(198, 168, 111, 0.16);
-  --p-gold-t: #e7d1a2;
+  --void: #0f1115;
+  --deep: #14171c;
+  --panel: #171a21;
+  --panel2: #1d2129;
+  --raise: #232834;
+  --hover: #1f232c;
+  --line: #2a2f3a;
+  --line2: #383e4b;
+  --hair: rgba(121, 134, 203, 0.22);
+  --primary: #3f51b5;
+  --primary-hover: #4a5cc4;
+  --primary-press: #303f9f;
+  --tint: rgba(121, 134, 203, 0.16);
+  --tint2: rgba(121, 134, 203, 0.28);
+  --focus: #7986cb;
+  --accent: #7986cb;
+  --live: #81c784;
+  --amber: #ffb74d;
+  --red: #ef6461;
+  --blue: #64b5f6;
+  --ink: #e7e9ee;
+  --dim: #a3a9b6;
+  --dim2: #8a91a0;
+  --faint: #5a6170;
+  --link: #9fa8da;
+  --sheen: rgba(255, 255, 255, 0.04);
+  --sheen2: rgba(255, 255, 255, 0.075);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -24px rgba(0, 0, 0, 0.9);
+  --lift: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 56px -28px rgba(0, 0, 0, 1);
+  --scrim: rgba(5, 7, 10, 0.7);
+  --nav-bg: #14171c;
+  --nav-ink: #e7e9ee;
+  --nav-dim: #c3c8d2;
+  --nav-dim2: #a3a9b6;
+  --nav-faint: #8a91a0;
+  --nav-line: #2a2f3a;
+  --nav-sheen: rgba(255, 255, 255, 0.05);
+  --nav-sheen2: rgba(255, 255, 255, 0.08);
+  --nav-on-bg: rgba(121, 134, 203, 0.16);
+  --nav-on-ink: #aab3e3;
+  --nav-bar: #7986cb;
+  --p-live-b: rgba(76, 175, 80, 0.16);
+  --p-live-t: #81c784;
+  --p-wait-b: rgba(255, 167, 38, 0.16);
+  --p-wait-t: #ffb74d;
+  --p-no-b: rgba(239, 83, 80, 0.16);
+  --p-no-t: #ef9a9a;
+  --p-blue-b: rgba(66, 165, 245, 0.16);
+  --p-blue-t: #90caf9;
+  --p-brand-b: rgba(121, 134, 203, 0.18);
+  --p-brand-t: #aab3e3;
   --p-grey-b: rgba(255, 255, 255, 0.07);
-  --p-grey-t: #9fb6a9;
-  --tabs-bg: #0f1c16;
-  --tabs-ink: #6b857a;
-  --tabs-shadow: 0 -1px 0 #1c3128, 0 -16px 34px -26px rgba(0, 0, 0, 0.9);
+  --p-grey-t: #a3a9b6;
+  --tabs-bg: #171a21;
+  --tabs-ink: #8a91a0;
+  --tabs-shadow: 0 -1px 0 #2a2f3a, 0 -16px 34px -26px rgba(0, 0, 0, 0.9);
   color-scheme: dark;
 }

@@ -1,16 +1,22 @@
 import { useEffect, type ReactNode } from 'react';
-import { Title, Text } from '@mantine/core';
+import { IconCloudOff, IconTimelineEvent, IconUsersGroup } from '@tabler/icons-react';
 import { IS_DEMO } from '../../api';
 import { documentTitle } from '../../app/nav';
 import { t } from '../../i18n';
-import { brandUrl, NozolyCredit } from '../../components/Brand';
+import { MuhsenSystemLine, NozolyLogo } from '../../components/Brand';
+
+const VALUES = [
+  { icon: IconTimelineEvent, title: 'auth.value1', sub: 'auth.value1Sub' },
+  { icon: IconUsersGroup, title: 'auth.value2', sub: 'auth.value2Sub' },
+  { icon: IconCloudOff, title: 'auth.value3', sub: 'auth.value3Sub' },
+] as const;
 
 /**
- * Public pages (login, register, pending, forgot/reset/change password) — owner request A7.
- * Desktop: a split screen. The Muhsen green panel on the inline start carries the Muhsen lockup
- * (white, 168px), the pattern at ≤ .06 and one value line; the form panel carries «نُزلي» and
- * «تطوير نُزلي» with the Nozoly logo (green by day, light by night). Phones: stacked, like the
- * Muhsen app login (green header, white sheet).
+ * Public pages (login, register, pending, forgot/reset/change password) — owner request A9.
+ * A clean white page: the form card with the Nozoly logo large at its top (220px desktop,
+ * 164px on phones), the page title and a sub-line; on desktop an indigo-tinted panel on the
+ * inline end with three short value lines; «منظومة مُحسن» with the small Muhsen mark in the
+ * footer. Phones (360px): one column, the card flat on white.
  */
 export function AuthLayout({
   title,
@@ -35,50 +41,42 @@ export function AuthLayout({
         </div>
       ) : null}
       <div className="nz-auth-grid">
-        <aside className="nz-auth-hero" aria-label={t('brand.system')}>
-          <img className="nz-auth-pattern" src={brandUrl('muhsen-pattern.png')} alt="" aria-hidden draggable={false} />
-          <div className="nz-auth-hero-in">
-            <img
-              className="nz-auth-lockup"
-              src={brandUrl('muhsen-lockup-white.png')}
-              alt={t('brand.muhsenLogo')}
-              width={168}
-              draggable={false}
-            />
-            <div className="nz-auth-value">
-              <p className="nz-auth-line">{t('brand.valueLine')}</p>
-              <p className="nz-auth-cap">{t('brand.valueCaption')}</p>
-            </div>
-            <p className="nz-auth-system">
-              <span className="nz-auth-dot" aria-hidden />
-              {t('brand.system')}
-            </p>
-          </div>
-        </aside>
-
         <main className="nz-auth-main" id="main">
-          <div className="nz-auth-sheet" style={{ maxWidth: width }}>
-            <header className="nz-auth-brand">
-              <span className="nz-auth-name">{t('app.name')}</span>
-              <span className="nz-auth-tag">{t('app.tagline')}</span>
+          <div className="nz-auth-card" style={{ maxWidth: width }}>
+            <header className="nz-auth-logo">
+              <NozolyLogo width={220} className="nz-auth-logo-wide" />
+              <NozolyLogo width={164} className="nz-auth-logo-narrow" />
             </header>
             <div className="nz-auth-head">
-              <Title order={1} tabIndex={-1}>
-                {title}
-              </Title>
-              {subtitle ? (
-                <Text c="dimmed" mt={4} size="sm">
-                  {subtitle}
-                </Text>
-              ) : null}
+              <h1 tabIndex={-1}>{title}</h1>
+              {subtitle ? <p className="nz-auth-sub">{subtitle}</p> : null}
             </div>
             <div className="nz-auth-body">{children}</div>
-            <footer className="nz-auth-foot">
-              <NozolyCredit variant="green" className="nz-credit--day" />
-              <NozolyCredit variant="light" className="nz-credit--night" />
-            </footer>
           </div>
+          <footer className="nz-auth-foot">
+            <MuhsenSystemLine />
+          </footer>
         </main>
+
+        <aside className="nz-auth-side" aria-label={t('auth.valueTitle')}>
+          <div className="nz-auth-side-in">
+            <p className="nz-auth-kicker">{t('app.name')}</p>
+            <h2>{t('auth.valueTitle')}</h2>
+            <ul className="nz-auth-values">
+              {VALUES.map((v) => (
+                <li key={v.title}>
+                  <span className="nz-auth-vic" aria-hidden>
+                    <v.icon size={21} stroke={1.7} />
+                  </span>
+                  <div>
+                    <b>{t(v.title)}</b>
+                    <span>{t(v.sub)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </aside>
       </div>
     </div>
   );

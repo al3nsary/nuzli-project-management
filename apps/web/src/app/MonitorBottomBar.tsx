@@ -8,7 +8,8 @@ import { useShellStore } from './shell/store';
 /** Each role's phone bar, by registry id (design skill «Mobile»), plus «المزيد». */
 const BARS: Partial<Record<Role, { id: string; label?: MessageKey; primary?: boolean }[]>> = {
   MONITOR: [{ id: 'recordViolation', primary: true }, { id: 'myViolations' }, { id: 'pendingSync' }],
-  SUPERVISOR: [{ id: 'dashboard' }, { id: 'myTasks' }, { id: 'teams', label: 'nav.myTeams' }],
+  // A9: supervisors open on «مهامي».
+  SUPERVISOR: [{ id: 'myTasks' }, { id: 'dashboard' }, { id: 'teams', label: 'nav.myTeams' }],
 };
 
 export function hasBottomBar(role: Role | undefined): boolean {
@@ -16,7 +17,7 @@ export function hasBottomBar(role: Role | undefined): boolean {
 }
 
 /**
- * The Muhsen app's bottom tab bar (phones only, < 768px): the role's three destinations and
+ * The bottom tab bar (phones only, < 768px): the role's three destinations and
  * «المزيد», which opens the side drawer. Safe-area insets and the Muhsen tabs shadow.
  */
 export function RoleBottomBar({

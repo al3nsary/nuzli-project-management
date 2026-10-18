@@ -32,6 +32,8 @@ import { AuditPage } from '../pages/AuditPage';
 import { NotificationsPage } from '../pages/NotificationsPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SettingsPage } from '../pages/SettingsPage';
+import { ComingSoonPage } from '../pages/ComingSoonPage';
+import { NAV, navLeaves } from './nav';
 
 
 // Phase 2 screens are split out of the main bundle (dnd-kit, exceljs, card templates).
@@ -74,6 +76,18 @@ const ProjectsPage = lazyPage(() => import('../pages/projects/ProjectsPage'), 'P
 const ProjectPage = lazyPage(() => import('../pages/projects/ProjectPage'), 'ProjectPage', 'gantt');
 const MyTasksPage = lazyPage(() => import('../pages/projects/MyTasksPage'), 'MyTasksPage', 'tasks');
 const CalendarsPage = lazyPage(() => import('../pages/settings/CalendarsPage'), 'CalendarsPage', 'form');
+
+/** Placeholder routes for the registry's `soon` pages, guarded by the same permission. */
+const SOON_ROUTES: RouteObject[] = navLeaves(NAV)
+  .filter((n) => n.soon && n.path && n.permission)
+  .map((n) => ({
+    path: n.path!.slice(1),
+    element: (
+      <RequirePermission permission={n.permission!}>
+        <ComingSoonPage id={n.id} />
+      </RequirePermission>
+    ),
+  }));
 
 export const routes: RouteObject[] = [
   {
@@ -288,10 +302,11 @@ export const routes: RouteObject[] = [
           </RequirePermission>
         ),
       },
+      // A9: the project list is project management, which supervisors no longer see.
       {
         path: 'projects',
         element: (
-          <RequirePermission permission="projects.readGranted">
+          <RequirePermission permission="projects.readAll">
             <ProjectsPage />
           </RequirePermission>
         ),
@@ -337,6 +352,8 @@ export const routes: RouteObject[] = [
           </RequirePermission>
         ),
       },
+      // A9 pages being built in this release: registry entry, route and guard are final.
+      ...SOON_ROUTES,
       { path: '*', element: <NotFound /> },
     ],
   },

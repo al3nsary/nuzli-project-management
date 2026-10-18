@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Outlet, useLocation, useMatches, useNavigationType } from 'react-router-dom';
 import { useMediaQuery } from '@mantine/hooks';
+import { can } from '@nuzli/shared';
 import { IS_DEMO } from '../api';
 import { t } from '../i18n';
 import { documentTitle } from './nav';
@@ -146,7 +147,7 @@ export function Layout() {
       <a href="#main" className="nz-skip">
         {t('app.skipToContent')}
       </a>
-      <Sidebar tree={tree} chain={chain} badges={badges} mobile={mobile} />
+      <Sidebar tree={tree} chain={chain} badges={badges} mobile={mobile} canCreate={can(user, 'projects.create')} />
       {mobile && drawer ? <div className="nz-scrim" onClick={() => setDrawer(false)} aria-hidden /> : null}
       <div className="nz-stage" id="nz-stage">
         {IS_DEMO ? (

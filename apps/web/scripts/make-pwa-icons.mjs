@@ -1,43 +1,67 @@
 #!/usr/bin/env node
 /**
- * Generates the PWA icons and the favicons in apps/web/public in the Muhsen app's icon style
- * (owner request A7): the Muhsen green gradient, the Muhsen pattern low on the tile, and the real
- * white/gold Muhsen "M" (public/brand/muhsen-mark-white.png) centred — used as a file, never
- * redrawn or recoloured. Maskable icons keep the mark inside the 80 % safe circle.
+ * Generates the PWA icons and the favicons in apps/web/public in the Nozoly identity (owner
+ * request A9): the real green Nozoly logo (public/brand/nozoly-green.png) — placed as a file,
+ * never recoloured, stretched or redrawn — on white, plus a maskable icon on Nozoly indigo
+ * (#303F9F) with the logo on a white rounded tile inside the 80 % safe circle.
+ * The artwork occupies x 14–415, y 44–141 of the 540×156 file (transparent margins); the mark
+ * alone is x 14–169. Favicons (32/64 px) show the mark part of the same file, because the
+ * wordmark is illegible at that size.
  * Renders with headless Chrome over the DevTools protocol (no image libraries).
  *
- * Usage: CHROME="C:/Program Files/Google/Chrome/Application/chrome.exe" node scripts/make-pwa-icons.mjs
- * Output: public/pwa-192.png, pwa-512.png, pwa-maskable-512.png, apple-touch-icon.png (180),
- *         favicon-32.png, favicon-64.png.
+ * Usage: CHROME="C:/Program Files/Google/Chrome/Application/chrome.exe" node scripts/make-pwa-icons.mjs [outDir]
+ * Output: pwa-192.png, pwa-512.png, pwa-maskable-512.png, apple-touch-icon.png (180),
+ *         favicon-32.png, favicon-64.png (default outDir: public/).
  */
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const brand = (f) => pathToFileURL(join(root, 'public', 'brand', f)).href;
+const out = process.argv[2] ? resolve(process.argv[2]) : join(root, 'public');
+const logo = pathToFileURL(join(root, 'public', 'brand', 'nozoly-green.png')).href;
 const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+
+const FILE = { w: 540, h: 156 };
+const ART = { x: 14, y: 44, w: 402, h: 98 };
+const MARK_W = 156;
+const INDIGO = '#303F9F';
+
+/** The logo file inside a box that shows only the artwork (or the mark), `width` px wide. */
+function logoBox(width, mark = false) {
+  const s = width / (mark ? MARK_W : ART.w);
+  const h = ART.h * s;
+  return `<div style="position:relative;overflow:hidden;width:${width}px;height:${h}px">
+    <img src="${logo}" style="position:absolute;max-width:none;width:${FILE.w * s}px;height:${FILE.h * s}px;left:${-ART.x * s}px;top:${-ART.y * s}px"></div>`;
+}
 
 /**
  * One icon as HTML.
- *  - `maskable`: full bleed, the mark at 40 % of the width (inside the 80 % safe circle).
- *  - `rounded`: transparent corners (favicons); otherwise square, the platform masks it.
- *  - `pattern`: the Muhsen pattern band (skipped at favicon sizes, where it would be noise).
+ *  - default: white square, the full logo at 78 % of the width.
+ *  - `maskable`: indigo full bleed, a white rounded tile (56 %, inside the safe circle) with the logo.
+ *  - `favicon`: rounded white tile with the mark only.
  */
-function html(size, { maskable = false, rounded = false, pattern = true } = {}) {
-  const mark = Math.round(size * (maskable ? 0.4 : size <= 64 ? 0.66 : 0.52));
-  const radius = rounded ? Math.round(size * 0.22) : 0;
+function html(size, { maskable = false, favicon = false } = {}) {
+  let inner;
+  let bg = '#ffffff';
+  let radius = 0;
+  if (maskable) {
+    bg = INDIGO;
+    const tile = Math.round(size * 0.56);
+    inner = `<div style="width:${tile}px;height:${tile}px;border-radius:${Math.round(tile * 0.2)}px;background:#fff;display:grid;place-items:center;box-shadow:0 ${Math.round(size * 0.012)}px ${Math.round(size * 0.04)}px rgba(10,14,60,.35)">${logoBox(Math.round(tile * 0.84))}</div>`;
+  } else if (favicon) {
+    radius = Math.round(size * 0.22);
+    inner = logoBox(Math.round(size * 0.84), true);
+  } else {
+    inner = logoBox(Math.round(size * 0.78));
+  }
   return `<!doctype html><html><head><style>
 html, body { margin: 0; background: transparent; }
-.icon { position: relative; width: ${size}px; height: ${size}px; overflow: hidden; border-radius: ${radius}px;
-  background: linear-gradient(150deg, #1a6b4c 0%, #12513a 52%, #0d3e2c 100%); }
-.pattern { position: absolute; left: 0; right: 0; bottom: 0; height: 42%;
-  background: url('${brand('muhsen-pattern.png')}') repeat-x left top / auto 60%; opacity: .1; }
-.mark { position: absolute; inset: 0; display: grid; place-items: center; }
-.mark img { width: ${mark}px; height: ${mark}px; object-fit: contain; transform: translateY(-${Math.round(size * 0.02)}px); }
-</style></head><body><div class="icon">${pattern ? '<div class="pattern"></div>' : ''}<div class="mark"><img src="${brand('muhsen-mark-white.png')}"></div></div></body></html>`;
+.icon { width: ${size}px; height: ${size}px; overflow: hidden; border-radius: ${radius}px; background: ${bg};
+  display: grid; place-items: center; ${favicon ? 'box-shadow: inset 0 0 0 1px #e6e8ec;' : ''} }
+</style></head><body><div class="icon">${inner}</div></body></html>`;
 }
 
 const ICONS = [
@@ -45,8 +69,8 @@ const ICONS = [
   ['pwa-512.png', 512, {}],
   ['pwa-maskable-512.png', 512, { maskable: true }],
   ['apple-touch-icon.png', 180, {}],
-  ['favicon-32.png', 32, { rounded: true, pattern: false }],
-  ['favicon-64.png', 64, { rounded: true, pattern: false }],
+  ['favicon-32.png', 32, { favicon: true }],
+  ['favicon-64.png', 64, { favicon: true }],
 ];
 
 const dir = mkdtempSync(join(tmpdir(), 'nuzli-icons-'));
@@ -95,8 +119,8 @@ for (const [name, size, opts] of ICONS) {
     awaitPromise: true,
   });
   const shot = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: size, height: size, scale: 1 } });
-  writeFileSync(join(root, 'public', name), Buffer.from(shot.result.data, 'base64'));
-  console.log('wrote public/' + name);
+  writeFileSync(join(out, name), Buffer.from(shot.result.data, 'base64'));
+  console.log('wrote ' + join(out, name));
 }
 ws.close();
 chrome.kill();

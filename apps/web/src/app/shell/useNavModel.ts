@@ -22,7 +22,7 @@ export function useNavBadges(): Record<BadgeKind, number> {
   const reg = useRegistrations({ pageSize: 1 }, can(user, 'registrations.review'));
   const pendingTeams = useTeams({ status: 'PENDING_APPROVAL' }, can(user, 'teams.approve'));
   const outbox = useUnsyncedCount(can(user, 'violations.create') ? user?.id : undefined);
-  const mine = useMyTasks(user?.role === 'SUPERVISOR' && can(user, 'tasks.readAssigned'));
+  const mine = useMyTasks(can(user, 'tasks.readAssigned'));
   return {
     registrations: reg.data?.total ?? 0,
     pendingTeams: pendingTeams.data?.length ?? 0,

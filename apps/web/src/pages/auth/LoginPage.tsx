@@ -111,28 +111,32 @@ export function LoginPage() {
             styles={{ input: { textAlign: 'start' } }}
             {...form.getInputProps('identifier')}
           />
-          <PasswordInput
-            label={t('login.password')}
-            autoComplete="current-password"
-            {...form.getInputProps('password')}
-          />
-          <Group justify="flex-end">
-            <Anchor component={Link} to="/forgot-password" size="sm">
-              {t('login.forgot')}
-            </Anchor>
-          </Group>
+          <div>
+            <PasswordInput
+              label={t('login.password')}
+              autoComplete="current-password"
+              visibilityToggleButtonProps={{ 'aria-label': t('login.showPassword') }}
+              {...form.getInputProps('password')}
+            />
+            <Group justify="flex-end" mt={8}>
+              <Anchor component={Link} to="/forgot-password" size="sm" fw={600}>
+                {t('login.forgot')}
+              </Anchor>
+            </Group>
+          </div>
           <Button
             type="submit"
             size="md"
+            fullWidth
             loading={form.submitting}
             disabled={waitSeconds > 0}
             leftSection={<IconLogin2 size={18} className="mirror-rtl" />}
           >
             {t('login.submit')}
           </Button>
-          <Text size="sm" ta="center">
+          <Text size="sm" ta="center" c="dimmed">
             {t('login.noAccount')}{' '}
-            <Anchor component={Link} to="/register">
+            <Anchor component={Link} to="/register" fw={600}>
               {t('login.register')}
             </Anchor>
           </Text>
@@ -141,16 +145,10 @@ export function LoginPage() {
 
       {api.demo ? (
         <section className="nz-demo" aria-labelledby="nz-demo-title">
-          <Stack gap="sm">
-            <div>
-              <Text fw={700} id="nz-demo-title">
-                {t('login.demoTitle')}
-              </Text>
-              <Text size="xs" c="dimmed" mt={2}>
-                {t('login.demoBody')} <Code className="ltr">{api.demo.password}</Code>
-              </Text>
-            </div>
-            <div className="nz-demo-roles">
+          <div className="nz-demo-sep" id="nz-demo-title">
+            {t('login.demoTitle')}
+          </div>
+          <div className="nz-demo-roles">
               {api.demo.accounts.map((a) => {
                 const RoleIcon = ROLE_ICON[a.role] ?? IconUser;
                 return (
@@ -164,20 +162,22 @@ export function LoginPage() {
                     onClick={() => void demoLogin(a.role, a.identifier)}
                   >
                     <span className="ci">
-                      {demoBusy === a.role ? <Loader size={16} color="currentColor" /> : <RoleIcon size={19} stroke={1.7} />}
+                      {demoBusy === a.role ? <Loader size={15} color="currentColor" /> : <RoleIcon size={17} stroke={1.8} />}
                     </span>
-                    <b>{roleLabel(a.role)}</b>
-                    <span>{t('login.demoEnter')}</span>
+                    <span>{roleLabel(a.role)}</span>
                   </button>
                 );
               })}
-            </div>
+          </div>
+          <p className="nz-demo-note">
+            {t('login.demoBody')} <Code className="ltr">{api.demo.password}</Code>
             {api.demo.pendingExample ? (
-              <Text size="xs" c="dimmed">
+              <>
+                <br />
                 {t('login.demoPendingHint', { email: api.demo.pendingExample })}
-              </Text>
+              </>
             ) : null}
-          </Stack>
+          </p>
         </section>
       ) : null}
     </AuthLayout>

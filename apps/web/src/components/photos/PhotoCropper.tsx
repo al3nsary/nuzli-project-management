@@ -44,11 +44,11 @@ function draw(canvas: HTMLCanvasElement | null, image: LoadedImage, state: CropS
     ctx.beginPath();
     ctx.rect(0, 0, W, H);
     ctx.arc(W / 2, H / 2, W / 2 - 1, 0, Math.PI * 2, true);
-    ctx.fillStyle = 'rgba(6, 12, 9, 0.5)';
+    ctx.fillStyle = 'rgba(15, 17, 21, 0.5)';
     ctx.fill('evenodd');
     ctx.beginPath();
     ctx.arc(W / 2, H / 2, W / 2 - 1.5 * (W / 300), 0, Math.PI * 2);
-    ctx.strokeStyle = '#C6A86F';
+    ctx.strokeStyle = '#5C6BC0';
     ctx.lineWidth = 2 * (W / 300);
     ctx.stroke();
     ctx.restore();

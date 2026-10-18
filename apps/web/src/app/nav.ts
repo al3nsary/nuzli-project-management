@@ -2,6 +2,13 @@ import { matchPath } from 'react-router-dom';
 import { can, canAny, type Permission, type Role, type UserDto } from '@nuzli/shared';
 import {
   IconAlertOctagon,
+  IconBriefcase,
+  IconClockHour4,
+  IconFileReport,
+  IconFolders,
+  IconMessages,
+  IconPaperclip,
+  IconSitemap,
   IconArrowsExchange,
   IconBell,
   IconCalendarCog,
@@ -34,13 +41,19 @@ import type { MessageKey } from '../i18n';
  * sheet and the document titles all read it — and nothing else.
  */
 
-export type NavGroupId = 'home' | 'projects' | 'teams' | 'violations' | 'admin';
+export type NavGroupId = 'home' | 'projects' | 'collab' | 'teams' | 'violations' | 'admin';
 export type BadgeKind = 'registrations' | 'pendingTeams' | 'outbox' | 'overdueTasks';
 export type EntityKind = 'team' | 'project';
 
-export const NAV_GROUPS: { id: NavGroupId; label: MessageKey }[] = [
-  { id: 'home', label: 'navGroup.home' },
-  { id: 'projects', label: 'navGroup.projects' },
+/**
+ * Groups in the order of GanttPRO's left nav (owner request A9): the project pages first, then
+ * communication, then the field operations and administration. `quiet` groups have no visible
+ * heading (a hairline separates them), but keep their name for screen readers and breadcrumbs.
+ */
+export const NAV_GROUPS: { id: NavGroupId; label: MessageKey; quiet?: boolean }[] = [
+  { id: 'home', label: 'navGroup.home', quiet: true },
+  { id: 'projects', label: 'navGroup.projects', quiet: true },
+  { id: 'collab', label: 'navGroup.collab', quiet: true },
   { id: 'teams', label: 'navGroup.teams' },
   { id: 'violations', label: 'navGroup.violations' },
   { id: 'admin', label: 'navGroup.admin' },
@@ -62,6 +75,10 @@ export interface NavNode {
   anyOf?: Permission[];
   /** Shown only to this role (in addition to the permission). */
   role?: Role;
+  /** For these roles the item leads the navigation (first item of the first group). */
+  lead?: Role[];
+  /** A page announced by A9 whose screen is still being built (placeholder page). */
+  soon?: boolean;
   /** Data-dependent rule (the API still enforces): supervisor violation visibility. */
   gate?: 'teamViolations';
   badge?: BadgeKind;
@@ -75,36 +92,92 @@ export interface NavNode {
 export const NAV: NavNode[] = [
   // ------------------------------------------------------------------ الرئيسية
   { id: 'dashboard', path: '/', label: 'nav.dashboard', icon: IconLayoutDashboard, group: 'home', end: true, key: 'h' },
-  {
-    id: 'notifications',
-    path: '/notifications',
-    label: 'nav.notifications',
-    icon: IconBell,
-    group: 'home',
-    permission: 'notifications.read',
-    key: 'n',
-  },
-  // ------------------------------------------------------------------ المشاريع (phase 4)
+  // ------------------------------------------------------------------ المشاريع (GanttPRO order, A9)
+  // Supervisors do not see project management (A9): only «مهامي», which leads their navigation.
   {
     id: 'projects',
     path: '/projects',
-    label: 'nav.projects',
-    icon: IconChartArcs,
+    label: 'nav.allProjects',
+    title: 'nav.projects',
+    icon: IconFolders,
     group: 'projects',
-    permission: 'projects.readGranted',
+    permission: 'projects.readAll',
     key: 'p',
   },
-  // Admins hold every permission but are not assigned tasks: «مهامي» is for supervisors.
+  {
+    id: 'portfolios',
+    path: '/portfolios',
+    label: 'nav.portfolios',
+    icon: IconBriefcase,
+    group: 'projects',
+    permission: 'projects.readAll',
+    soon: true,
+  },
   {
     id: 'myTasks',
     path: '/my-tasks',
     label: 'nav.myTasks',
     icon: IconChecklist,
     group: 'projects',
-    permission: 'tasks.updateAssigned',
-    role: 'SUPERVISOR',
+    permission: 'tasks.readAssigned',
+    lead: ['SUPERVISOR'],
     badge: 'overdueTasks',
     key: 'm',
+  },
+  {
+    id: 'timeLog',
+    path: '/time-log',
+    label: 'nav.timeLog',
+    icon: IconClockHour4,
+    group: 'projects',
+    permission: 'tasks.updateAssigned',
+    soon: true,
+  },
+  {
+    id: 'reports',
+    path: '/reports',
+    label: 'nav.reports',
+    icon: IconFileReport,
+    group: 'projects',
+    permission: 'projects.readAll',
+    soon: true,
+  },
+  {
+    id: 'workload',
+    path: '/workload',
+    label: 'nav.workload',
+    icon: IconChartArcs,
+    group: 'projects',
+    permission: 'projects.manage',
+    soon: true,
+  },
+  // ------------------------------------------------------------------ التواصل (A9)
+  {
+    id: 'communication',
+    path: '/communication',
+    label: 'nav.communication',
+    icon: IconMessages,
+    group: 'collab',
+    permission: 'projects.readAll',
+    soon: true,
+  },
+  {
+    id: 'attachments',
+    path: '/attachments',
+    label: 'nav.attachments',
+    icon: IconPaperclip,
+    group: 'collab',
+    permission: 'projects.readAll',
+    soon: true,
+  },
+  {
+    id: 'notifications',
+    path: '/notifications',
+    label: 'nav.notifications',
+    icon: IconBell,
+    group: 'collab',
+    permission: 'notifications.read',
+    key: 'n',
   },
   // ------------------------------------------------------------------ الفرق والكروت (phase 2)
   {
@@ -136,6 +209,15 @@ export const NAV: NavNode[] = [
       },
       { id: 'members', path: '/members', label: 'nav.members', icon: IconId, group: 'teams', permission: 'teams.readOwn' },
     ],
+  },
+  {
+    id: 'orgStructure',
+    path: '/org-structure',
+    label: 'nav.orgStructure',
+    icon: IconSitemap,
+    group: 'teams',
+    permission: 'teams.readAll',
+    soon: true,
   },
   {
     id: 'cardsGroup',
@@ -338,6 +420,13 @@ export function visibleNav(user: UserDto | null, ctx: NavContext, nodes: NavNode
       else if (kids.length > 1) out.push({ ...n, children: kids });
     } else if (allowed(n, user, ctx)) out.push(n);
   }
+  // An item that leads for this role moves to the very top, into the first group (A9:
+  // supervisors open on «مهامي»).
+  const lead = user ? out.findIndex((n) => n.lead?.includes(user.role)) : -1;
+  if (lead > 0) {
+    const [n] = out.splice(lead, 1);
+    out.unshift({ ...n!, group: out[0]!.group });
+  }
   return out;
 }
 
@@ -469,7 +558,8 @@ export function trailFor(
       title: titleOf(leaf),
       crumbs: above,
       parent: above.length ? (above[above.length - 1]!.to ?? null) : null,
-      group: groupOf(leaf),
+      // The group as this user sees it (a leading item moves group).
+      group: groupOf(visibleLeaves.find((l) => l.id === leaf.id) ?? leaf),
     };
   }
   return { title: tr('error.notFoundTitle'), crumbs: [], parent: '/', group: null, status: 'missing' };

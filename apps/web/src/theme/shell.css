@@ -1,8 +1,8 @@
 /*
- * The app shell — a port of Muhsen Control (Desktop/Muhsen-Control/app/01-style.html, the
- * `.side`, `.top`, `.palette` blocks) and the Muhsen app's bottom `.tabs` bar, with logical
- * properties and physical offsets × --ds (skill nuzli-arabic-rtl). Window scrolling: the side
- * and the top bar are sticky, so the browser and the phone address bar behave natively.
+ * The app shell — A9 (2026-10-19): GanttPRO-clean. A white left nav (inline start), a white top
+ * bar with a thin bottom line, Nozoly indigo for the active item and the one primary action.
+ * Structure from A7 (side · stage, mini rail, palette, phone drawer and bottom tabs), logical
+ * properties and physical offsets × --ds (skill nuzli-arabic-rtl).
  */
 
 .nz-room {
@@ -26,8 +26,8 @@
   z-index: 1000;
   padding: 10px 16px;
   border-radius: var(--r3);
-  background: var(--g);
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
   font-weight: 700;
   font-size: 13px;
   text-decoration: none;
@@ -38,7 +38,7 @@
   top: 12px;
 }
 
-/* ------------------------------------------------------------------ side */
+/* ------------------------------------------------------------------ side (A9: GanttPRO-white) */
 .nz-side {
   position: relative;
   height: 100%;
@@ -49,84 +49,55 @@
   overflow: hidden;
   background: var(--nav-bg);
   color: var(--nav-ink);
+  border-inline-end: 1px solid var(--nav-line);
   isolation: isolate;
-}
-.nz-side::after {
-  content: '';
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 0;
-  width: 1px;
-  background: linear-gradient(180deg, transparent, var(--gold2), transparent);
-  opacity: 0.55;
-  pointer-events: none;
-}
-.nz-side-pattern {
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  width: 100%;
-  height: auto;
-  opacity: 0.06;
-  pointer-events: none;
-  z-index: -1;
-  user-select: none;
 }
 
 .nz-side-head {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 15px 14px 13px;
-  flex: none;
-  border-bottom: 1px solid var(--nav-line);
-}
-.nz-mark-link {
-  display: block;
-  border-radius: 13px;
+  justify-content: space-between;
+  gap: 8px;
+  height: var(--top-h);
+  padding-inline: 18px 10px;
   flex: none;
 }
-.nz-mark {
-  display: grid;
-  place-items: center;
-  border-radius: 13px;
+.nz-logo-link {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  padding: 4px 2px;
   flex: none;
-  background: var(--mark-bg);
-  box-shadow: 0 0 0 1px var(--hair), 0 10px 22px -12px rgba(0, 0, 0, 0.9);
-  transition: transform 0.5s var(--e2);
 }
-.nz-mark-link:hover .nz-mark {
-  transform: rotate(calc(var(--ds) * 8deg)) scale(1.06);
+.nz-logo {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  flex: none;
+  direction: ltr;
+  vertical-align: middle;
 }
-.nz-mark img {
+/* The logo file is placed inside its box (image coordinates are physical in every direction). */
+.nz-logo img {
+  position: absolute;
+  max-width: none;
   display: block;
   user-select: none;
+  -webkit-user-drag: none;
 }
-.nz-brandtxt {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
+.nz-logo-night {
+  display: none !important;
 }
-.nz-brandtxt b {
-  display: block;
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  line-height: 1.35;
-  color: var(--nav-ink);
-  white-space: nowrap;
+:root[data-mantine-color-scheme='dark'] .nz-logo-day {
+  display: none !important;
 }
-.nz-brandtxt span {
-  display: block;
-  font-size: 10.5px;
-  color: var(--nav-dim2);
-  white-space: nowrap;
+:root[data-mantine-color-scheme='dark'] .nz-logo-night {
+  display: block !important;
 }
 .nz-fold {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   flex: none;
   display: grid;
   place-items: center;
@@ -134,11 +105,44 @@
   background: none;
   border: 0;
   cursor: pointer;
-  transition: color 0.2s var(--e), background 0.2s var(--e);
+  transition: color 0.16s var(--e), background 0.16s var(--e);
 }
 .nz-fold:hover {
   color: var(--nav-ink);
   background: var(--nav-sheen);
+}
+
+/* «+ إنشاء مشروع جديد»: the one prominent action, full width (GanttPRO). */
+.nz-side-cta {
+  flex: none;
+  padding: 4px 12px 12px;
+}
+.nz-create {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r3);
+  background: var(--primary);
+  color: var(--on-primary);
+  text-decoration: none;
+  font-size: 13.5px;
+  box-shadow: 0 1px 2px rgba(26, 35, 126, 0.25);
+  transition: background 0.16s var(--e), transform 0.12s var(--e);
+}
+.nz-create b {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.nz-create:hover {
+  background: var(--primary-hover);
+}
+.nz-create:active {
+  background: var(--primary-press);
+  transform: scale(0.985);
 }
 
 .nz-side-scroll {
@@ -146,44 +150,41 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 12px 18px;
+  padding: 2px 10px 16px;
   overscroll-behavior: contain;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
 }
 .nz-side-scroll::-webkit-scrollbar {
-  width: 0;
+  width: 6px;
+}
+.nz-side-scroll::-webkit-scrollbar-thumb {
+  background: var(--line2);
+  border-radius: 99px;
 }
 
+/* Group separators: a hairline; labelled groups add a quiet heading under it. */
 .nz-grp {
-  font-size: 10.5px;
-  color: var(--nav-faint);
-  letter-spacing: 0.5px;
-  margin: 16px 6px 8px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  white-space: nowrap;
+  margin: 10px 8px 6px;
+  border-top: 1px solid var(--nav-line);
 }
-.nz-grp::before {
+.nz-grp:not(.quiet)::before {
   content: attr(data-label);
-}
-.nz-grp::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, var(--nav-line), transparent);
-}
-[dir='rtl'] .nz-grp::after {
-  background: linear-gradient(270deg, var(--nav-line), transparent);
+  display: block;
+  padding-top: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--nav-faint);
+  white-space: nowrap;
 }
 
 .nz-nav,
 .nz-kid {
-  --nudge: 0px;
   --press: 1;
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   width: 100%;
   border: 0;
   background: none;
@@ -192,25 +193,32 @@
   text-align: start;
   text-decoration: none;
   position: relative;
-  overflow: hidden;
   white-space: nowrap;
-  transform: translateX(var(--nudge)) scale(var(--press));
-  transition: color 0.18s var(--e), background 0.18s var(--e), transform 0.18s var(--e);
+  transform: scale(var(--press));
+  transition: color 0.14s var(--e), background 0.14s var(--e);
 }
 .nz-nav {
-  padding: 10px 11px;
-  border-radius: 13px;
+  padding: 8px 12px;
+  border-radius: var(--r3);
   color: var(--nav-dim);
-  min-height: 42px;
+  min-height: 38px;
 }
-.nz-nav::before {
+/* The active bar (3px, inline-start edge). */
+.nz-nav::before,
+.nz-kid::before {
   content: '';
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  inset-block: 7px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--nav-bar);
   opacity: 0;
-  background: var(--nav-on-bg);
-  transition: opacity 0.24s var(--e);
+  transition: opacity 0.16s var(--e);
+}
+[dir='rtl'] .nz-nav::before,
+[dir='rtl'] .nz-kid::before {
+  border-radius: 3px 0 0 3px;
 }
 .nz-nav:hover,
 .nz-kid:hover {
@@ -221,49 +229,58 @@
 .nz-kid:active {
   --press: 0.985;
 }
-.nz-nav.on {
+.nz-nav.on,
+.nz-kid.on {
   color: var(--nav-on-ink);
-  box-shadow: inset 0 0 0 1px var(--nav-on-ring);
+  background: var(--nav-on-bg);
 }
-.nz-nav.on::before {
+.nz-nav.on::before,
+.nz-kid.on::before {
+  opacity: 1;
+}
+.nz-nav.on .ic,
+.nz-kid.on .ic {
   opacity: 1;
 }
 .nz-nav.on-parent {
   color: var(--nav-ink);
 }
-.nz-nav > *,
-.nz-kid > * {
-  position: relative;
-}
 .nz-nav .ic {
   width: 18px;
   height: 18px;
   flex: none;
+  opacity: 0.85;
 }
-.nz-nav b {
-  font-size: 13px;
-  font-weight: 700;
+.nz-nav b,
+.nz-kid b {
+  font-size: 13.5px;
+  font-weight: 500;
   flex: 1;
+  min-width: 0;
   text-align: start;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.nz-nav.on b,
+.nz-kid.on b {
+  font-weight: 600;
+}
 .nz-nav .chev {
   flex: none;
-  opacity: 0.7;
-  transition: transform 0.26s var(--e);
+  opacity: 0.6;
+  transition: transform 0.22s var(--e);
 }
 .nz-nav .chev[data-open] {
   transform: rotate(180deg);
 }
 .nz-nav .n,
 .nz-kid .n {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 1px 7px;
+  padding: 0 7px;
   border-radius: 99px;
   flex: none;
-  line-height: 1.6;
+  line-height: 1.7;
   background: var(--p-no-b);
   color: var(--p-no-t);
   font-variant-numeric: tabular-nums;
@@ -273,38 +290,23 @@
   background: var(--p-wait-b);
   color: var(--p-wait-t);
 }
-.nz-side :focus-visible {
-  outline-color: var(--gold3);
-}
-:root:not([data-mantine-color-scheme='dark']) .nz-side :focus-visible {
-  outline-color: #e7d1a2;
-}
 
 .nz-kids {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 4px 0 8px;
-  padding-inline-start: 13px;
+  gap: 1px;
+  margin: 1px 0 4px;
+  padding-inline-start: 18px;
   position: relative;
-  animation: nz-kids-in 0.34s var(--e3) both;
+  animation: nz-kids-in 0.26s var(--e3) both;
 }
 .nz-kids[hidden] {
   display: none;
 }
-.nz-kids::before {
-  content: '';
-  position: absolute;
-  inset-block: 4px;
-  inset-inline-start: 20px;
-  width: 2px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, var(--gold2), transparent);
-}
 @keyframes nz-kids-in {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-4px);
   }
   to {
     opacity: 1;
@@ -312,94 +314,78 @@
   }
 }
 .nz-kid {
-  gap: 9px;
-  padding: 8px 10px;
-  padding-inline-start: 22px;
-  border-radius: 11px;
+  padding: 7px 12px;
+  border-radius: var(--r3);
   color: var(--nav-dim2);
-  min-height: 38px;
-}
-.nz-kid.on {
-  color: var(--nav-on-ink);
-  background: var(--nav-sheen2);
-}
-.nz-kid.on::after {
-  content: '';
-  position: absolute;
-  inset-inline-start: 6px;
-  top: 50%;
-  width: 6px;
-  height: 6px;
-  margin-top: -3px;
-  border-radius: 50%;
-  background: var(--gold2);
-  box-shadow: 0 0 10px 1px rgba(198, 168, 111, 0.55);
+  min-height: 34px;
 }
 .nz-kid b {
-  font-size: 12px;
-  font-weight: 700;
-  flex: 1;
-  text-align: start;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 13px;
 }
 .nz-kid .ic {
   flex: none;
-  opacity: 0.85;
+  opacity: 0.8;
 }
 
 .nz-side-foot {
   flex: none;
-  padding: 12px 14px 16px;
+  padding: 10px 14px 12px;
   border-top: 1px solid var(--nav-line);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
 }
-.nz-credit {
+/* «منظومة مُحسن» with the small Muhsen mark (secondary since A9). */
+.nz-system {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 7px;
+  font-size: 11.5px;
+  line-height: 1.4;
   color: var(--nav-faint);
-  font-size: 10.5px;
   white-space: nowrap;
 }
-.nz-credit img {
+.nz-system img {
+  width: 18px;
+  height: auto;
   display: block;
   opacity: 0.9;
   user-select: none;
 }
-.nz-side .nz-credit span {
-  color: var(--nav-dim2);
-}
 
 /* The rail: icons only, names in tooltips, a red dot instead of the count. */
-.nz-side.mini .nz-brandtxt,
 .nz-side.mini .nz-nav b,
 .nz-side.mini .nz-nav .n,
-.nz-side.mini .nz-nav .chev,
-.nz-side.mini .nz-credit span {
+.nz-side.mini .nz-nav .chev {
   display: none;
+}
+.nz-side.mini .nz-side-head {
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  height: auto;
+  padding: 12px 6px 10px;
+}
+.nz-side.mini .nz-side-cta {
+  padding: 2px 12px 10px;
+}
+.nz-side.mini .nz-create {
+  padding: 0;
+}
+.nz-side.mini .nz-side-scroll {
+  padding: 2px 10px 16px;
+}
+.nz-side.mini .nz-grp {
+  margin: 8px 4px;
 }
 .nz-side.mini .nz-grp::before {
   content: none;
 }
-.nz-side.mini .nz-side-head {
-  flex-direction: column;
-  gap: 9px;
-  padding: 14px 8px 12px;
-}
-.nz-side.mini .nz-side-scroll {
-  padding: 4px 9px 18px;
-}
-.nz-side.mini .nz-grp {
-  margin: 14px 4px 7px;
-}
 .nz-side.mini .nz-nav {
   justify-content: center;
-  padding: 11px 0;
+  padding: 10px 0;
   gap: 0;
 }
 .nz-side.mini .nz-nav .ic {
@@ -409,17 +395,17 @@
 .nz-side.mini .nz-nav.hasn::after {
   content: '';
   position: absolute;
-  top: 7px;
-  inset-inline-start: 14px;
+  top: 6px;
+  inset-inline-end: 8px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--red);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 2px var(--nav-bg);
   animation: nz-tick 2.4s var(--e) infinite;
 }
 .nz-side.mini .nz-side-foot {
-  padding: 10px 6px 14px;
+  padding: 10px 6px 12px;
 }
 @keyframes nz-tick {
   0%,
@@ -485,13 +471,13 @@
   gap: 12px;
   padding: 0 20px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--deep) 78%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--deep) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   transition: box-shadow 0.3s var(--e), background 0.3s var(--e);
 }
 .nz-top.deep {
-  box-shadow: 0 1px 0 var(--line2), 0 14px 26px -22px rgba(11, 53, 39, 0.5);
+  box-shadow: 0 8px 20px -18px rgba(16, 24, 40, 0.35);
 }
 .nz-top-title {
   min-width: 0;
@@ -726,7 +712,7 @@ a.nz-chip--wait:hover {
 .nz-who:hover {
   color: var(--ink);
   background: var(--sheen2);
-  box-shadow: inset 0 0 0 1px var(--gold2);
+  box-shadow: inset 0 0 0 1px var(--line2);
 }
 .nz-who-text {
   min-width: 0;
@@ -759,7 +745,7 @@ a.nz-chip--wait:hover {
   padding: 8px 10px 6px;
 }
 
-/* Avatar (Muhsen app `.av`): ring 1.5px gold + soft shadow. */
+/* Avatar: indigo initials; a hairline ring. */
 .nz-avatar {
   display: inline-grid;
   place-items: center;
@@ -769,11 +755,11 @@ a.nz-chip--wait:hover {
   color: #fff;
   font-weight: 700;
   line-height: 1;
-  background: linear-gradient(150deg, var(--g3), var(--g2));
+  background: var(--primary);
   user-select: none;
 }
 .nz-avatar--ring {
-  box-shadow: 0 0 0 1.5px rgba(198, 168, 111, 0.55), 0 4px 12px -5px rgba(11, 53, 39, 0.45);
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px var(--line2);
 }
 .nz-avatar img {
   width: 100%;
@@ -833,7 +819,7 @@ a.nz-chip--wait:hover {
   outline: none;
 }
 #main h1[tabindex='-1']:focus-visible {
-  outline: 2px solid var(--gold2);
+  outline: 2px solid var(--focus);
   outline-offset: 4px;
   border-radius: 6px;
 }
@@ -848,7 +834,7 @@ a.nz-chip--wait:hover {
   overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--line2);
-  box-shadow: 0 40px 90px -30px rgba(11, 53, 39, 0.55) !important;
+  box-shadow: 0 32px 80px -28px rgba(16, 24, 40, 0.4) !important;
 }
 :root[data-mantine-color-scheme='dark'] .nz-palette {
   box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.9) !important;
@@ -864,7 +850,7 @@ a.nz-chip--wait:hover {
   border-bottom: 1px solid var(--line);
 }
 .nz-palette-icon {
-  color: var(--gold2);
+  color: var(--accent);
   flex: none;
 }
 .nz-palette-in input {
@@ -881,7 +867,7 @@ a.nz-chip--wait:hover {
   outline: none !important;
 }
 .nz-palette-in:focus-within {
-  box-shadow: inset 0 -1px 0 var(--gold2);
+  box-shadow: inset 0 -1px 0 var(--focus);
 }
 .nz-palette-in input::placeholder {
   color: var(--dim2);
@@ -921,7 +907,7 @@ a.nz-chip--wait:hover {
   transition: background 0.14s var(--e), color 0.14s var(--e);
 }
 .nz-pit[data-sel='true'] {
-  background: var(--sheen2);
+  background: var(--tint);
   color: var(--ink);
 }
 .nz-pit-ic {
@@ -931,15 +917,12 @@ a.nz-chip--wait:hover {
   display: grid;
   place-items: center;
   flex: none;
-  background: var(--sheen);
-  color: var(--g);
-}
-:root[data-mantine-color-scheme='dark'] .nz-pit-ic {
-  color: var(--live);
+  background: var(--panel2);
+  color: var(--accent);
 }
 .nz-pit[data-sel='true'] .nz-pit-ic {
-  background: linear-gradient(150deg, var(--g3), var(--g2));
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
 }
 .nz-pit-text {
   flex: 1;
@@ -1051,17 +1034,20 @@ a.nz-chip--wait:hover {
     transform: none;
     visibility: visible;
     transition: transform 0.32s var(--e), visibility 0s;
-    box-shadow: 0 0 60px -10px rgba(4, 9, 7, 0.55);
+    box-shadow: 0 0 60px -10px rgba(16, 24, 40, 0.35);
   }
   .nz-side .nz-fold {
     width: 40px;
     height: 40px;
   }
   .nz-nav {
-    min-height: 46px;
+    min-height: 44px;
   }
   .nz-kid {
     min-height: 44px;
+  }
+  .nz-side-head {
+    height: 58px;
   }
   .nz-scrim {
     display: block;
@@ -1154,11 +1140,8 @@ a.nz-chip--wait:hover {
     user-select: none;
   }
   .nz-tab.on {
-    color: var(--g);
+    color: var(--accent);
     font-weight: 700;
-  }
-  :root[data-mantine-color-scheme='dark'] .nz-tab.on {
-    color: var(--live);
   }
   .nz-tab-ic {
     position: relative;
@@ -1173,15 +1156,12 @@ a.nz-chip--wait:hover {
     margin-top: -14px;
     border-radius: 50%;
     color: #fff;
-    background: linear-gradient(150deg, var(--g3), var(--g2));
-    box-shadow: 0 0 0 1px rgba(198, 168, 111, 0.55), 0 6px 14px -5px rgba(11, 53, 39, 0.7);
+    background: var(--primary);
+    box-shadow: 0 6px 14px -6px rgba(26, 35, 126, 0.55);
   }
   .nz-tab.primary {
-    color: var(--g);
+    color: var(--accent);
     font-weight: 700;
-  }
-  :root[data-mantine-color-scheme='dark'] .nz-tab.primary {
-    color: var(--live);
   }
   .nz-tab-label {
     max-width: 100%;
@@ -1198,7 +1178,7 @@ a.nz-chip--wait:hover {
     height: 18px;
     padding: 0 5px;
     border-radius: 99px;
-    background: #d0342c;
+    background: var(--red);
     color: #fff;
     font-size: 9.5px;
     font-weight: 700;
@@ -1234,7 +1214,8 @@ a.nz-chip--wait:hover {
   }
   .nz-nav,
   .nz-kid,
-  .nz-mark,
+  .nz-create,
+  .nz-boot-mark,
   .nz-side {
     transition: none !important;
   }
@@ -1270,298 +1251,309 @@ a.nz-chip--wait:hover {
   }
 }
 
-/* ------------------------------------------------------------------ public pages (A7) */
+/* ------------------------------------------------------------------ public pages (A9) */
+/*
+ * Login, register, pending and the password pages: a clean white page. The form card carries
+ * the Nozoly logo large at its top; on desktop an indigo-tinted panel on the inline end holds
+ * three short value lines. «منظومة مُحسن» with the small Muhsen mark sits in the footer.
+ */
 .nz-auth {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: var(--void);
+  background: var(--panel);
 }
 .nz-auth-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(360px, 44%) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 42%);
 }
-.nz-auth-hero {
-  position: relative;
-  overflow: hidden;
-  color: #fff;
-  /* Literal from the Muhsen app login (.login). */
-  background: linear-gradient(168deg, #0a3125 0%, #14593f 52%, #186f51 100%);
-  isolation: isolate;
-}
-.nz-auth-hero::after {
-  content: '';
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 0;
-  width: 1px;
-  background: linear-gradient(180deg, transparent, #c6a86f, transparent);
-  opacity: 0.55;
-}
-.nz-auth-pattern {
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  width: 100%;
-  height: auto;
-  opacity: 0.06;
-  z-index: -1;
-  pointer-events: none;
-  user-select: none;
-}
-.nz-auth-hero-in {
-  position: sticky;
-  top: 0;
-  min-height: 100%;
-  max-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 32px;
-  padding: 48px clamp(28px, 5vw, 64px);
-}
-.nz-auth-lockup {
-  width: 168px;
-  height: auto;
-  display: block;
-  user-select: none;
-}
-.nz-auth-value {
-  max-width: 430px;
-}
-.nz-auth-line {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: clamp(24px, 2.4vw, 32px);
-  line-height: 1.45;
-  letter-spacing: -0.4px;
-  margin: 0;
-  color: #f4faf6;
-}
-.nz-auth-cap {
-  margin: 12px 0 0;
-  color: #cbdcd1;
-  font-size: 13px;
-  line-height: 1.8;
-}
-.nz-auth-system {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin: 0;
-  color: #9fbbac;
-  font-size: 11.5px;
-}
-.nz-auth-dot {
-  width: 22px;
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, #e7d1a2, #a8875a);
+/* Desktop: the form column scrolls on its own, so the value panel stays in view (long forms). */
+@media (min-width: 62em) {
+  .nz-auth {
+    height: 100dvh;
+  }
+  .nz-auth-grid {
+    min-height: 0;
+  }
+  .nz-auth-main {
+    overflow-y: auto;
+    min-height: 0;
+  }
 }
 .nz-auth-main {
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 56px 24px 32px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 24px;
+  padding: 48px 24px 28px;
   outline: none;
 }
-.nz-auth-sheet {
+.nz-auth-card {
   width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 18px 40px -20px rgba(16, 24, 40, 0.16);
+  padding: 40px 40px 32px;
+}
+.nz-auth-logo {
   display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-height: 100%;
+  justify-content: center;
+  margin-bottom: 28px;
 }
-.nz-auth-brand {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
+.nz-auth-logo-narrow {
+  display: none !important;
 }
-.nz-auth-name {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 30px;
-  letter-spacing: -0.6px;
-  line-height: 1.2;
-  color: var(--g);
-}
-:root[data-mantine-color-scheme='dark'] .nz-auth-name {
-  color: var(--gold3);
-}
-.nz-auth-tag {
-  font-size: 12.5px;
-  color: var(--dim2);
+.nz-auth-head {
+  text-align: center;
+  margin-bottom: 28px;
 }
 .nz-auth-head h1 {
-  font-size: 22px;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  line-height: 1.35;
+  margin: 0;
+  color: var(--ink);
+}
+.nz-auth-sub {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dim);
 }
 .nz-auth-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
+/* The pages' own Paper wrappers sit flat inside the card. */
 .nz-auth-body > .mantine-Paper-root {
-  border-radius: var(--r2);
+  padding: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 0;
+}
+.nz-auth-body .mantine-InputWrapper-label {
+  font-weight: 600;
+  font-size: 13.5px;
+  margin-bottom: 6px;
+  color: var(--ink);
 }
 .nz-auth-foot {
-  margin-top: auto;
-  padding-top: 24px;
   display: flex;
-  justify-content: center;
-}
-.nz-auth-foot .nz-credit {
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   color: var(--dim2);
+  font-size: 12px;
 }
-.nz-auth-foot .nz-credit img {
-  opacity: 0.85;
-}
-.nz-credit--night {
-  display: none !important;
-}
-:root[data-mantine-color-scheme='dark'] .nz-credit--day {
-  display: none !important;
-}
-:root[data-mantine-color-scheme='dark'] .nz-credit--night {
-  display: flex !important;
+.nz-auth-foot .nz-system {
+  color: var(--dim2);
+  font-size: 12px;
 }
 
-/* Demo quick login: the role chips (Muhsen app .rolebtn). */
-.nz-demo {
-  border-radius: var(--r2);
-  padding: 16px;
-  background: var(--panel);
-  box-shadow: var(--shadow), inset 0 0 0 1px rgba(198, 168, 111, 0.45);
+/* The value panel (desktop): indigo-tinted, no illustration. */
+.nz-auth-side {
   position: relative;
+  display: flex;
+  align-items: center;
+  padding: 48px clamp(32px, 4.5vw, 72px);
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgba(92, 107, 192, 0.12), transparent 60%),
+    linear-gradient(180deg, #eef0fa 0%, #e8eaf6 100%);
+  border-inline-start: 1px solid #dfe2f2;
   overflow: hidden;
 }
-.nz-demo::before {
+:root[data-mantine-color-scheme='dark'] .nz-auth-side {
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgba(121, 134, 203, 0.16), transparent 60%),
+    linear-gradient(180deg, #161a28 0%, #141724 100%);
+  border-inline-start-color: var(--line);
+}
+.nz-auth-side-in {
+  max-width: 500px;
+}
+.nz-auth-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0 0 12px;
+}
+.nz-auth-kicker::before {
   content: '';
-  position: absolute;
-  inset-inline: 22px;
-  top: 0;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+.nz-auth-side h2 {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 1.9vw, 27px);
+  text-wrap: balance;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  line-height: 1.45;
+  margin: 0 0 28px;
+  color: var(--ink);
+}
+.nz-auth-values {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+.nz-auth-values li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.nz-auth-vic {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--on-primary);
+  background: var(--primary);
+  box-shadow: 0 6px 14px -8px rgba(26, 35, 126, 0.6);
+}
+:root[data-mantine-color-scheme='dark'] .nz-auth-vic {
+  box-shadow: none;
+}
+.nz-auth-values div > b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.nz-auth-values div > span {
+  display: block;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--dim);
+}
+
+/* Demo quick login: secondary outline buttons. */
+.nz-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nz-demo-sep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--dim2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.nz-demo-sep::before,
+.nz-demo-sep::after {
+  content: '';
+  flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold2), transparent);
+  background: var(--line);
 }
 .nz-demo-roles {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 .nz-rolebtn {
-  border-radius: 16px;
-  padding: 11px 8px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: var(--r3);
   background: var(--panel);
-  border: 1.5px solid rgba(20, 89, 63, 0.12);
-  box-shadow: 0 1px 2px rgba(11, 53, 39, 0.05);
+  border: 1px solid var(--line2);
   cursor: pointer;
   font: inherit;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink);
-  min-height: 44px;
-  transition: border-color 0.2s var(--e), background 0.2s var(--e), transform 0.14s var(--e);
-}
-:root[data-mantine-color-scheme='dark'] .nz-rolebtn {
-  border-color: var(--line2);
-}
-.nz-rolebtn:hover {
-  border-color: var(--g);
-  background: var(--panel2);
-}
-.nz-rolebtn:active {
-  transform: scale(0.97);
-}
-.nz-rolebtn:disabled {
-  opacity: 0.55;
-  cursor: progress;
+  white-space: nowrap;
+  transition: border-color 0.16s var(--e), background 0.16s var(--e), color 0.16s var(--e);
 }
 .nz-rolebtn .ci {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  margin: 0 auto 5px;
   display: grid;
   place-items: center;
-  background: var(--panel2);
-  color: var(--g);
+  color: var(--accent);
+  flex: none;
 }
-:root[data-mantine-color-scheme='dark'] .nz-rolebtn .ci {
-  color: var(--live);
+.nz-rolebtn:hover {
+  border-color: var(--focus);
+  background: var(--tint);
+  color: var(--accent);
 }
-.nz-rolebtn[data-busy] .ci,
-.nz-rolebtn:hover .ci {
-  background: linear-gradient(150deg, var(--g3), var(--g2));
-  color: #fff;
+.nz-rolebtn:active {
+  transform: scale(0.98);
 }
-.nz-rolebtn b {
-  display: block;
-  font-size: 13px;
+.nz-rolebtn:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
-.nz-rolebtn span {
-  display: block;
-  font-size: 10.5px;
-  color: var(--dim2);
+.nz-demo-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--dim);
+  text-align: center;
 }
 
 @media (max-width: 61.99em) {
   .nz-auth-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .nz-auth-hero-in {
-    position: relative;
-    max-height: none;
-    padding: 26px 20px 64px;
-    gap: 14px;
-    align-items: center;
-    text-align: center;
-  }
-  .nz-auth-lockup {
-    width: 140px;
-  }
-  .nz-auth-line {
-    font-size: 17px;
-  }
-  .nz-auth-cap,
-  .nz-auth-system {
+  .nz-auth-side {
     display: none;
-  }
-  .nz-auth-pattern {
-    opacity: 0.06;
-  }
-  .nz-auth-main {
-    padding: 0 12px 20px;
-    margin-top: -44px;
-    position: relative;
-    z-index: 2;
-  }
-  .nz-auth-sheet {
-    margin-inline: auto;
-    background: var(--panel);
-    border-radius: var(--r2);
-    padding: 18px 16px 14px;
-    box-shadow: 0 24px 50px -22px rgba(0, 0, 0, 0.45);
-  }
-  .nz-auth-body > .mantine-Paper-root {
-    padding: 0 !important;
-    border: 0;
-    box-shadow: none;
-    background: transparent;
-  }
-  .nz-auth-name {
-    font-size: 24px;
   }
 }
 @media (max-width: 30em) {
-  .nz-demo-roles {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
+  .nz-auth {
+    background: var(--panel);
+  }
+  .nz-auth-main {
+    justify-content: flex-start;
+    padding: 28px 16px 20px;
+  }
+  .nz-auth-card {
+    border: 0;
+    box-shadow: none;
+    padding: 4px 0 0;
+    background: transparent;
+  }
+  .nz-auth-logo {
+    margin-bottom: 22px;
+  }
+  .nz-auth-logo-wide {
+    display: none !important;
+  }
+  .nz-auth-logo-narrow {
+    display: inline-block !important;
+  }
+  .nz-auth-head {
+    margin-bottom: 22px;
+  }
+  .nz-auth-head h1 {
+    font-size: 21px;
   }
   .nz-rolebtn {
-    padding: 9px 4px;
-  }
-  .nz-rolebtn span {
-    display: none;
+    padding: 0 6px;
+    font-size: 12.5px;
   }
 }
 
@@ -1573,7 +1565,7 @@ a.nz-chip--wait:hover {
   display: block;
   border-radius: var(--r3);
   background: var(--panel2);
-  box-shadow: 0 0 0 1px var(--line), 0 18px 34px -22px rgba(11, 53, 39, 0.45);
+  box-shadow: 0 0 0 1px var(--line), 0 18px 34px -22px rgba(16, 24, 40, 0.3);
   touch-action: none;
   cursor: grab;
   user-select: none;
@@ -1589,7 +1581,7 @@ a.nz-chip--wait:hover {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  box-shadow: 0 0 0 1.5px rgba(198, 168, 111, 0.55), 0 4px 12px -5px rgba(11, 53, 39, 0.45);
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px var(--line2);
 }
 .nz-crop-preview--card {
   width: 48px;

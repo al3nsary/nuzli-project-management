@@ -52,7 +52,7 @@ export async function drawPlaceholder(opts: {
     ctx.fillStyle = `hsl(${opts.hue} 25% 70%)`;
     ctx.fillRect(w - 260, 90, 180, 220);
   }
-  ctx.fillStyle = '#0D1A13';
+  ctx.fillStyle = '#1F2430';
   ctx.direction = 'rtl';
   ctx.textAlign = 'center';
   ctx.font = `600 ${opts.idCard ? 44 : 56}px "IBM Plex Sans Arabic", system-ui, sans-serif`;
@@ -127,7 +127,7 @@ export async function drawPortrait(opts: { hue: number; variant?: number }): Pro
   // Demo tag.
   ctx.fillStyle = 'rgba(255,255,255,.78)';
   ctx.fillRect(size / 2 - 92, size - 76, 184, 44);
-  ctx.fillStyle = '#0D1A13';
+  ctx.fillStyle = '#1F2430';
   ctx.direction = 'rtl';
   ctx.textAlign = 'center';
   ctx.font = '600 26px "IBM Plex Sans Arabic", system-ui, sans-serif';

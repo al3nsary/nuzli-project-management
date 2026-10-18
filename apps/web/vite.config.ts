@@ -54,8 +54,8 @@ export default defineConfig(({ mode }) => {
           dir: 'rtl',
           display: 'standalone',
           orientation: 'portrait',
-          theme_color: '#14593F',
-          background_color: '#EDF4EF',
+          theme_color: '#303F9F',
+          background_color: '#FFFFFF',
           categories: ['business', 'productivity'],
           icons: [
             { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },

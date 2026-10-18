@@ -46,7 +46,7 @@ export function NotificationItem({
           style={{
             borderRadius: 99,
             flex: 'none',
-            background: unread ? 'var(--live)' : 'transparent',
+            background: unread ? 'var(--accent)' : 'transparent',
           }}
           aria-label={unread ? t('notif.unread') : undefined}
         />

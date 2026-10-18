@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Tooltip } from '@mantine/core';
 import { useFocusTrap, useMergedRef } from '@mantine/hooks';
@@ -8,11 +8,12 @@ import {
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
+  IconPlus,
   IconX,
 } from '@tabler/icons-react';
 import { NAV_GROUPS, type BadgeKind, type NavNode } from '../nav';
 import { formatNumber, t } from '../../i18n';
-import { MuhsenMarkTile, NozolyCredit, brandUrl } from '../../components/Brand';
+import { MuhsenSystemLine, NozolyLogo } from '../../components/Brand';
 import { useShellStore } from './store';
 import { sumBadges } from './useNavModel';
 import { dirSign } from '../../lib/direction';
@@ -28,11 +29,6 @@ function Count({ node, n }: { node: NavNode; n: number }) {
       {formatNumber(n)}
     </span>
   );
-}
-
-/** Hover nudge toward the reading direction: physical translateX × dirSign (skill RTL rule). */
-function nudge(e: MouseEvent<HTMLElement>, on: boolean) {
-  e.currentTarget.style.setProperty('--nudge', on ? `${2 * dirSign(e.currentTarget)}px` : '0px');
 }
 
 const tipSide = () => (dirSign() < 0 ? 'left' : 'right') as 'left' | 'right';
@@ -53,8 +49,6 @@ function NavLeaf({ n, kid, ctx }: { n: NavNode; kid?: boolean; ctx: ItemCtx }) {
       className={[kid ? 'nz-kid' : 'nz-nav', active ? 'on' : '', count ? 'hasn' : ''].filter(Boolean).join(' ')}
       aria-current={active ? 'page' : undefined}
       aria-label={ctx.mini ? `${t(n.label)}${count ? ` — ${t('nav.countAria', { n: count })}` : ''}` : undefined}
-      onMouseEnter={(e) => !ctx.mini && nudge(e, true)}
-      onMouseLeave={(e) => nudge(e, false)}
       onClick={ctx.onPick}
     >
       <n.icon className="ic" size={kid ? 16 : 18} stroke={1.7} aria-hidden />
@@ -96,8 +90,6 @@ function NavContainer({
       aria-expanded={ctx.mini ? undefined : isOpen}
       aria-controls={ctx.mini ? undefined : id}
       aria-label={ctx.mini ? t(n.label) : undefined}
-      onMouseEnter={(e) => !ctx.mini && nudge(e, true)}
-      onMouseLeave={(e) => nudge(e, false)}
       onClick={() => {
         // On the rail a container goes to its first page; on the full side it folds and unfolds.
         if (ctx.mini) {
@@ -132,9 +124,11 @@ function NavContainer({
 }
 
 /**
- * The side navigation (Muhsen Control `.side`): green gradient with a gold hairline, the Muhsen
- * mark, role-grouped items with count pills, sub-items on a gold spine and «تطوير نُزلي» at the
- * foot. Desktop: 276px or the 74px rail (Ctrl+B). Phones: a drawer from the inline start.
+ * The side navigation, GanttPRO-style (owner request A9): a white panel with the Nozoly logo and
+ * the fold button on top, the prominent «+ إنشاء مشروع جديد» button (admins), then the items in
+ * GanttPRO's order with quiet hairline separators; the active item is indigo on an indigo tint
+ * with a 3px bar on its inline-start edge. «منظومة مُحسن» sits quietly at the foot.
+ * Desktop: 256px or the 68px rail (Ctrl+B). Phones: a drawer from the inline start.
  */
 export function Sidebar({
   tree,
@@ -142,12 +136,15 @@ export function Sidebar({
   badges,
   mobile,
   footer,
+  canCreate = false,
 }: {
   tree: NavNode[];
   chain: string[];
   badges: Record<BadgeKind, number>;
   mobile: boolean;
   footer?: ReactNode;
+  /** Shows «+ إنشاء مشروع جديد» (opens the existing create-project dialog). */
+  canCreate?: boolean;
 }) {
   const mini = useShellStore((s) => s.mini) && !mobile;
   const drawer = useShellStore((s) => s.drawer);
@@ -218,13 +215,9 @@ export function Sidebar({
       aria-label={t('nav.main')}
     >
       <div className="nz-side-head">
-        <Link to="/" className="nz-mark-link" aria-label={t('nav.homeAria')} onClick={ctx.onPick}>
-          <MuhsenMarkTile />
+        <Link to="/" className="nz-logo-link" aria-label={t('nav.homeAria')} onClick={ctx.onPick}>
+          <NozolyLogo width={mini ? 34 : 124} mark={mini} decorative />
         </Link>
-        <div className="nz-brandtxt">
-          <b>{t('app.name')}</b>
-          <span>{t('brand.system')}</span>
-        </div>
         {mobile ? (
           <button type="button" className="nz-fold" onClick={() => setDrawer(false)} aria-label={t('common.closeMenu')}>
             <IconX size={18} stroke={1.8} />
@@ -245,13 +238,34 @@ export function Sidebar({
         )}
       </div>
 
+      {canCreate ? (
+        <div className="nz-side-cta">
+          {mini ? (
+            <Tooltip label={t('nav.createProject')} position={tipSide()}>
+              <Link to="/projects?create=1" className="nz-create" aria-label={t('nav.createProject')} onClick={ctx.onPick}>
+                <IconPlus size={18} stroke={2.2} aria-hidden />
+              </Link>
+            </Tooltip>
+          ) : (
+            <Link to="/projects?create=1" className="nz-create" onClick={ctx.onPick}>
+              <IconPlus size={18} stroke={2.2} aria-hidden />
+              <b>{t('nav.createProject')}</b>
+            </Link>
+          )}
+        </div>
+      ) : null}
+
       <div className="nz-side-scroll">
-        {NAV_GROUPS.map((g) => {
+        {NAV_GROUPS.map((g, gi) => {
           const items = tree.filter((n) => n.group === g.id);
           if (!items.length) return null;
+          // No separator above the first group the user sees.
+          const first = NAV_GROUPS.slice(0, gi).every((p) => !tree.some((n) => n.group === p.id));
           return (
             <div key={g.id} role="group" aria-label={t(g.label)} className="nz-grp-wrap">
-              <div className="nz-grp" data-label={t(g.label)} aria-hidden />
+              {first ? null : (
+                <div className={g.quiet ? 'nz-grp quiet' : 'nz-grp'} data-label={g.quiet ? undefined : t(g.label)} aria-hidden />
+              )}
               {items.map((n) =>
                 n.children ? (
                   <NavContainer
@@ -272,9 +286,8 @@ export function Sidebar({
 
       <div className="nz-side-foot">
         {footer}
-        <NozolyCredit variant="light" width={mini ? 52 : 96} />
+        <MuhsenSystemLine mini={mini} />
       </div>
-      <img className="nz-side-pattern" src={brandUrl('muhsen-pattern.png')} alt="" aria-hidden draggable={false} />
     </nav>
   );
 }

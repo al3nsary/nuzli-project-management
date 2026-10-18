@@ -105,12 +105,56 @@ describe('nav registry → breadcrumbs and titles (rules 1–4)', () => {
     expect(ids(MONITOR)).toEqual(['dashboard', 'notifications', 'recordViolation', 'myViolations', 'pendingSync']);
     expect(ids(SUPERVISOR)).toContain('myTasks');
     expect(ids(SUPERVISOR)).not.toContain('formation');
-    expect(ids(ADMIN)).not.toContain('myTasks');
+    // A9: admins have «مهامي» too (GanttPRO order); supervisors no longer see projects.
+    expect(ids(ADMIN)).toContain('myTasks');
     expect(ids(SUPERVISOR)).not.toContain('teamViolations');
     expect(navLeaves(visibleNav(SUPERVISOR, { teamViolations: true })).map((n) => n.id)).toContain('teamViolations');
     // Supervisors see two «الفرق» pages, so the container stays; admins see all kids.
     const adminTeams = visibleNav(ADMIN, ctx).find((n) => n.id === 'teamsGroup');
     expect(adminTeams?.children?.map((c) => c.id)).toEqual(['teams', 'formation', 'members']);
+  });
+
+  it('orders the admin navigation like GanttPRO (A9)', () => {
+    const top = visibleNav(ADMIN, ctx);
+    const ids = navLeaves(top).map((n) => n.id);
+    const order = ['dashboard', 'projects', 'portfolios', 'myTasks', 'timeLog', 'reports', 'workload', 'communication', 'attachments', 'notifications'];
+    expect(ids.slice(0, order.length)).toEqual(order);
+    // Then the field operations, then administration.
+    const after = ids.slice(order.length);
+    expect(after.indexOf('teams')).toBeLessThan(after.indexOf('formation'));
+    expect(after.indexOf('formation')).toBeLessThan(after.indexOf('orgStructure'));
+    expect(after.indexOf('orgStructure')).toBeLessThan(after.indexOf('violations'));
+    expect(after.indexOf('violations')).toBeLessThan(after.indexOf('users'));
+    expect(top.map((n) => n.group)).toEqual([...top.map((n) => n.group)].sort((a, b) => NAV_GROUPS.findIndex((g) => g.id === a) - NAV_GROUPS.findIndex((g) => g.id === b)));
+    // The side label is «كل المشاريع», the page title stays «المشاريع».
+    const projects = top.find((n) => n.id === 'projects')!;
+    expect(t(projects.label)).toBe('كل المشاريع');
+    expect(trailFor('/projects', { user: ADMIN, ctx, translate: t }).title).toBe('المشاريع');
+    // Pages being built have a real entry, route title and a guard.
+    for (const id of ['portfolios', 'timeLog', 'reports', 'workload', 'communication', 'attachments', 'orgStructure']) {
+      const leaf = navLeaves().find((n) => n.id === id)!;
+      expect(leaf.soon, id).toBe(true);
+      expect(leaf.permission, id).toBeTruthy();
+      expect(trailFor(leaf.path!, { user: ADMIN, ctx, translate: t }).status ?? 'ok', id).toBe('ok');
+    }
+  });
+
+  it('shows supervisors «مهامي» first and no project management (A9)', () => {
+    for (const c of [ctx, { teamViolations: true }]) {
+      const top = visibleNav(SUPERVISOR, c);
+      const ids = navLeaves(top).map((n) => n.id);
+      expect(ids[0]).toBe('myTasks');
+      expect(top[0]!.group).toBe('home');
+      for (const forbidden of ['projects', 'portfolios', 'reports', 'workload', 'communication', 'attachments', 'orgStructure']) {
+        expect(ids, forbidden).not.toContain(forbidden);
+      }
+      // No route into project management from the palette or the shortcuts either.
+      const palette = paletteItems(SUPERVISOR, top, []);
+      expect(palette.some((i) => i.to === '/projects' || i.to === '/portfolios' || i.to === '/reports' || i.to === '/workload')).toBe(false);
+      expect(shortcutTargets(top).get('p')).toBeUndefined();
+    }
+    expect(trailFor('/projects', { user: SUPERVISOR, ctx, translate: t }).status).toBe('forbidden');
+    expect(trailFor('/my-tasks', { user: SUPERVISOR, ctx, translate: t }).group).toBe('الرئيسية');
   });
 
   it('maps `g` shortcuts to the first visible page for each key', () => {

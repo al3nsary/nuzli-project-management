@@ -7,121 +7,108 @@ import {
 } from '@mantine/core';
 
 /*
- * Mantine follows the Muhsen-aligned tokens (owner request A7, ADR-083). The colour names of
- * phases 1–4 are kept so screens did not have to change: `field` is now the Muhsen green,
- * `ok` = --live, `signal` = --amber, `breach` = --red; `gold` and `info` (--blue) are new.
+ * Mantine follows the Nozoly identity (owner request A9): white surfaces, Nozoly indigo as the
+ * primary colour. The colour names of phases 1–4 are kept so screens did not have to change:
+ * `field` is now Nozoly indigo, `ok` = --live, `signal` = --amber, `breach` = --red,
+ * `info` = --blue; `gold` (the Muhsen-era accent) now resolves to indigo as well.
  */
 
-/** Muhsen green, centred on --g #14593F (index 6); --g3 #1D7452 at 5, --g2 #0C3A29 at 8. */
+/** Nozoly indigo: #303F9F at 6 (light primary), #3F51B5 at 5 (dark primary, white text 6.9:1). */
 const field: MantineColorsTuple = [
-  '#e4f2e9',
-  '#c5e3d0',
-  '#94c9a9',
-  '#5fae82',
-  '#2f8a5f',
-  '#1d7452',
-  '#14593f',
-  '#104a34',
-  '#0c3a29',
-  '#072619',
+  '#e8eaf6',
+  '#c5cae9',
+  '#9fa8da',
+  '#7986cb',
+  '#5c6bc0',
+  '#3f51b5',
+  '#303f9f',
+  '#283593',
+  '#1a237e',
+  '#121858',
 ];
-/** --red #C0392B (light, index 6) and #EC4F54 (dark, index 4). */
+/** --red #C62828 (light, index 6) and #EF6461 (dark, index 4). */
 const breach: MantineColorsTuple = [
-  '#fbe9e7',
-  '#f7cdc8',
-  '#f09b93',
-  '#ff8e91',
-  '#ec4f54',
-  '#d4443a',
-  '#c0392b',
-  '#a02f23',
-  '#93261c',
-  '#5e1610',
+  '#fdecea',
+  '#f9cfcc',
+  '#f3a29e',
+  '#ef9a9a',
+  '#ef6461',
+  '#d93a36',
+  '#c62828',
+  '#b3261e',
+  '#8e1c16',
+  '#5c120e',
 ];
-/** --live #0B8A4B (light) and #14C273 (dark). */
+/** --live #2E7D32 (light) and #81C784 (dark). */
 const ok: MantineColorsTuple = [
-  '#e4f2e9',
-  '#c2e6d0',
-  '#8fd6ad',
-  '#4fe49f',
-  '#14c273',
-  '#0f9f5c',
-  '#0b8a4b',
-  '#0b6540',
-  '#084c30',
-  '#053320',
+  '#e7f4ea',
+  '#c8e6c9',
+  '#a5d6a7',
+  '#81c784',
+  '#66bb6a',
+  '#43a047',
+  '#2e7d32',
+  '#1b6e3a',
+  '#1b5e20',
+  '#0f3d14',
 ];
-/** --amber #B8791A (light) and #E5A62F (dark). */
+/** --amber #A35C00 (light) and #FFB74D (dark). */
 const signal: MantineColorsTuple = [
-  '#fbf1de',
-  '#f6e0b8',
-  '#f2c069',
-  '#eab24a',
-  '#e5a62f',
-  '#cc8f22',
-  '#b8791a',
-  '#9a6514',
-  '#7f5310',
-  '#53360a',
+  '#fff3e0',
+  '#ffe0b2',
+  '#ffcc80',
+  '#ffb74d',
+  '#ffa726',
+  '#e08600',
+  '#a35c00',
+  '#8a4b00',
+  '#6e3c00',
+  '#4a2800',
 ];
-/** Gold accent: --gold #A8875A, --gold2, --gold3. */
-const gold: MantineColorsTuple = [
-  '#f5eddf',
-  '#ece0c8',
-  '#e7d1a2',
-  '#d6bb87',
-  '#c6a86f',
-  '#b4935f',
-  '#a8875a',
-  '#8a6c3c',
-  '#6e5729',
-  '#4a3a1b',
-];
-/** Info blue: --blue #1B6E9C (light) and #3FA3DC (dark). */
+/** Info blue: --blue #1565C0 (light) and #64B5F6 (dark). */
 const info: MantineColorsTuple = [
-  '#e7eef6',
-  '#c7dcec',
-  '#82c8ed',
-  '#5fb6e6',
-  '#3fa3dc',
-  '#2788bf',
-  '#1b6e9c',
-  '#165a80',
-  '#2a4a73',
-  '#0c2f45',
+  '#e3f0fc',
+  '#bbdefb',
+  '#90caf9',
+  '#64b5f6',
+  '#42a5f5',
+  '#1e88e5',
+  '#1565c0',
+  '#0b57a4',
+  '#0d47a1',
+  '#082f6b',
 ];
 /** Neutrals from --void to --ink (light). */
 const slate: MantineColorsTuple = [
-  '#eff1ed',
-  '#e7f1ea',
-  '#dde9e1',
-  '#c6dace',
-  '#9ab0a3',
-  '#7a8f84',
-  '#4c635a',
-  '#2f4239',
-  '#16261e',
-  '#0d1a13',
+  '#f1f3f6',
+  '#eef0f4',
+  '#e6e8ec',
+  '#d5d9e0',
+  '#a3a9b5',
+  '#6f7787',
+  '#5e6676',
+  '#3d4452',
+  '#2a303c',
+  '#1f2430',
 ];
-/** Mantine dark ramp: [0] text … [4] borders, [6] cards/inputs, [7] body — Muhsen night. */
+/** Mantine dark ramp: [0] text … [4] borders, [6] cards/inputs, [7] body — neutral night. */
 const dark: MantineColorsTuple = [
-  '#edf5f0',
-  '#c9d9d0',
-  '#9fb6a9',
-  '#6b857a',
-  '#27473a',
-  '#1c3128',
-  '#14261f',
-  '#0f1c16',
-  '#0a140f',
-  '#060c09',
+  '#e7e9ee',
+  '#c3c8d2',
+  '#a3a9b6',
+  '#8a91a0',
+  '#383e4b',
+  '#2a2f3a',
+  '#1d2129',
+  '#171a21',
+  '#14171c',
+  '#0f1115',
 ];
 
-const SHADOW =
-  '0 1px 2px rgba(11,53,39,.05), 0 4px 10px -4px rgba(11,53,39,.07), 0 18px 34px -22px rgba(11,53,39,.3)';
-const LIFT = '0 2px 6px rgba(11,53,39,.07), 0 18px 34px -14px rgba(11,53,39,.22)';
+const SHADOW = '0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.03)';
+const LIFT = '0 4px 12px -2px rgba(16,24,40,.08), 0 16px 36px -10px rgba(16,24,40,.14)';
 
-/** Light badges, alerts and theme icons use the Muhsen status pills (tokens follow the scheme). */
+/** Light badges, alerts and theme icons use the status pills (tokens follow the scheme). */
 const PILL: Record<string, { b: string; t: string }> = {
   ok: { b: 'var(--p-live-b)', t: 'var(--p-live-t)' },
   green: { b: 'var(--p-live-b)', t: 'var(--p-live-t)' },
@@ -131,10 +118,11 @@ const PILL: Record<string, { b: string; t: string }> = {
   red: { b: 'var(--p-no-b)', t: 'var(--p-no-t)' },
   info: { b: 'var(--p-blue-b)', t: 'var(--p-blue-t)' },
   blue: { b: 'var(--p-blue-b)', t: 'var(--p-blue-t)' },
-  gold: { b: 'var(--p-gold-b)', t: 'var(--p-gold-t)' },
+  gold: { b: 'var(--p-brand-b)', t: 'var(--p-brand-t)' },
+  indigo: { b: 'var(--p-brand-b)', t: 'var(--p-brand-t)' },
   slate: { b: 'var(--p-grey-b)', t: 'var(--p-grey-t)' },
   gray: { b: 'var(--p-grey-b)', t: 'var(--p-grey-t)' },
-  field: { b: 'var(--sheen2)', t: 'var(--link)' },
+  field: { b: 'var(--tint)', t: 'var(--link)' },
 };
 
 const variantColorResolver: VariantColorsResolver = (input) => {
@@ -145,14 +133,14 @@ const variantColorResolver: VariantColorsResolver = (input) => {
     return { ...base, background: pill.b, hover: pill.b, color: pill.t, border: 'none' };
   }
   if (input.variant === 'subtle' && name === 'field') {
-    return { ...base, color: 'var(--link)', hover: 'var(--sheen2)' };
+    return { ...base, color: 'var(--link)', hover: 'var(--tint)' };
   }
   return base;
 };
 
 export const theme = createTheme({
   primaryColor: 'field',
-  primaryShade: { light: 6, dark: 6 },
+  primaryShade: { light: 6, dark: 5 },
   autoContrast: true,
   variantColorResolver,
   colors: {
@@ -160,7 +148,8 @@ export const theme = createTheme({
     breach,
     ok,
     signal,
-    gold,
+    gold: field,
+    indigo: field,
     info,
     slate,
     red: breach,
@@ -171,7 +160,7 @@ export const theme = createTheme({
     dark,
   },
   white: '#ffffff',
-  black: '#0d1a13',
+  black: '#1f2430',
   fontFamily: "'IBM Plex Sans Arabic', 'Segoe UI', system-ui, sans-serif",
   fontFamilyMonospace: "'IBM Plex Mono', ui-monospace, monospace",
   headings: {
@@ -188,7 +177,7 @@ export const theme = createTheme({
   lineHeights: { xs: '1.6', sm: '1.7', md: '1.75', lg: '1.6', xl: '1.5' },
   spacing: { xs: '8px', sm: '12px', md: '16px', lg: '24px', xl: '32px' },
   // --r4 chips, --r3 inputs and buttons, --r cards, --r2 dialogs.
-  radius: { xs: '6px', sm: '9px', md: '12px', lg: '16px', xl: '22px' },
+  radius: { xs: '4px', sm: '6px', md: '8px', lg: '12px', xl: '16px' },
   defaultRadius: 'md',
   shadows: { xs: SHADOW, sm: SHADOW, md: SHADOW, lg: LIFT, xl: LIFT },
   focusRing: 'auto',
@@ -204,7 +193,7 @@ export const theme = createTheme({
     Badge: { defaultProps: { radius: 'xl', variant: 'light' } },
     Tooltip: { defaultProps: { radius: 'sm', withArrow: true, openDelay: 250 } },
     Table: { defaultProps: { highlightOnHover: true, striped: false, verticalSpacing: 'sm' } },
-    Button: { defaultProps: { radius: 'md' }, styles: { root: { minHeight: 42, fontWeight: 700 } } },
+    Button: { defaultProps: { radius: 'md' }, styles: { root: { minHeight: 40, fontWeight: 600 } } },
     TextInput: { defaultProps: { size: 'md' } },
     PasswordInput: { defaultProps: { size: 'md' } },
     Select: { defaultProps: { size: 'md' } },
