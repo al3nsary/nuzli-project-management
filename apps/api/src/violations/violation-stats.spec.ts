@@ -134,3 +134,24 @@ describe('assembleStats', () => {
     expect(fillTrend([], {}, new Date())).toEqual([]);
   });
 });
+
+describe('A9: unassigned violations in the statistics (ADR-103)', () => {
+  it('assigned=false / true filter on member_id', () => {
+    expect(violationWhereSql({ assigned: 'false' }).text).toBe('v.member_id IS NULL');
+    expect(violationWhereSql({ assigned: 'true' }).text).toBe('v.member_id IS NOT NULL');
+  });
+
+  it('a separate "unassigned" KPI with the same filters; byTeam and topMembers leave them out', () => {
+    const q = statsQueries({ typeId: '44444444-4444-4444-8444-444444444444' }, new Date('2026-10-12T00:00:00Z'));
+    expect(text(q.unassigned)).toContain('AND v.member_id IS NULL');
+    expect(q.unassigned.values).toContain('44444444-4444-4444-8444-444444444444');
+    expect(text(q.byTeam)).toContain('v.team_id_snapshot IS NOT NULL');
+    expect(text(q.topMembers)).toContain('v.member_id IS NOT NULL');
+  });
+
+  it('assembleStats reports the count (0 when the row is missing)', () => {
+    const base: StatsRows = { totals: [], byTeam: [], topMembers: [], byMonitor: [], byType: [], bySeverity: [], trend: [], heatmap: [], points: [] };
+    expect(assembleStats({ ...base, unassigned: [{ count: 7 }] }, {}, new Date()).unassigned).toBe(7);
+    expect(assembleStats(base, {}, new Date()).unassigned).toBe(0);
+  });
+});

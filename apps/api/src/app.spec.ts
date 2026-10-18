@@ -290,8 +290,10 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
     );
     const createViolation = doc.paths['/api/v1/violations']?.post?.requestBody as { content: Record<string, { schema: { required?: string[] } }> };
     expect(createViolation.content['application/json']?.schema.required).toEqual(
-      expect.arrayContaining(['clientUuid', 'memberId', 'typeId', 'latitude', 'longitude', 'accuracyM', 'capturedAt']),
+      expect.arrayContaining(['clientUuid', 'typeId', 'latitude', 'longitude', 'accuracyM', 'capturedAt']),
     );
+    // A9 (ADR-103): a violation may be recorded without a person.
+    expect(createViolation.content['application/json']?.schema.required).not.toContain('memberId');
     const login = doc.paths['/api/v1/auth/login']?.post?.requestBody as { content: Record<string, { schema: { required?: string[] } }> };
     expect(login.content['application/json']?.schema.required).toEqual(['identifier', 'password']);
   });

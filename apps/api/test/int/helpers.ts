@@ -29,6 +29,8 @@ function ensureEnv(): void {
   process.env.COOKIE_SECURE = 'false';
   process.env.THROTTLE_AUTH_LIMIT = '1000';
   process.env.SWAGGER_ENABLED = 'false';
+  // A9: the OCR engine is exercised by the unit smoke test; integration runs keep jobs PENDING.
+  process.env.OCR_ENABLED ??= 'false';
   process.env.JWT_ACCESS_SECRET ??= randomBytes(32).toString('hex');
   process.env.NATIONAL_ID_ENC_KEY ??= randomBytes(32).toString('base64');
   process.env.NATIONAL_ID_HMAC_KEY ??= randomBytes(32).toString('base64');

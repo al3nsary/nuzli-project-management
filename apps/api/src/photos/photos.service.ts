@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { FilesService } from '../storage/files.service';
 import { StorageService } from '../storage/storage.service';
+import { OPEN_LEADERS } from '../teams/team-dto';
 import {
   memberPhotoRead,
   memberPhotoWrite,
@@ -82,7 +83,7 @@ export class PhotosService implements OnModuleInit {
         archivedAt: true,
         status: true,
         photoFileId: true,
-        memberships: { where: { validTo: null }, take: 1, select: { team: { select: { supervisorId: true, status: true } } } },
+        memberships: { where: { validTo: null }, take: 1, select: { team: { select: { supervisors: OPEN_LEADERS, status: true } } } },
       },
     });
     if (!m || m.archivedAt) return null;
@@ -195,7 +196,7 @@ export class PhotosService implements OnModuleInit {
           archivedAt: true,
           status: true,
           photo: fileSelect,
-          memberships: { where: { validTo: null }, take: 1, select: { team: { select: { supervisorId: true, status: true } } } },
+          memberships: { where: { validTo: null }, take: 1, select: { team: { select: { supervisors: OPEN_LEADERS, status: true } } } },
         },
       });
       if (!m || m.archivedAt || !memberPhotoRead(viewer, { status: m.status, team: m.memberships[0]?.team ?? null })) {

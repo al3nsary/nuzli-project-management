@@ -21,7 +21,7 @@ const nid = (first9: string) => first9 + nationalIdCheckDigit(first9);
 
 function setup() {
   const tx = {
-    team: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', supervisorId: SUP.id }) },
+    team: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', supervisors: [{ userId: SUP.id }], supervisorId: SUP.id }) },
     teamMember: {
       count: jest.fn().mockResolvedValue(2),
       findMany: jest.fn().mockResolvedValue([]),
@@ -46,6 +46,22 @@ function setup() {
   return { svc, tx };
 }
 
+describe('A9: moving the worker foreman clears the flag (ADR-101)', () => {
+  it('the new membership starts as WORKER (no role written) and team.foreman_cleared is audited on the old team', async () => {
+    const { svc, tx } = setup();
+    tx.teamMembership.findMany.mockResolvedValueOnce([
+      { id: 'ms-1', memberId: 'm1', teamId: TEAM_A, role: 'FOREMAN' },
+      { id: 'ms-2', memberId: 'm2', teamId: TEAM_A, role: 'WORKER' },
+    ] as never);
+    await svc.move({ memberIds: ['m1', 'm2'], toTeamId: TEAM_B }, ADMIN, ctx);
+    const opened = tx.teamMembership.createMany.mock.calls[0]![0].data as Array<Record<string, unknown>>;
+    expect(opened.every((r) => !('role' in r))).toBe(true); // column default WORKER
+    const entries = tx.auditLog.create.mock.calls.map((c) => c[0].data);
+    expect(entries.map((e) => e.action)).toEqual(['members.moved', 'team.foreman_cleared']);
+    expect(entries[1]).toMatchObject({ entityId: TEAM_A, before: { foremanId: 'm1' }, after: { foremanId: null } });
+  });
+});
+
 describe('MembersService.move (brief §5.3, ADR-013)', () => {
   it('closes every open row and opens the new ones with the SAME timestamp, in one transaction', async () => {
     const { svc, tx } = setup();
@@ -68,7 +84,7 @@ describe('MembersService.move (brief §5.3, ADR-013)', () => {
   it('refuses a target team that is not ACTIVE (pending or archived)', async () => {
     for (const status of ['PENDING_APPROVAL', 'ARCHIVED']) {
       const { svc, tx } = setup();
-      tx.team.findUnique.mockResolvedValue({ status, supervisorId: SUP.id });
+      tx.team.findUnique.mockResolvedValue({ status, supervisors: [{ userId: SUP.id }], supervisorId: SUP.id });
       const err = await svc.move({ memberIds: ['m1'], toTeamId: TEAM_B }, ADMIN, ctx).catch((e: AppError) => e);
       expect((err as AppError).code).toBe('TEAM_NOT_ACTIVE');
       expect(tx.teamMembership.updateMany).not.toHaveBeenCalled();
@@ -190,7 +206,7 @@ describe('member import (brief §5.1)', () => {
 
   it('refuses to import into an archived team', async () => {
     const { svc, tx } = setup();
-    tx.team.findUnique.mockResolvedValue({ status: 'ARCHIVED', supervisorId: SUP.id });
+    tx.team.findUnique.mockResolvedValue({ status: 'ARCHIVED', supervisors: [{ userId: SUP.id }], supervisorId: SUP.id });
     const err = await svc
       .import({ teamId: TEAM_A, rows: [{ fullName: 'x', nationalId: good }], commit: true }, ADMIN, ctx)
       .catch((e: AppError) => e);

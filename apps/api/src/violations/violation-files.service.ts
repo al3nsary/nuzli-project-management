@@ -10,12 +10,16 @@ import { SettingsService } from '../settings/settings.service';
 import { FilesService, type FileEntityHook } from '../storage/files.service';
 import { StorageService } from '../storage/storage.service';
 import { editableUntil } from './violation-dto';
+import { OcrQueueService } from './ocr/ocr-queue.service';
 
 export const ID_CARD_LIMIT = 1;
+/** A9 (owner decision 4): exactly one photo of the person per violation. */
+export const PERSON_LIMIT = 1;
 const RETENTION_BATCH = 500;
 const RETENTION_MAX_BATCHES = 200;
 
-type Kind = 'ID_CARD' | 'EVIDENCE';
+type Kind = 'ID_CARD' | 'EVIDENCE' | 'PERSON';
+const KINDS: readonly string[] = ['ID_CARD', 'EVIDENCE', 'PERSON'];
 
 /**
  * Violation photos through the generic presign → PUT → confirm flow (brief §7.2, §7.4):
@@ -26,7 +30,9 @@ type Kind = 'ID_CARD' | 'EVIDENCE';
  *  - security review L2 (ADR-066): never on a CANCELLED violation; after the edit window
  *    (`VIOLATION_EDIT_WINDOW_MINUTES` from `received_at`) the recorder may only finish the
  *    original sync — up to the expected count of that kind — unless they hold `violations.manage`.
- * Plus the retention job for `VIOLATION_PHOTO_RETENTION_DAYS` (brief §13).
+ *  - A9 (ADR-103/104): a PERSON photo (one) besides the ID card (one) and the evidence; a
+ *    confirmed ID-card photo queues the OCR job.
+ * Plus the retention job for `VIOLATION_PHOTO_RETENTION_DAYS` (brief §13), which also deletes OCR data.
  */
 @Injectable()
 export class ViolationFilesService implements FileEntityHook, OnModuleInit {
@@ -38,6 +44,7 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
     private readonly storage: StorageService,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly ocr: OcrQueueService,
   ) {}
 
   onModuleInit(): void {
@@ -45,13 +52,23 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
   }
 
   async limitFor(kind: Kind): Promise<number> {
-    return kind === 'ID_CARD' ? ID_CARD_LIMIT : this.settings.get('VIOLATION_MAX_PHOTOS');
+    if (kind === 'ID_CARD') return ID_CARD_LIMIT;
+    if (kind === 'PERSON') return PERSON_LIMIT;
+    return this.settings.get('VIOLATION_MAX_PHOTOS');
   }
 
   private async violationFor(id: string, user: AuthUser) {
     const v = await this.prisma.violation.findUnique({
       where: { id },
-      select: { id: true, recordedById: true, status: true, receivedAt: true, expectedIdPhotos: true, expectedEvidence: true },
+      select: {
+        id: true,
+        recordedById: true,
+        status: true,
+        receivedAt: true,
+        expectedIdPhotos: true,
+        expectedEvidence: true,
+        expectedPerson: true,
+      },
     });
     // Someone else's violation answers 404, like every other out-of-scope read.
     if (!v || (v.recordedById !== user.id && !can(user, 'violations.manage'))) throw new AppError('NOT_FOUND');
@@ -65,7 +82,7 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
    * time (`expected_*`), so an offline device can still finish its original sync.
    */
   async allowanceFor(
-    v: { receivedAt: Date; expectedIdPhotos: number; expectedEvidence: number },
+    v: { receivedAt: Date; expectedIdPhotos: number; expectedEvidence: number; expectedPerson?: number },
     kind: Kind,
     user: AuthUser,
     now = new Date(),
@@ -74,14 +91,15 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
     if (can(user, 'violations.manage')) return { limit, afterWindow: false };
     const window = await this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES');
     if (now < editableUntil(v.receivedAt, window)) return { limit, afterWindow: false };
-    const expected = kind === 'ID_CARD' ? v.expectedIdPhotos : v.expectedEvidence;
+    const expected =
+      kind === 'ID_CARD' ? v.expectedIdPhotos : kind === 'PERSON' ? (v.expectedPerson ?? 0) : v.expectedEvidence;
     return { limit: Math.min(limit, expected), afterWindow: true };
   }
 
   async beforePresign(input: PresignUploadInput, user: AuthUser): Promise<void> {
     const fieldErrors: Record<string, string[]> = {};
     if (!input.entityId) fieldErrors.entityId = ['حدّد المخالفة التي تتبع لها الصورة'];
-    if (input.kind !== 'ID_CARD' && input.kind !== 'EVIDENCE') fieldErrors.kind = ['نوع الصورة: بطاقة الهوية أو صورة المخالفة'];
+    if (!input.kind || !KINDS.includes(input.kind)) fieldErrors.kind = ['نوع الصورة: بطاقة الهوية أو صورة الشخص أو صورة المخالفة'];
     if (Object.keys(fieldErrors).length) throw new AppError('VALIDATION_FAILED', { fieldErrors });
     if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(input.contentType)) throw new AppError('FILE_TYPE_NOT_ALLOWED');
     const v = await this.violationFor(input.entityId!, user);
@@ -110,7 +128,7 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
   }
 
   async onConfirmed(file: FileRow, user: AuthUser): Promise<void> {
-    if (!file.entityId || (file.kind !== 'ID_CARD' && file.kind !== 'EVIDENCE')) return;
+    if (!file.entityId || !file.kind || !KINDS.includes(file.kind)) return;
     const kind = file.kind as Kind;
     const violationId = file.entityId;
     const v = await this.violationFor(violationId, user);
@@ -124,6 +142,8 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
       if (count >= limit) throw new AppError('TOO_MANY_PHOTOS', { kind, limit });
       await tx.violationFile.create({ data: { violationId, fileId: file.id, kind } });
     });
+    // A9 (ADR-104): read the card automatically. Idempotent for a repeated confirm.
+    if (kind === 'ID_CARD') await this.ocr.enqueue(violationId, file.id);
   }
 
   // ─────────────────────────────────────────── retention (brief §13)
@@ -172,12 +192,14 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
       }
       if (rows.length < RETENTION_BATCH) break;
     }
-    if (removed || failed) {
+    // A9: OCR data (extracted card fields) goes with the photos of the same violations.
+    const ocr = await this.prisma.violationOcr.deleteMany({ where: { violation: { capturedAt: { lt: cutoff } } } });
+    if (removed || failed || ocr.count) {
       await this.audit.log({
         actorId: null,
         action: AuditAction.VIOLATION_PHOTOS_PURGED,
         entityType: 'violation_file',
-        after: { removed, failed, retentionDays: days, cutoff: cutoff.toISOString() },
+        after: { removed, failed, ocrRemoved: ocr.count, retentionDays: days, cutoff: cutoff.toISOString() },
       });
       this.logger.log(`Retention removed ${removed} violation photos (${failed} failed)`);
     }

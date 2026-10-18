@@ -114,6 +114,24 @@ export const AuditAction = {
   TIME_ENTRY_CREATED: 'time_entry.created',
   TIME_ENTRY_UPDATED: 'time_entry.updated',
   TIME_ENTRY_DELETED: 'time_entry.deleted',
+  // Owner request A9 — teams, organisational structure, violations without a person (ADR-100..104):
+  TEAM_SUPERVISOR_ADDED: 'team.supervisor_added',
+  TEAM_SUPERVISOR_REMOVED: 'team.supervisor_removed',
+  TEAM_PRIMARY_SUPERVISOR_CHANGED: 'team.primary_supervisor_changed',
+  TEAM_FOREMAN_SET: 'team.foreman_set',
+  TEAM_FOREMAN_CLEARED: 'team.foreman_cleared',
+  ORG_UNIT_CREATED: 'org.unit_created',
+  ORG_UNIT_UPDATED: 'org.unit_updated',
+  ORG_UNIT_MOVED: 'org.unit_moved',
+  ORG_UNIT_DELETED: 'org.unit_deleted',
+  ORG_POSITION_CREATED: 'org.position_created',
+  ORG_POSITION_UPDATED: 'org.position_updated',
+  ORG_POSITION_MOVED: 'org.position_moved',
+  ORG_POSITION_DELETED: 'org.position_deleted',
+  VIOLATION_ASSIGNED: 'violation.assigned',
+  VIOLATION_UNASSIGNED: 'violation.unassigned',
+  VIOLATION_MEMBER_REGISTERED: 'violation.member_registered',
+  VIOLATION_OCR_VIEWED: 'violation.ocr_viewed',
 } as const;
 
 export interface AuditEntryInput {

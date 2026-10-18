@@ -4,6 +4,9 @@ import { AppError } from './app-error';
 
 /** Unique-constraint targets → error codes (P2002 / SQLSTATE 23505). */
 const UNIQUE_TARGETS: Array<[RegExp, ErrorCode]> = [
+  // A9: one open leadership row per (team, user); a live org-unit code is unique.
+  [/team_supervisors_one_open_uq|team_id,\s*user_id|teamId,\s*userId/, 'SUPERVISOR_ALREADY_IN_TEAM'],
+  [/org_units_code_uq|lower\(code\)/, 'NAME_TAKEN'],
   [/national_id_hash|nationalIdHash/, 'NATIONAL_ID_TAKEN'],
   [/email/, 'EMAIL_TAKEN'],
   [/mobile/, 'MOBILE_TAKEN'],

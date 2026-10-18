@@ -8,7 +8,7 @@
  * Files and the fields read (extra fields are ignored):
  *   teams.json     { teams: [{ id, name, colorId | colorHex, supervisorId | supervisorEmail, status,
  *                              createdAt?, archivedAt? }], supervisorHistory?: [{ teamId, supervisorId,
- *                              validFrom, validTo, reason }] }
+ *                              validFrom, validTo, reason, isPrimary? }] }  (A9: rows → team_supervisors)
  *   members.json   { members: [{ id, fullName, nationalId, jobTitleId | jobTitle(Text), departmentId |
  *                                department(Text), status?, teamId? }], memberships?: [{ memberId, teamId,
  *                                validFrom, validTo, reason }] }
@@ -232,22 +232,27 @@ export async function runDemoSeed(
         },
         select: { id: true },
       });
-      const historyRows: Prisma.TeamSupervisorHistoryCreateManyInput[] = [];
+      // A9 (ADR-100): leadership rows live in team_supervisors; `isPrimary` defaults to true
+      // (the old single-supervisor files), an archived team's open rows end at archivedAt.
+      const historyRows: Prisma.TeamSupervisorCreateManyInput[] = [];
       for (const h of rows) {
         const sup = (await existingUser(h.supervisorId)) ?? null;
         const from = date(h.validFrom);
         if (!sup || !from) continue;
         historyRows.push({
           teamId: created.id,
-          supervisorId: sup,
+          userId: sup,
+          isPrimary: h.isPrimary === false ? false : true,
           validFrom: from,
-          validTo: date(h.validTo) ?? null,
-          changedById: await existingUser(h.changedById),
+          validTo: date(h.validTo) ?? archivedAt,
+          addedById: await existingUser(h.changedById),
           reason: str(h.reason) ?? null,
         });
       }
-      if (!historyRows.length) historyRows.push({ teamId: created.id, supervisorId, validFrom: createdAt });
-      await tx.teamSupervisorHistory.createMany({ data: historyRows });
+      if (!historyRows.length) {
+        historyRows.push({ teamId: created.id, userId: supervisorId, isPrimary: true, validFrom: createdAt, validTo: archivedAt });
+      }
+      await tx.teamSupervisor.createMany({ data: historyRows });
       return created;
     });
     if (jsonId) teamIds.set(jsonId, team.id);

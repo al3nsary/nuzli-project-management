@@ -38,7 +38,7 @@ function member(overrides: Record<string, unknown> = {}) {
     status: 'ACTIVE',
     jobTitle: { name: 'فني كهرباء' },
     department: null,
-    memberships: [{ teamId: TEAM, team: { id: TEAM, name: 'فريق أ', supervisorId: SUP_ID, color: { id: 'c', name: 'أزرق', hex: '#1D4ED8', isActive: true } } }],
+    memberships: [{ teamId: TEAM, team: { id: TEAM, name: 'فريق أ', status: 'ACTIVE', supervisors: [{ userId: SUP_ID }], color: { id: 'c', name: 'أزرق', hex: '#1D4ED8', isActive: true } } }],
     ...overrides,
   };
 }
@@ -71,7 +71,7 @@ function setup(config: Record<string, unknown> = {}, cfg: Record<string, unknown
           id: TEAM,
           name: 'فريق أ',
           color: { hex: '#1D4ED8' },
-          supervisor: supRow,
+          supervisors: [{ user: supRow }],
         },
       ]),
     },
@@ -139,6 +139,17 @@ describe('card preview — national ID rules (brief §8.2, §13)', () => {
     const { svc } = setup({ maskNationalId: false, fields: { nationalId: false } });
     const { subjects } = await svc.preview(previewInput, ADMIN);
     expect(subjects.every((s) => s.data.nationalId === '')).toBe(true);
+  });
+
+  it('A9: includeSupervisors gives one card per current supervisor of the team (primary first), each person once', async () => {
+    const { svc, tx } = setup();
+    const second = { id: 'sup-2', fullName: 'نايف المشرف المساعد', nationalIdEnc: crypto.encrypt(SUP_NID), nationalIdFirst: '1', nationalIdLast2: '00', photoFileId: null };
+    const first = (await tx.team.findMany()) as Array<{ supervisors: Array<{ user: unknown }> }>;
+    tx.team.findMany.mockResolvedValue([{ ...first[0], supervisors: [...first[0]!.supervisors, { user: second }] }] as never);
+    const { subjects } = await svc.preview(previewInput, ADMIN);
+    expect(subjects.filter((s) => s.userId).map((s) => s.userId)).toEqual([SUP_ID, 'sup-2']);
+    const where = tx.team.findMany.mock.calls.at(-1)![0] as { select: { supervisors: { where: unknown; orderBy: unknown } } };
+    expect(where.select.supervisors.where).toEqual({ validTo: null });
   });
 
   it('includeSupervisors=false leaves the supervisor card out', async () => {

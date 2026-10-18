@@ -97,6 +97,28 @@ enum ViolationStatus {
 enum ViolationFileKind {
   ID_CARD
   EVIDENCE
+  /// A9: a photo of the person (owner decision 4).
+  PERSON
+}
+
+/// A9: a member is a worker or the team's worker foreman (مشرف عمّال) — a record only.
+enum MembershipRole {
+  WORKER
+  FOREMAN
+}
+
+enum OrgUnitKind {
+  DEPARTMENT
+  SECTION
+  UNIT
+  TEAM_GROUP
+}
+
+enum OcrStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
 }
 
 enum VisibilityMode {
@@ -180,6 +202,10 @@ model User {
   viewPrefs          UserViewPref[]
   commentReads       TaskCommentRead[]
   checklistDone      TaskChecklistItem[]     @relation("ChecklistDoneBy")
+  // A9 — teams, org, violations
+  teamSupervisions   TeamSupervisor[]        @relation("TeamSupervisorUser")
+  orgPositions       OrgPosition[]           @relation("OrgPositionUser")
+  assignedViolations Violation[]             @relation("ViolationAssignedBy")
 
   @@index([role, status])
   @@index([status])
@@ -254,20 +280,50 @@ model Team {
   updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdById  String?    @map("created_by") @db.Uuid
   archivedAt   DateTime?  @map("archived_at") @db.Timestamptz(3)
+  /// A9: optional link to the organisational structure.
+  orgUnitId    String?    @map("org_unit_id") @db.Uuid
 
   color             TeamColor               @relation(fields: [colorId], references: [id])
+  /// The PRIMARY supervisor, kept in sync with team_supervisors for compatibility (ADR-100).
   supervisor        User                    @relation("TeamSupervisor", fields: [supervisorId], references: [id])
   supervisorHistory TeamSupervisorHistory[]
+  supervisors       TeamSupervisor[]
   memberships       TeamMembership[]
   violations        Violation[]             @relation("ViolationTeamSnapshot")
   visibility        ViolationVisibility?
+  orgUnit           OrgUnit?                @relation(fields: [orgUnitId], references: [id], onDelete: SetNull)
 
   @@index([colorId])
   @@index([supervisorId])
   @@index([status])
+  @@index([orgUnitId])
   @@map("teams")
 }
 
+/// A9 (ADR-100): every supervisor of a team over time; "leads the team" = an open row.
+/// raw SQL: partial unique indexes — one open row per (team, user); one open primary per team;
+///          CHECK (valid_to IS NULL OR valid_to > valid_from); trigger: user role SUPERVISOR.
+model TeamSupervisor {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId    String    @map("team_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  isPrimary Boolean   @default(false) @map("is_primary")
+  validFrom DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
+  validTo   DateTime? @map("valid_to") @db.Timestamptz(3)
+  addedById String?   @map("added_by") @db.Uuid
+  reason    String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation("TeamSupervisorUser", fields: [userId], references: [id])
+
+  @@index([teamId, validTo])
+  @@index([userId, validTo])
+  @@map("team_supervisors")
+}
+
+/// Superseded by team_supervisors (A9, ADR-100): rows were copied by the migration and nothing
+/// writes here any more. Kept read-only for one release, then dropped.
 /// raw SQL: partial unique index — one open row per team (valid_to IS NULL).
 model TeamSupervisorHistory {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -307,13 +363,15 @@ model TeamMember {
   createdById     String?      @map("created_by") @db.Uuid
   archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
 
-  jobTitle    JobTitle?        @relation(fields: [jobTitleId], references: [id])
-  department  Department?      @relation(fields: [departmentId], references: [id])
-  photo       File?            @relation("MemberPhoto", fields: [photoFileId], references: [id])
-  user        User?            @relation("MemberUser", fields: [userId], references: [id])
-  memberships TeamMembership[]
-  violations  Violation[]
-  printItems  CardPrintItem[]
+  jobTitle     JobTitle?        @relation(fields: [jobTitleId], references: [id])
+  department   Department?      @relation(fields: [departmentId], references: [id])
+  photo        File?            @relation("MemberPhoto", fields: [photoFileId], references: [id])
+  user         User?            @relation("MemberUser", fields: [userId], references: [id])
+  memberships  TeamMembership[]
+  violations   Violation[]
+  printItems   CardPrintItem[]
+  /// A9: organisational positions this member holds.
+  orgPositions OrgPosition[]    @relation("OrgPositionMember")
 
   @@index([jobTitleId])
   @@index([departmentId])
@@ -328,14 +386,16 @@ model TeamMember {
 ///          WHERE valid_to IS NULL;
 ///          CHECK (valid_to IS NULL OR valid_to > valid_from)
 model TeamMembership {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId  String    @map("member_id") @db.Uuid
-  teamId    String    @map("team_id") @db.Uuid
-  validFrom DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
-  validTo   DateTime? @map("valid_to") @db.Timestamptz(3)
-  movedById String?   @map("moved_by") @db.Uuid
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId  String         @map("member_id") @db.Uuid
+  teamId    String         @map("team_id") @db.Uuid
+  validFrom DateTime       @default(now()) @map("valid_from") @db.Timestamptz(3)
+  validTo   DateTime?      @map("valid_to") @db.Timestamptz(3)
+  movedById String?        @map("moved_by") @db.Uuid
   reason    String?
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// A9: WORKER, or FOREMAN (at most one open FOREMAN per team — partial unique, raw SQL).
+  role      MembershipRole @default(WORKER)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
 
   member  TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
   team    Team       @relation(fields: [teamId], references: [id])
@@ -368,6 +428,59 @@ model JobTitle {
   members     TeamMember[]
 
   @@map("job_titles")
+}
+
+// ───────────────────────────────────────────────────────────── organisational structure (A9, ADR-102)
+
+/// A tree (no cycles — checked in the service under an advisory lock).
+/// raw SQL: CHECK (parent_id IS NULL OR parent_id <> id); partial unique code among live units.
+model OrgUnit {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parentId    String?     @map("parent_id") @db.Uuid
+  name        String
+  kind        OrgUnitKind
+  code        String?
+  sort        Float       @default(0)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?     @map("created_by") @db.Uuid
+  archivedAt  DateTime?   @map("archived_at") @db.Timestamptz(3)
+
+  parent    OrgUnit?      @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  OrgUnit[]     @relation("OrgUnitTree")
+  positions OrgPosition[]
+  teams     Team[]
+
+  @@index([parentId, sort])
+  @@map("org_units")
+}
+
+/// Held by a user, by a team member, or vacant (both null).
+/// raw SQL: CHECK NOT (holder_user_id IS NOT NULL AND holder_member_id IS NOT NULL);
+///          CHECK (reports_to_position_id IS NULL OR reports_to_position_id <> id).
+model OrgPosition {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  unitId              String   @map("unit_id") @db.Uuid
+  title               String
+  holderUserId        String?  @map("holder_user_id") @db.Uuid
+  holderMemberId      String?  @map("holder_member_id") @db.Uuid
+  reportsToPositionId String?  @map("reports_to_position_id") @db.Uuid
+  sort                Float    @default(0)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById         String?  @map("created_by") @db.Uuid
+
+  unit         OrgUnit       @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  holderUser   User?         @relation("OrgPositionUser", fields: [holderUserId], references: [id], onDelete: SetNull)
+  holderMember TeamMember?   @relation("OrgPositionMember", fields: [holderMemberId], references: [id], onDelete: SetNull)
+  reportsTo    OrgPosition?  @relation("OrgReports", fields: [reportsToPositionId], references: [id], onDelete: SetNull)
+  reports      OrgPosition[] @relation("OrgReports")
+
+  @@index([unitId, sort])
+  @@index([holderUserId])
+  @@index([holderMemberId])
+  @@index([reportsToPositionId])
+  @@map("org_positions")
 }
 
 // ───────────────────────────────────────────────────────────── projects & tasks
@@ -771,38 +884,48 @@ model ViolationType {
 /// Append-only for monitors (edit window enforced in the service).
 /// team_id_snapshot / supervisor_id_snapshot are resolved from history at captured_at.
 model Violation {
-  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clientUuid           String          @unique @map("client_uuid") @db.Uuid
-  memberId             String          @map("member_id") @db.Uuid
-  teamIdSnapshot       String?         @map("team_id_snapshot") @db.Uuid
-  supervisorIdSnapshot String?         @map("supervisor_id_snapshot") @db.Uuid
-  recordedById         String          @map("recorded_by") @db.Uuid
-  typeId               String          @map("type_id") @db.Uuid
-  description          String
-  notes                String?
-  latitude             Float
-  longitude            Float
-  accuracyM            Float           @map("accuracy_m")
-  capturedAt           DateTime        @map("captured_at") @db.Timestamptz(3)
-  receivedAt           DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
-  clientSentAt         DateTime?       @map("client_sent_at") @db.Timestamptz(3)
-  clockDriftSuspect    Boolean         @default(false) @map("clock_drift_suspect")
-  deviceInfo           Json            @default("{}") @map("device_info")
-  expectedIdPhotos     Int             @default(1) @map("expected_id_photos")
-  expectedEvidence     Int             @default(1) @map("expected_evidence")
-  status               ViolationStatus @default(SUBMITTED)
-  cancelReason         String?         @map("cancel_reason")
-  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById          String?         @map("created_by") @db.Uuid
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientUuid            String          @unique @map("client_uuid") @db.Uuid
+  /// A9 (ADR-103): null until the person is assigned.
+  memberId              String?         @map("member_id") @db.Uuid
+  teamIdSnapshot        String?         @map("team_id_snapshot") @db.Uuid
+  /// The PRIMARY supervisor of the team at captured_at.
+  supervisorIdSnapshot  String?         @map("supervisor_id_snapshot") @db.Uuid
+  /// A9: every supervisor of the team at captured_at.
+  supervisorIdsSnapshot String[]        @default([]) @map("supervisor_ids_snapshot") @db.Uuid
+  assignedAt            DateTime?       @map("assigned_at") @db.Timestamptz(3)
+  assignedById          String?         @map("assigned_by") @db.Uuid
+  /// A9: photos of the person announced at capture (0 for violations recorded before A9).
+  expectedPerson        Int             @default(0) @map("expected_person_photos")
+  recordedById          String          @map("recorded_by") @db.Uuid
+  typeId                String          @map("type_id") @db.Uuid
+  description           String
+  notes                 String?
+  latitude              Float
+  longitude             Float
+  accuracyM             Float           @map("accuracy_m")
+  capturedAt            DateTime        @map("captured_at") @db.Timestamptz(3)
+  receivedAt            DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  clientSentAt          DateTime?       @map("client_sent_at") @db.Timestamptz(3)
+  clockDriftSuspect     Boolean         @default(false) @map("clock_drift_suspect")
+  deviceInfo            Json            @default("{}") @map("device_info")
+  expectedIdPhotos      Int             @default(1) @map("expected_id_photos")
+  expectedEvidence      Int             @default(1) @map("expected_evidence")
+  status                ViolationStatus @default(SUBMITTED)
+  cancelReason          String?         @map("cancel_reason")
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById           String?         @map("created_by") @db.Uuid
 
-  member     TeamMember          @relation(fields: [memberId], references: [id])
+  member     TeamMember?         @relation(fields: [memberId], references: [id])
   team       Team?               @relation("ViolationTeamSnapshot", fields: [teamIdSnapshot], references: [id])
   supervisor User?               @relation("ViolationSupervisorSnapshot", fields: [supervisorIdSnapshot], references: [id])
   recordedBy User                @relation("ViolationRecorder", fields: [recordedById], references: [id])
+  assignedBy User?               @relation("ViolationAssignedBy", fields: [assignedById], references: [id])
   type       ViolationType       @relation(fields: [typeId], references: [id])
   files      ViolationFile[]
   responses  ViolationResponse[]
+  ocr        ViolationOcr?
 
   @@index([capturedAt])
   @@index([teamIdSnapshot, capturedAt])
@@ -816,8 +939,33 @@ model Violation {
   @@map("violations")
 }
 
+/// A9 (ADR-104): OCR of the ID-card photo. One row per violation; the extracted fields are
+/// encrypted JSON (CryptoService), the ID number has an HMAC blind index. OCR text is never stored or logged.
+model ViolationOcr {
+  violationId   String    @id @map("violation_id") @db.Uuid
+  /// The ID_CARD file that was read.
+  fileId        String?   @map("file_id") @db.Uuid
+  status        OcrStatus @default(PENDING)
+  attempts      Int       @default(0)
+  /// Short failure reason (engine error class), never OCR text.
+  error         String?
+  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(3)
+  extractedEnc  Bytes?    @map("extracted_enc")
+  idNumberHash  String?   @map("id_number_hash")
+  extractedAt   DateTime? @map("extracted_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  violation Violation @relation(fields: [violationId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([idNumberHash])
+  @@map("violation_ocr")
+}
+
 /// raw SQL: CREATE UNIQUE INDEX violation_files_one_id_card_uq ON violation_files(violation_id)
 ///          WHERE kind = 'ID_CARD';  (one ID-card photo per violation)
+///          A9: violation_files_one_person_uq — one PERSON photo per violation.
 model ViolationFile {
   id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   violationId String            @map("violation_id") @db.Uuid

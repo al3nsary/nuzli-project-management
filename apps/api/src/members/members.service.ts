@@ -21,7 +21,9 @@ import {
   assertTeamManageable,
   canManageMemberIn,
   canReadAllTeams,
+  leads,
   MEMBER_SELECT,
+  OPEN_LEADERS,
   memberScopeWhere,
   TEAM_SUMMARY_SELECT,
   toMemberDto,
@@ -138,7 +140,7 @@ export class MembersService {
     const row = await hideDuplicateNationalId(viewer, this.audit, ctx, { teamId, via: 'members.create' }, () =>
       withPrismaErrors(() =>
       this.prisma.$transaction(async (tx) => {
-        const team = await tx.team.findUnique({ where: { id: teamId }, select: { supervisorId: true, status: true } });
+        const team = await tx.team.findUnique({ where: { id: teamId }, select: { supervisors: OPEN_LEADERS, status: true } });
         if (!team) throw new AppError('NOT_FOUND');
         assertTeamManageable(viewer, team);
         if (!canManageMemberIn(viewer, team)) throw new AppError('FORBIDDEN');
@@ -180,7 +182,7 @@ export class MembersService {
         const team = before.memberships[0]?.team ?? null;
         if (!canManageMemberIn(viewer, team)) {
           // Hide members outside the viewer's scope; a visible member without rights → 403.
-          const visible = canReadAllTeams(viewer) || (team?.supervisorId === viewer.id) || !team;
+          const visible = canReadAllTeams(viewer) || !team || leads(viewer.id, team);
           throw new AppError(visible ? 'FORBIDDEN' : 'NOT_FOUND');
         }
         await assertReferencesExist(tx, [patch]);
@@ -281,6 +283,21 @@ export class MembersService {
           },
           tx,
         );
+        // A9 (ADR-101): moving the worker foreman out of their team ends the flag.
+        for (const m of moves) {
+          if (!m.wasForeman || !m.fromTeamId) continue;
+          await this.audit.logCtx(
+            ctx,
+            {
+              action: AuditAction.TEAM_FOREMAN_CLEARED,
+              entityType: 'team',
+              entityId: m.fromTeamId,
+              before: { foremanId: m.memberId },
+              after: { foremanId: null, reason: 'نقل العضو إلى فريق آخر' },
+            },
+            tx,
+          );
+        }
         return tx.teamMember.findMany({ where: { id: { in: ids } }, select: MEMBER_SELECT, orderBy: { fullName: 'asc' } });
       }),
     );
@@ -296,7 +313,7 @@ export class MembersService {
   ): Promise<ImportMembersResultDto> {
     const team = await this.prisma.team.findUnique({
       where: { id: input.teamId },
-      select: { supervisorId: true, status: true },
+      select: { supervisors: OPEN_LEADERS, status: true },
     });
     if (!team) throw new AppError('NOT_FOUND');
     assertTeamManageable(viewer, team);

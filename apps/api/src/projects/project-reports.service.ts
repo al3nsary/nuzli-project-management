@@ -30,7 +30,7 @@ import { compareWbs } from './tasks-export';
 type Viewer = PermissionSubject & { id: string };
 
 const toPerson = (u: Prisma.UserGetPayload<{ select: typeof ASSIGNEE_SELECT }>) => {
-  const team = u.ledTeams[0];
+  const team = u.teamSupervisions[0]?.team;
   return { id: u.id, fullName: u.fullName, teamColor: team?.color.hex ?? null, teamName: team?.name ?? null };
 };
 

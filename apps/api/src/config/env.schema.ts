@@ -95,6 +95,13 @@ export const envSchema = z
     PDF_SERVICE_TIMEOUT_MS: int(60000, 1000, 600000),
     /** Shared secret sent as `X-Pdf-Service-Token`; required in production with PDF_SERVICE_URL. */
     PDF_SERVICE_TOKEN: z.string().optional(),
+
+    /** A9 (ADR-104): server-side OCR of violation ID-card photos (tesseract.js, self-hosted ara+eng data). */
+    OCR_ENABLED: bool(true),
+    /** Parallel OCR jobs in this process (each holds one WASM worker, ~150–250 MB). */
+    OCR_CONCURRENCY: int(1, 1, 2),
+    /** Attempts per job before FAILED (retries back off 30 s, 2 min, 8 min…). */
+    OCR_MAX_ATTEMPTS: int(3, 1, 10),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;

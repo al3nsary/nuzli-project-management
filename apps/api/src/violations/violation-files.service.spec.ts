@@ -64,6 +64,7 @@ function setup(
         receivedAt: new Date(),
         expectedIdPhotos: 1,
         expectedEvidence: 2,
+        expectedPerson: 1,
         ...opts.violation,
       }),
     },
@@ -77,6 +78,7 @@ function setup(
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     auditLog: { create: jest.fn().mockResolvedValue({}) },
+    violationOcr: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)),
   };
   const storage = {
@@ -90,9 +92,10 @@ function setup(
   };
   const audit = new AuditService(prisma as never);
   const files = new FilesService(prisma as never, storage as never, settings as never, audit);
-  const svc = new ViolationFilesService(prisma as never, files, storage as never, settings as never, audit);
+  const ocr = { enqueue: jest.fn().mockResolvedValue(undefined) };
+  const svc = new ViolationFilesService(prisma as never, files, storage as never, settings as never, audit, ocr as never);
   svc.onModuleInit();
-  return { svc, files, prisma, tx, storage, fileRow };
+  return { svc, files, prisma, tx, storage, fileRow, ocr };
 }
 
 const presign = (over: Partial<PresignUploadInput> = {}): PresignUploadInput => ({
@@ -175,6 +178,41 @@ describe('violation photo confirm links the file idempotently', () => {
   });
 });
 
+describe('A9: person photo and OCR hand-off (ADR-103/104)', () => {
+  it('PERSON is an accepted kind with a limit of one (linked or in flight)', async () => {
+    await expect(setup().files.presign(presign({ kind: 'PERSON' }), MONITOR)).resolves.toBeDefined();
+    await expectCode(setup({ linked: 1 }).files.presign(presign({ kind: 'PERSON' }), MONITOR), 'TOO_MANY_PHOTOS');
+    await expectCode(setup({ inFlight: 1 }).files.presign(presign({ kind: 'PERSON' }), MONITOR), 'TOO_MANY_PHOTOS');
+  });
+
+  it('a PERSON confirm links the photo; only an ID_CARD confirm queues the OCR job', async () => {
+    const s = setup();
+    s.prisma.file.findUnique.mockResolvedValue({ ...s.fileRow, kind: 'PERSON' });
+    await s.files.confirm('f1', MONITOR);
+    expect(s.tx.violationFile.create).toHaveBeenCalledWith({ data: { violationId: V, fileId: 'f1', kind: 'PERSON' } });
+    expect(s.ocr.enqueue).not.toHaveBeenCalled();
+
+    const t = setup();
+    t.prisma.file.findUnique.mockResolvedValue({ ...t.fileRow, kind: 'ID_CARD' });
+    await t.files.confirm('f1', MONITOR);
+    expect(t.ocr.enqueue).toHaveBeenCalledWith(V, 'f1');
+  });
+
+  it('a repeated confirm of the ID card asks the queue again (the queue itself is idempotent)', async () => {
+    const s = setup({ existingLink: true });
+    s.prisma.file.findUnique.mockResolvedValue({ ...s.fileRow, kind: 'ID_CARD', status: 'READY' });
+    await s.files.confirm('f1', MONITOR);
+    expect(s.tx.violationFile.create).not.toHaveBeenCalled();
+    expect(s.ocr.enqueue).toHaveBeenCalledWith(V, 'f1');
+  });
+
+  it('a pre-A9 violation (expected person photos 0) takes no person photo after the window, except from an admin', async () => {
+    const late = { receivedAt: new Date(Date.now() - 60 * 60_000), expectedPerson: 0 };
+    await expectCode(setup({ violation: late }).files.presign(presign({ kind: 'PERSON' }), MONITOR), 'EDIT_WINDOW_CLOSED');
+    await expect(setup({ violation: late }).files.presign(presign({ kind: 'PERSON' }), ADMIN)).resolves.toBeDefined();
+  });
+});
+
 describe('upload window and status (security review L2)', () => {
   const late = { receivedAt: new Date(Date.now() - 60 * 60_000) }; // 60 min > 15 min window
 
@@ -223,6 +261,10 @@ describe('photo retention job (brief §13)', () => {
       violationFile: { is: { violation: { capturedAt: { lt: new Date('2026-09-12T00:00:00Z') } } } },
     });
     expect(s.storage.delete).toHaveBeenCalledTimes(2);
+    // A9: OCR data of the same violations is deleted with the photos.
+    expect(s.prisma.violationOcr.deleteMany).toHaveBeenCalledWith({
+      where: { violation: { capturedAt: { lt: new Date('2026-09-12T00:00:00Z') } } },
+    });
     expect(s.prisma.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ actorId: null, action: 'violations.photos_purged' }),
     });

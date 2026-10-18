@@ -129,7 +129,8 @@ export class PrintService {
   // ─────────────────────────────────────────── preview
 
   /**
-   * One card per subject: for every team its supervisor (when asked) then its current members,
+   * One card per subject: for every team its supervisors (when asked; A9: all of them, the
+   * primary first) then its current members,
    * then the individually chosen members. Each person appears once.
    */
   async preview(
@@ -148,7 +149,17 @@ export class PrintService {
     const teams = teamIds.length
       ? await this.prisma.team.findMany({
           where: { id: { in: teamIds }, status: { not: 'ARCHIVED' } },
-          select: { id: true, name: true, color: { select: { hex: true } }, supervisor: { select: SUPERVISOR_SELECT } },
+          select: {
+            id: true,
+            name: true,
+            color: { select: { hex: true } },
+            // A9 (ADR-100): every current supervisor, the primary first.
+            supervisors: {
+              where: { validTo: null },
+              orderBy: [{ isPrimary: 'desc' }, { validFrom: 'asc' }],
+              select: { user: { select: SUPERVISOR_SELECT } },
+            },
+          },
         })
       : [];
     if (teams.length !== teamIds.length) throw new AppError('NOT_FOUND', { field: 'teamIds' });
@@ -157,9 +168,12 @@ export class PrintService {
 
     for (const team of teams) {
       const cardTeam: CardTeam = { name: team.name, hex: team.color.hex };
-      if (input.includeSupervisors && !seenUsers.has(team.supervisor.id)) {
-        seenUsers.add(team.supervisor.id);
-        subjects.push({ userId: team.supervisor.id, data: supervisorCard(team.supervisor, cardTeam, config, this.crypto) });
+      if (input.includeSupervisors) {
+        for (const { user } of team.supervisors) {
+          if (seenUsers.has(user.id)) continue;
+          seenUsers.add(user.id);
+          subjects.push({ userId: user.id, data: supervisorCard(user, cardTeam, config, this.crypto) });
+        }
       }
       const members = await this.prisma.teamMember.findMany({
         where: { archivedAt: null, status: 'ACTIVE', memberships: { some: { teamId: team.id, validTo: null } } },

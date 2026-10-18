@@ -5,6 +5,7 @@ import {
   type SupervisorHistoryDto,
   type TeamDetailDto,
   type TeamDto,
+  type TeamSupervisorsDto,
 } from '@nuzli/shared';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
@@ -21,14 +22,21 @@ import { UsersService } from '../users/users.service';
 import {
   assertTeamManageable,
   assertTeamReadable,
+  canManageAllTeams,
   canReadAllTeams,
+  LEADERS_SELECT,
+  leaderIds,
+  ledByWhere,
   MEMBER_SELECT,
+  OPEN_LEADERS,
   RESERVING,
   TEAM_SELECT,
   toMemberDto,
+  toSupervisorDtos,
   toTeamDto,
   type Viewer,
 } from './team-dto';
+import { closeLeaderRow, openLeaders, resolveCreateLeaders, switchPrimary } from './team-leaders';
 
 type Tx = Prisma.TransactionClient;
 
@@ -38,6 +46,9 @@ export interface CreateTeamData {
   colorId: string;
   supervisorId?: string;
   newSupervisor?: { fullName: string; email: string; mobile: string; nationalId: string };
+  supervisorIds?: string[];
+  primarySupervisorId?: string;
+  orgUnitId?: string;
   members: MemberInputData[];
   existingMemberIds: string[];
 }
@@ -65,7 +76,8 @@ export class TeamsService {
 
   async list(query: TeamListQuery, viewer: Viewer): Promise<TeamDto[]> {
     const where: Prisma.TeamWhereInput = {
-      ...(canReadAllTeams(viewer) ? {} : { supervisorId: viewer.id }),
+      // A9 (ADR-100): a supervisor sees every team they lead, primary or not.
+      ...(canReadAllTeams(viewer) ? {} : ledByWhere(viewer.id)),
       // Default: the teams that matter today (active + pending). ARCHIVED or ALL on request.
       ...(query.status === 'ALL' ? {} : { status: query.status ? query.status : { in: RESERVING } }),
       ...(query.q ? { name: { contains: query.q.trim(), mode: 'insensitive' as const } } : {}),
@@ -82,49 +94,72 @@ export class TeamsService {
   async get(id: string, viewer: Viewer): Promise<TeamDetailDto> {
     const team = await this.prisma.team.findUnique({ where: { id }, select: TEAM_SELECT });
     if (!team) throw new AppError('NOT_FOUND');
-    assertTeamReadable(viewer, team);
-    const members = await this.prisma.teamMember.findMany({
-      where: { archivedAt: null, memberships: { some: { teamId: id, validTo: null } } },
+    assertTeamReadable(viewer, { supervisors: team.supervisors });
+    return this.detail(this.prisma, team);
+  }
+
+  private async detail(db: Tx | PrismaService, team: Prisma.TeamGetPayload<{ select: typeof TEAM_SELECT }>): Promise<TeamDetailDto> {
+    const members = await db.teamMember.findMany({
+      where: { archivedAt: null, memberships: { some: { teamId: team.id, validTo: null } } },
       select: MEMBER_SELECT,
       orderBy: { fullName: 'asc' },
     });
-    return { ...toTeamDto(team), members: members.map((m) => toMemberDto(m)) };
+    const dtos = members.map((m) => toMemberDto(m));
+    // The foreman first, then the workers by name (ADR-101: clearly distinguished among the names).
+    dtos.sort((a, b) => Number(!!b.isForeman) - Number(!!a.isForeman));
+    const foreman = dtos.find((m) => m.isForeman);
+    return {
+      ...toTeamDto(team),
+      members: dtos,
+      foreman: foreman ? { id: foreman.id, fullName: foreman.fullName } : null,
+    };
   }
 
+  /** Every leadership row of the team (all supervisors, primary or not), newest first. */
   async supervisorHistory(id: string, viewer: Viewer): Promise<SupervisorHistoryDto[]> {
-    const team = await this.prisma.team.findUnique({ where: { id }, select: { supervisorId: true } });
+    const team = await this.prisma.team.findUnique({ where: { id }, select: { supervisors: OPEN_LEADERS } });
     if (!team) throw new AppError('NOT_FOUND');
     assertTeamReadable(viewer, team);
-    const rows = await this.prisma.teamSupervisorHistory.findMany({
+    const rows = await this.prisma.teamSupervisor.findMany({
       where: { teamId: id },
-      orderBy: { validFrom: 'desc' },
-      include: { supervisor: { select: { id: true, fullName: true } } },
+      orderBy: [{ validFrom: 'desc' }, { isPrimary: 'desc' }],
+      include: { user: { select: { id: true, fullName: true } } },
     });
-    const changers = [...new Set(rows.map((r) => r.changedById).filter((v): v is string => !!v))];
+    const changers = [...new Set(rows.map((r) => r.addedById).filter((v): v is string => !!v))];
     const names = changers.length
       ? await this.prisma.user.findMany({ where: { id: { in: changers } }, select: { id: true, fullName: true } })
       : [];
     const byId = new Map(names.map((u) => [u.id, u]));
     return rows.map((r) => ({
       id: r.id,
-      supervisor: { id: r.supervisor.id, fullName: r.supervisor.fullName },
+      supervisor: { id: r.user.id, fullName: r.user.fullName },
+      isPrimary: r.isPrimary,
       validFrom: r.validFrom.toISOString(),
       validTo: r.validTo?.toISOString() ?? null,
-      changedBy: r.changedById ? (byId.get(r.changedById) ?? null) : null,
+      changedBy: r.addedById ? (byId.get(r.addedById) ?? null) : null,
       reason: r.reason,
     }));
   }
 
-  // ─────────────────────────────────────────── create (brief §5.1)
+  /** `GET /teams/:id/supervisors` — the current supervisors and the full history. */
+  async supervisors(id: string, viewer: Viewer): Promise<TeamSupervisorsDto> {
+    const team = await this.prisma.team.findUnique({ where: { id }, select: { supervisors: LEADERS_SELECT } });
+    if (!team) throw new AppError('NOT_FOUND');
+    assertTeamReadable(viewer, team);
+    return { current: toSupervisorDtos(team.supervisors), history: await this.supervisorHistory(id, viewer) };
+  }
+
+  // ─────────────────────────────────────────── create (brief §5.1, A9 ADR-100)
 
   async create(input: CreateTeamData, viewer: Viewer, ctx: RequestContext): Promise<TeamDto> {
     const isAdmin = can(viewer, 'teams.create');
     if (!isAdmin && !can(viewer, 'teams.createOwn')) throw new AppError('FORBIDDEN');
-    if (isAdmin && !input.supervisorId && !input.newSupervisor) {
+    if (isAdmin && !input.supervisorId && !input.newSupervisor && !input.supervisorIds?.length) {
       throw new AppError('VALIDATION_FAILED', {
         fieldErrors: { supervisorId: ['اختر مشرفًا موجودًا أو أنشئ مشرفًا جديدًا'] },
       });
     }
+    if (!isAdmin && input.orgUnitId) throw new AppError('FORBIDDEN', { field: 'orgUnitId' });
     const status: TeamStatus = isAdmin
       ? 'ACTIVE'
       : (await this.settings.get('REQUIRE_APPROVAL_FOR_SUPERVISOR_TEAMS'))
@@ -137,18 +172,25 @@ export class TeamsService {
       this.prisma.$transaction(async (tx) => {
         const t = new Date();
         let newSupervisor: { user: UserRow; token: string } | null = null;
-        let supervisorId: string;
-        if (!isAdmin) {
-          supervisorId = viewer.id; // brief §5.1: a supervisor creates a team for themselves
-        } else if (input.newSupervisor) {
+        if (isAdmin && input.newSupervisor) {
           newSupervisor = await this.users.createInTx(tx, { ...input.newSupervisor, role: 'SUPERVISOR' }, viewer, ctx);
-          supervisorId = newSupervisor.user.id;
-        } else {
-          supervisorId = input.supervisorId!;
-          await this.assertSupervisor(tx, supervisorId);
         }
-        if (!allowMultiple && !newSupervisor) await this.assertNoOtherTeam(tx, supervisorId, null);
+        // A supervisor creates a team for themselves (brief §5.1); an admin names one or more leaders.
+        const leaders = resolveCreateLeaders({
+          isAdmin,
+          viewerId: viewer.id,
+          newSupervisorId: newSupervisor?.user.id ?? null,
+          supervisorId: input.supervisorId,
+          supervisorIds: input.supervisorIds,
+          primarySupervisorId: input.primarySupervisorId,
+        });
+        for (const userId of leaders.ids) {
+          if (userId === newSupervisor?.user.id) continue;
+          if (isAdmin) await this.assertSupervisor(tx, userId);
+          if (!allowMultiple) await this.assertNoOtherTeam(tx, userId, null);
+        }
         await this.assertColorFree(tx, input.colorId, null);
+        if (input.orgUnitId) await this.assertOrgUnitUsable(tx, input.orgUnitId);
 
         if (input.existingMemberIds.length) {
           await this.assertExistingMembersUsable(tx, input.existingMemberIds, viewer);
@@ -158,15 +200,22 @@ export class TeamsService {
           data: {
             name: input.name,
             colorId: input.colorId,
-            supervisorId,
+            supervisorId: leaders.primary,
             status,
+            orgUnitId: input.orgUnitId ?? null,
             ...(status === 'ACTIVE' ? { approvedAt: t, approvedById: viewer.id } : {}),
             createdById: viewer.id,
           },
           select: { id: true },
         });
-        await tx.teamSupervisorHistory.create({
-          data: { teamId: team.id, supervisorId, validFrom: t, changedById: viewer.id },
+        await tx.teamSupervisor.createMany({
+          data: leaders.ids.map((userId) => ({
+            teamId: team.id,
+            userId,
+            isPrimary: userId === leaders.primary,
+            validFrom: t,
+            addedById: viewer.id,
+          })),
         });
         const newIds = await insertMembers(tx, this.crypto, input.members, {
           teamId: team.id,
@@ -188,7 +237,9 @@ export class TeamsService {
               name: input.name,
               colorId: input.colorId,
               status,
-              supervisorId,
+              supervisorId: leaders.primary,
+              supervisorIds: leaders.ids,
+              orgUnitId: input.orgUnitId ?? null,
               newSupervisor: !!newSupervisor,
               newMemberIds: newIds,
               movedMembers: moves,
@@ -196,6 +247,7 @@ export class TeamsService {
           },
           tx,
         );
+        await this.logForemenCleared(tx, ctx, moves, 'إنشاء فريق جديد');
         const row = await tx.team.findUniqueOrThrow({ where: { id: team.id }, select: TEAM_SELECT });
         return { row, newSupervisor };
       }),
@@ -223,7 +275,7 @@ export class TeamsService {
 
   async update(
     id: string,
-    patch: { name?: string; colorId?: string },
+    patch: { name?: string; colorId?: string; orgUnitId?: string | null },
     viewer: Viewer,
     ctx: RequestContext,
   ): Promise<TeamDto> {
@@ -233,22 +285,28 @@ export class TeamsService {
           const before = await this.loadForWrite(tx, id, viewer);
           if (before.status === 'ARCHIVED') throw new AppError('TEAM_ARCHIVED');
           const data: Prisma.TeamUncheckedUpdateInput = {};
-          if (patch.name !== undefined && patch.name !== before.name) data.name = patch.name;
+          const beforeAudit: Record<string, unknown> = {};
+          if (patch.name !== undefined && patch.name !== before.name) {
+            data.name = patch.name;
+            beforeAudit.name = before.name;
+          }
           if (patch.colorId !== undefined && patch.colorId !== before.colorId) {
             await this.assertColorFree(tx, patch.colorId, id);
             data.colorId = patch.colorId;
+            beforeAudit.colorId = before.colorId;
+          }
+          if (patch.orgUnitId !== undefined && patch.orgUnitId !== before.orgUnitId) {
+            // The organisational link is an admin decision (ADR-102).
+            if (!canManageAllTeams(viewer)) throw new AppError('FORBIDDEN', { field: 'orgUnitId' });
+            if (patch.orgUnitId) await this.assertOrgUnitUsable(tx, patch.orgUnitId);
+            data.orgUnitId = patch.orgUnitId;
+            beforeAudit.orgUnitId = before.orgUnitId;
           }
           if (!Object.keys(data).length) return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
           const after = await tx.team.update({ where: { id }, data, select: TEAM_SELECT });
           await this.audit.logCtx(
             ctx,
-            {
-              action: AuditAction.TEAM_UPDATED,
-              entityType: 'team',
-              entityId: id,
-              before: Object.fromEntries(Object.keys(data).map((k) => [k, before[k as 'name' | 'colorId']])),
-              after: data,
-            },
+            { action: AuditAction.TEAM_UPDATED, entityType: 'team', entityId: id, before: beforeAudit, after: data },
             tx,
           );
           return after;
@@ -284,15 +342,15 @@ export class TeamsService {
       return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
     });
     this.notifications.safe(
-      this.notifications.notify([row.supervisorId], 'TEAM_APPROVED', { teamId: row.id, teamName: row.name }),
+      this.notifications.notify(this.recipients(row), 'TEAM_APPROVED', { teamId: row.id, teamName: row.name }),
     );
     return toTeamDto(row);
   }
 
   /** Rejecting a pending team archives it: the colour is freed and its memberships closed. */
   async reject(id: string, reason: string, ctx: RequestContext): Promise<TeamDto> {
-    const row = await this.prisma.$transaction(async (tx) => {
-      const before = await tx.team.findUnique({ where: { id }, select: { status: true } });
+    const { row, leaders } = await this.prisma.$transaction(async (tx) => {
+      const before = await tx.team.findUnique({ where: { id }, select: { status: true, supervisors: OPEN_LEADERS } });
       if (!before) throw new AppError('NOT_FOUND');
       if (before.status !== 'PENDING_APPROVAL') throw new AppError('NOT_PENDING_TEAM');
       const closed = await this.closeTeam(tx, id, 'PENDING_APPROVAL');
@@ -307,10 +365,14 @@ export class TeamsService {
         },
         tx,
       );
-      return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
+      return { row: await tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT }), leaders: leaderIds(before) };
     });
     this.notifications.safe(
-      this.notifications.notify([row.supervisorId], 'TEAM_REJECTED', { teamId: row.id, teamName: row.name, reason }),
+      this.notifications.notify(leaders.length ? leaders : [row.supervisorId], 'TEAM_REJECTED', {
+        teamId: row.id,
+        teamName: row.name,
+        reason,
+      }),
     );
     return toTeamDto(row);
   }
@@ -338,8 +400,8 @@ export class TeamsService {
 
   /**
    * ARCHIVED frees the colour (the partial unique index only covers ACTIVE/PENDING). Open
-   * memberships and the open supervisor row are closed with one timestamp, so the members
-   * become "unassigned" and history stays contiguous.
+   * memberships and every open supervisor row are closed with one timestamp, so the members
+   * become "unassigned" (the foreman flag ends with the membership) and history stays contiguous.
    */
   private async closeTeam(tx: Tx, id: string, from: TeamStatus): Promise<number> {
     const t = new Date();
@@ -349,12 +411,16 @@ export class TeamsService {
     });
     if (claimed.count !== 1) throw new AppError('CONFLICT_VERSION');
     const closed = await tx.teamMembership.updateMany({ where: { teamId: id, validTo: null }, data: { validTo: t } });
-    await tx.teamSupervisorHistory.updateMany({ where: { teamId: id, validTo: null }, data: { validTo: t } });
+    await tx.teamSupervisor.updateMany({ where: { teamId: id, validTo: null }, data: { validTo: t } });
     return closed.count;
   }
 
-  // ─────────────────────────────────────────── supervisor change (brief §5.3)
+  // ─────────────────────────────────────────── supervisors (brief §5.3, A9 ADR-100)
 
+  /**
+   * Legacy `POST /teams/:id/supervisor`: replaces the primary supervisor. The previous primary
+   * stops leading the team; co-supervisors are kept. Same instant for every row (ADR-013).
+   */
   async changeSupervisor(
     id: string,
     input: { supervisorId: string; reason?: string },
@@ -366,26 +432,25 @@ export class TeamsService {
       this.prisma.$transaction(async (tx) => {
         const before = await this.loadForWrite(tx, id, viewer);
         if (before.status === 'ARCHIVED') throw new AppError('TEAM_ARCHIVED');
-        if (before.supervisorId === input.supervisorId) {
+        await this.lockTeam(tx, id);
+        let rows = await openLeaders(tx, id);
+        const primary = rows.find((r) => r.isPrimary);
+        if (primary?.userId === input.supervisorId) {
           return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
         }
         await this.assertSupervisor(tx, input.supervisorId);
         if (!allowMultiple) await this.assertNoOtherTeam(tx, input.supervisorId, id);
-        const t = new Date(); // one instant for close and open (ADR-013)
-        await tx.teamSupervisorHistory.updateMany({ where: { teamId: id, validTo: null }, data: { validTo: t } });
-        await tx.teamSupervisorHistory.create({
-          data: {
-            teamId: id,
-            supervisorId: input.supervisorId,
-            validFrom: t,
-            changedById: viewer.id,
-            reason: input.reason ?? null,
-          },
-        });
-        const after = await tx.team.update({
-          where: { id },
-          data: { supervisorId: input.supervisorId },
-          select: TEAM_SELECT,
+        const t = new Date();
+        if (!rows.some((r) => r.userId === input.supervisorId)) {
+          await tx.teamSupervisor.create({
+            data: { teamId: id, userId: input.supervisorId, isPrimary: false, validFrom: t, addedById: viewer.id, reason: input.reason ?? null },
+          });
+          rows = await openLeaders(tx, id);
+        }
+        await switchPrimary(tx, id, rows, input.supervisorId, t, {
+          actorId: viewer.id,
+          reason: input.reason ?? null,
+          removeOld: true,
         });
         await this.audit.logCtx(
           ctx,
@@ -398,10 +463,241 @@ export class TeamsService {
           },
           tx,
         );
-        return after;
+        return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
       }),
     );
     return toTeamDto(row);
+  }
+
+  /** `POST /teams/:id/supervisors` — adds a co-supervisor (or a new primary with `isPrimary`). */
+  async addSupervisor(
+    id: string,
+    input: { userId: string; isPrimary: boolean; reason?: string },
+    viewer: Viewer,
+    ctx: RequestContext,
+  ): Promise<TeamDto> {
+    const allowMultiple = await this.settings.get('ALLOW_MULTIPLE_TEAMS_PER_SUPERVISOR');
+    const row = await this.guard(() =>
+      this.prisma.$transaction(async (tx) => {
+        const before = await this.loadForWrite(tx, id, viewer);
+        if (before.status === 'ARCHIVED') throw new AppError('TEAM_ARCHIVED');
+        await this.lockTeam(tx, id);
+        const rows = await openLeaders(tx, id);
+        if (rows.some((r) => r.userId === input.userId)) throw new AppError('SUPERVISOR_ALREADY_IN_TEAM');
+        await this.assertSupervisor(tx, input.userId);
+        // The setting applies per person: someone who leads another live team cannot be added.
+        if (!allowMultiple) await this.assertNoOtherTeam(tx, input.userId, id);
+        const t = new Date();
+        const isPrimary = input.isPrimary || !rows.length;
+        await tx.teamSupervisor.create({
+          data: { teamId: id, userId: input.userId, isPrimary: false, validFrom: t, addedById: viewer.id, reason: input.reason ?? null },
+        });
+        let fromUserId: string | null = null;
+        if (isPrimary) {
+          const fresh = await openLeaders(tx, id);
+          ({ fromUserId } = await switchPrimary(tx, id, fresh, input.userId, t, { actorId: viewer.id, reason: input.reason ?? null }));
+        }
+        await this.audit.logCtx(
+          ctx,
+          {
+            action: AuditAction.TEAM_SUPERVISOR_ADDED,
+            entityType: 'team',
+            entityId: id,
+            before: { supervisorIds: rows.map((r) => r.userId), primaryId: rows.find((r) => r.isPrimary)?.userId ?? null },
+            after: { userId: input.userId, isPrimary, previousPrimaryId: fromUserId, reason: input.reason ?? null },
+          },
+          tx,
+        );
+        return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
+      }),
+    );
+    return toTeamDto(row);
+  }
+
+  /**
+   * `DELETE /teams/:id/supervisors/:userId`. The last supervisor of a live team cannot be removed
+   * (`LAST_SUPERVISOR`); removing the primary needs `newPrimaryUserId`, another current supervisor
+   * (`PRIMARY_SUPERVISOR_REQUIRED`), so a live team always has exactly one primary.
+   */
+  async removeSupervisor(
+    id: string,
+    userId: string,
+    input: { reason: string; newPrimaryUserId?: string },
+    viewer: Viewer,
+    ctx: RequestContext,
+  ): Promise<TeamDto> {
+    const row = await this.guard(() =>
+      this.prisma.$transaction(async (tx) => {
+        const before = await this.loadForWrite(tx, id, viewer);
+        if (before.status === 'ARCHIVED') throw new AppError('TEAM_ARCHIVED');
+        await this.lockTeam(tx, id);
+        const rows = await openLeaders(tx, id);
+        const target = rows.find((r) => r.userId === userId);
+        if (!target) throw new AppError('NOT_FOUND', { field: 'userId' });
+        if (rows.length === 1) throw new AppError('LAST_SUPERVISOR');
+        const t = new Date();
+        if (target.isPrimary) {
+          const next = input.newPrimaryUserId;
+          if (!next || next === userId) throw new AppError('PRIMARY_SUPERVISOR_REQUIRED', { field: 'newPrimaryUserId' });
+          if (!rows.some((r) => r.userId === next)) {
+            throw new AppError('VALIDATION_FAILED', {
+              fieldErrors: { newPrimaryUserId: ['اختر المشرف الرئيسي البديل من مشرفي الفريق الحاليين'] },
+            });
+          }
+          await switchPrimary(tx, id, rows, next, t, { actorId: viewer.id, reason: input.reason, removeOld: true });
+        } else {
+          await closeLeaderRow(tx, target, t);
+        }
+        await this.audit.logCtx(
+          ctx,
+          {
+            action: AuditAction.TEAM_SUPERVISOR_REMOVED,
+            entityType: 'team',
+            entityId: id,
+            before: { userId, wasPrimary: target.isPrimary },
+            after: {
+              reason: input.reason,
+              primaryId: target.isPrimary ? input.newPrimaryUserId : (rows.find((r) => r.isPrimary)?.userId ?? null),
+            },
+          },
+          tx,
+        );
+        return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
+      }),
+    );
+    return toTeamDto(row);
+  }
+
+  /** `POST /teams/:id/supervisors/:userId/primary` — the user must already lead the team. */
+  async setPrimarySupervisor(
+    id: string,
+    userId: string,
+    input: { reason?: string },
+    viewer: Viewer,
+    ctx: RequestContext,
+  ): Promise<TeamDto> {
+    const row = await this.guard(() =>
+      this.prisma.$transaction(async (tx) => {
+        const before = await this.loadForWrite(tx, id, viewer);
+        if (before.status === 'ARCHIVED') throw new AppError('TEAM_ARCHIVED');
+        await this.lockTeam(tx, id);
+        const rows = await openLeaders(tx, id);
+        const target = rows.find((r) => r.userId === userId);
+        if (!target) throw new AppError('NOT_FOUND', { field: 'userId' });
+        if (target.isPrimary) return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
+        const { fromUserId } = await switchPrimary(tx, id, rows, userId, new Date(), {
+          actorId: viewer.id,
+          reason: input.reason ?? null,
+        });
+        await this.audit.logCtx(
+          ctx,
+          {
+            action: AuditAction.TEAM_PRIMARY_SUPERVISOR_CHANGED,
+            entityType: 'team',
+            entityId: id,
+            before: { primaryId: fromUserId },
+            after: { primaryId: userId, reason: input.reason ?? null },
+          },
+          tx,
+        );
+        return tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
+      }),
+    );
+    return toTeamDto(row);
+  }
+
+  // ─────────────────────────────────────────── worker foreman (A9, ADR-101)
+
+  /**
+   * `POST /teams/:id/foreman` (admin or a supervisor leading the team). The foreman is a current
+   * member of the team marked on their open membership; setting a new one replaces the old one.
+   * A member record only: no account, no permissions — a member linked to a user is refused.
+   */
+  async setForeman(id: string, memberId: string, viewer: Viewer, ctx: RequestContext): Promise<TeamDetailDto> {
+    return this.guard(() =>
+      this.prisma.$transaction(async (tx) => {
+        const before = await this.loadForWrite(tx, id, viewer);
+        if (before.status === 'ARCHIVED') throw new AppError('TEAM_ARCHIVED');
+        await this.lockTeam(tx, id);
+        const membership = await tx.teamMembership.findFirst({
+          where: { teamId: id, memberId, validTo: null, member: { archivedAt: null } },
+          select: { id: true, role: true, member: { select: { userId: true } } },
+        });
+        if (!membership) throw new AppError('FOREMAN_NOT_MEMBER');
+        if (membership.member.userId) throw new AppError('FOREMAN_HAS_ACCOUNT');
+        if (membership.role !== 'FOREMAN') {
+          const current = await tx.teamMembership.findFirst({
+            where: { teamId: id, validTo: null, role: 'FOREMAN' },
+            select: { id: true, memberId: true },
+          });
+          if (current) await tx.teamMembership.update({ where: { id: current.id }, data: { role: 'WORKER' } });
+          await tx.teamMembership.update({ where: { id: membership.id }, data: { role: 'FOREMAN' } });
+          await this.audit.logCtx(
+            ctx,
+            {
+              action: AuditAction.TEAM_FOREMAN_SET,
+              entityType: 'team',
+              entityId: id,
+              before: { foremanId: current?.memberId ?? null },
+              after: { foremanId: memberId },
+            },
+            tx,
+          );
+        }
+        const team = await tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
+        return this.detail(tx, team);
+      }),
+    );
+  }
+
+  /** `DELETE /teams/:id/foreman` — no foreman → nothing to do. */
+  async clearForeman(id: string, viewer: Viewer, ctx: RequestContext): Promise<TeamDetailDto> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.loadForWrite(tx, id, viewer);
+      const current = await tx.teamMembership.findFirst({
+        where: { teamId: id, validTo: null, role: 'FOREMAN' },
+        select: { id: true, memberId: true },
+      });
+      if (current) {
+        await tx.teamMembership.update({ where: { id: current.id }, data: { role: 'WORKER' } });
+        await this.audit.logCtx(
+          ctx,
+          {
+            action: AuditAction.TEAM_FOREMAN_CLEARED,
+            entityType: 'team',
+            entityId: id,
+            before: { foremanId: current.memberId },
+            after: { foremanId: null },
+          },
+          tx,
+        );
+      }
+      const team = await tx.team.findUniqueOrThrow({ where: { id }, select: TEAM_SELECT });
+      return this.detail(tx, team);
+    });
+  }
+
+  /** Moving the foreman out of a team ends the flag with the closed membership (audited here). */
+  private async logForemenCleared(
+    tx: Tx,
+    ctx: RequestContext,
+    moves: ReadonlyArray<{ memberId: string; fromTeamId: string | null; wasForeman?: boolean }>,
+    reason: string,
+  ): Promise<void> {
+    for (const m of moves) {
+      if (!m.wasForeman || !m.fromTeamId) continue;
+      await this.audit.logCtx(
+        ctx,
+        {
+          action: AuditAction.TEAM_FOREMAN_CLEARED,
+          entityType: 'team',
+          entityId: m.fromTeamId,
+          before: { foremanId: m.memberId },
+          after: { foremanId: null, reason },
+        },
+        tx,
+      );
+    }
   }
 
   // ─────────────────────────────────────────── violation visibility override (brief §7.6)
@@ -433,14 +729,33 @@ export class TeamsService {
 
   // ─────────────────────────────────────────── helpers
 
+  /** Notification recipients for a team: every current supervisor (fallback: the primary column). */
+  private recipients(row: { supervisorId: string; supervisors: ReadonlyArray<{ userId: string }> }): string[] {
+    const ids = leaderIds(row);
+    return ids.length ? ids : [row.supervisorId];
+  }
+
   private async loadForWrite(tx: Tx, id: string, viewer: Viewer) {
     const team = await tx.team.findUnique({
       where: { id },
-      select: { id: true, name: true, colorId: true, status: true, supervisorId: true },
+      select: {
+        id: true,
+        name: true,
+        colorId: true,
+        status: true,
+        supervisorId: true,
+        orgUnitId: true,
+        supervisors: OPEN_LEADERS,
+      },
     });
     if (!team) throw new AppError('NOT_FOUND');
     assertTeamManageable(viewer, team);
     return team;
+  }
+
+  /** Serialises leadership and foreman changes of one team (READ COMMITTED + row lock, ADR-030). */
+  private async lockTeam(tx: Tx, id: string): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM teams WHERE id = ${id}::uuid FOR UPDATE`;
   }
 
   private async assertSupervisor(tx: Tx, userId: string): Promise<void> {
@@ -448,17 +763,26 @@ export class TeamsService {
     if (!user || user.role !== 'SUPERVISOR' || user.status !== 'ACTIVE') throw new AppError('NOT_A_SUPERVISOR');
   }
 
-  /** ADR-023: with ALLOW_MULTIPLE_TEAMS_PER_SUPERVISOR off, a leader holds one live team. */
-  private async assertNoOtherTeam(tx: Tx, supervisorId: string, exceptTeamId: string | null): Promise<void> {
+  /**
+   * ADR-023: with ALLOW_MULTIPLE_TEAMS_PER_SUPERVISOR off, a person leads one live team — as
+   * primary or co-supervisor (A9: the setting applies per user).
+   */
+  private async assertNoOtherTeam(tx: Tx, userId: string, exceptTeamId: string | null): Promise<void> {
     const other = await tx.team.findFirst({
       where: {
-        supervisorId,
+        ...ledByWhere(userId),
         status: { in: RESERVING },
         ...(exceptTeamId ? { id: { not: exceptTeamId } } : {}),
       },
       select: { id: true },
     });
-    if (other) throw new AppError('MULTIPLE_TEAMS_DISABLED');
+    if (other) throw new AppError('MULTIPLE_TEAMS_DISABLED', { userId });
+  }
+
+  private async assertOrgUnitUsable(tx: Tx, unitId: string): Promise<void> {
+    const unit = await tx.orgUnit.findUnique({ where: { id: unitId }, select: { archivedAt: true } });
+    if (!unit) throw new AppError('VALIDATION_FAILED', { fieldErrors: { orgUnitId: ['الوحدة التنظيمية غير موجودة'] } });
+    if (unit.archivedAt) throw new AppError('ORG_UNIT_ARCHIVED');
   }
 
   /**
@@ -481,15 +805,15 @@ export class TeamsService {
     const unique = [...new Set(ids)];
     const rows = await tx.teamMember.findMany({
       where: { id: { in: unique }, archivedAt: null },
-      select: { id: true, memberships: { where: { validTo: null }, select: { team: { select: { supervisorId: true } } } } },
+      select: { id: true, memberships: { where: { validTo: null }, select: { team: { select: { supervisors: OPEN_LEADERS } } } } },
     });
     if (rows.length !== unique.length) throw new AppError('NOT_FOUND', { field: 'existingMemberIds' });
     if (can(viewer, 'members.move')) return;
-    const foreign = rows.filter((r) => r.memberships[0] && r.memberships[0].team.supervisorId !== viewer.id);
+    const foreign = rows.filter((r) => r.memberships[0] && !leaderIds(r.memberships[0].team).includes(viewer.id));
     if (foreign.length) throw new AppError('FORBIDDEN', { memberIds: foreign.map((f) => f.id) });
   }
 
-  /** Maps database errors: colour race → COLOR_TAKEN with a fresh list; leader trigger → NOT_A_SUPERVISOR. */
+  /** Maps database errors: colour race → COLOR_TAKEN with a fresh list; triggers → their codes. */
   private async guard<T>(fn: () => Promise<T>, excludeTeamId?: string): Promise<T> {
     try {
       return await fn();
@@ -498,6 +822,9 @@ export class TeamsService {
       if (mapped?.code === 'COLOR_TAKEN') throw await this.colors.colorTakenError(excludeTeamId);
       if (!mapped && err instanceof Error && /NOT_A_SUPERVISOR/.test(err.message)) {
         throw new AppError('NOT_A_SUPERVISOR');
+      }
+      if (!mapped && err instanceof Error && /FOREMAN_HAS_ACCOUNT/.test(err.message)) {
+        throw new AppError('FOREMAN_HAS_ACCOUNT');
       }
       throw mapped ?? err;
     }

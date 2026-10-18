@@ -67,8 +67,22 @@ export type ViolationStatus = (typeof ViolationStatus)[keyof typeof ViolationSta
 export const Severity = { LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH', CRITICAL: 'CRITICAL' } as const;
 export type Severity = (typeof Severity)[keyof typeof Severity];
 
-export const ViolationFileKind = { ID_CARD: 'ID_CARD', EVIDENCE: 'EVIDENCE' } as const;
+/** A9: PERSON — a photo of the person (required with the ID card and the evidence, owner decision 4). */
+export const ViolationFileKind = { ID_CARD: 'ID_CARD', EVIDENCE: 'EVIDENCE', PERSON: 'PERSON' } as const;
 export type ViolationFileKind = (typeof ViolationFileKind)[keyof typeof ViolationFileKind];
+
+/** A9: a team member is a worker or the team's worker foreman (مشرف عمّال) — a record only, no account. */
+export const MembershipRole = { WORKER: 'WORKER', FOREMAN: 'FOREMAN' } as const;
+export type MembershipRole = (typeof MembershipRole)[keyof typeof MembershipRole];
+
+/** A9 organisational structure: kinds of units in the tree. */
+export const OrgUnitKind = { DEPARTMENT: 'DEPARTMENT', SECTION: 'SECTION', UNIT: 'UNIT', TEAM_GROUP: 'TEAM_GROUP' } as const;
+export type OrgUnitKind = (typeof OrgUnitKind)[keyof typeof OrgUnitKind];
+export const ORG_UNIT_KINDS = Object.values(OrgUnitKind);
+
+/** A9: state of the ID-card OCR job of a violation. */
+export const OcrStatus = { PENDING: 'PENDING', RUNNING: 'RUNNING', DONE: 'DONE', FAILED: 'FAILED' } as const;
+export type OcrStatus = (typeof OcrStatus)[keyof typeof OcrStatus];
 
 export const VisibilityMode = { INHERIT: 'INHERIT', SHOW: 'SHOW', HIDE: 'HIDE' } as const;
 export type VisibilityMode = (typeof VisibilityMode)[keyof typeof VisibilityMode];

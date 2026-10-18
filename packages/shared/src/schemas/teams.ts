@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { email, fullName, hexColor, nationalId, optionalText, paginationQuery, reason, saudiMobile, uuid } from './common';
-import type { MemberStatus, TeamStatus } from '../enums';
+import type { MemberStatus, OrgUnitKind, TeamStatus } from '../enums';
 
 export const memberInputSchema = z.object({
   fullName,
@@ -26,6 +26,14 @@ export const createTeamSchema = z
     /** Admin: existing supervisor, or `newSupervisor` inline. Supervisor: ignored (self). */
     supervisorId: uuid.optional(),
     newSupervisor: newSupervisorSchema.optional(),
+    /**
+     * A9 (ADR-100): several supervisors (admin only). The primary is `primarySupervisorId`;
+     * by default the new supervisor, else `supervisorId`, else the first of `supervisorIds`.
+     */
+    supervisorIds: z.array(uuid).max(10).optional(),
+    primarySupervisorId: uuid.optional(),
+    /** A9: optional link to an organisational unit (admin only). */
+    orgUnitId: uuid.optional(),
     members: z.array(memberInputSchema).max(500).default([]),
     /** Existing members to move into the new team. */
     existingMemberIds: z.array(uuid).max(500).default([]),
@@ -33,13 +41,41 @@ export const createTeamSchema = z
   .refine((v) => !(v.supervisorId && v.newSupervisor), {
     message: 'اختر مشرفًا موجودًا أو أنشئ مشرفًا جديدًا، لا الاثنين',
     path: ['supervisorId'],
-  });
+  })
+  .refine(
+    (v) =>
+      !v.primarySupervisorId ||
+      v.primarySupervisorId === v.supervisorId ||
+      (v.supervisorIds ?? []).includes(v.primarySupervisorId),
+    { message: 'المشرف الرئيسي يجب أن يكون من المشرفين المختارين', path: ['primarySupervisorId'] },
+  );
 export type CreateTeamInput = z.input<typeof createTeamSchema>;
 
 export const updateTeamSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
   colorId: uuid.optional(),
+  /** A9: link to an organisational unit; null unlinks (admin only). */
+  orgUnitId: uuid.nullable().optional(),
 });
+
+/** A9 `POST /teams/:id/supervisors`. */
+export const addTeamSupervisorSchema = z.object({
+  userId: uuid,
+  isPrimary: z.boolean().default(false),
+  reason: optionalText(300),
+});
+
+/** A9 `DELETE /teams/:id/supervisors/:userId` — removing the primary needs `newPrimaryUserId` (another current supervisor). */
+export const removeTeamSupervisorSchema = z.object({
+  reason,
+  newPrimaryUserId: uuid.optional(),
+});
+
+/** A9 `POST /teams/:id/supervisors/:userId/primary`. */
+export const setPrimarySupervisorSchema = z.object({ reason: optionalText(300) });
+
+/** A9 `POST /teams/:id/foreman` — the worker foreman (مشرف عمّال), a current member of the team. */
+export const setForemanSchema = z.object({ memberId: uuid });
 
 export const changeSupervisorSchema = z.object({ supervisorId: uuid, reason: optionalText(300) });
 
@@ -98,9 +134,24 @@ export interface TeamSummaryDto {
   color: TeamColorDto;
 }
 
+/** A9: one current supervisor of a team (`id` is the user id). */
+export interface TeamSupervisorDto {
+  id: string;
+  fullName: string;
+  isPrimary: boolean;
+  hasPhoto: boolean;
+  /** Start of this person's current leadership row. */
+  since?: string;
+}
+
 export interface TeamDto extends TeamSummaryDto {
   status: TeamStatus;
+  /** The primary supervisor (kept for compatibility; every supervisor is in `supervisors`). */
   supervisor: { id: string; fullName: string } | null;
+  /** A9 (ADR-100): every current supervisor, the primary first. Always sent by the API. */
+  supervisors?: TeamSupervisorDto[];
+  /** A9: the linked organisational unit. Always sent by the API (null when unlinked). */
+  orgUnit?: { id: string; name: string; kind: OrgUnitKind } | null;
   memberCount: number;
   createdAt: string;
   violationVisibility?: 'INHERIT' | 'SHOW' | 'HIDE';
@@ -108,11 +159,21 @@ export interface TeamDto extends TeamSummaryDto {
 
 export interface TeamDetailDto extends TeamDto {
   members: MemberDto[];
+  /** A9: the worker foreman (مشرف عمّال), also flagged by `members[].isForeman`. Always sent by the API. */
+  foreman?: { id: string; fullName: string } | null;
+}
+
+/** A9 `GET /teams/:id/supervisors`. */
+export interface TeamSupervisorsDto {
+  current: TeamSupervisorDto[];
+  history: SupervisorHistoryDto[];
 }
 
 export interface SupervisorHistoryDto {
   id: string;
   supervisor: { id: string; fullName: string };
+  /** A9: the row was the primary supervisor (a primary change closes and reopens both rows). */
+  isPrimary?: boolean;
   validFrom: string;
   validTo: string | null;
   changedBy: { id: string; fullName: string } | null;
@@ -133,6 +194,8 @@ export interface MemberDto {
   photoFileId: string | null;
   /** Owner request A8: true when a photo is linked (`GET /members/:id/photo-url`). Always sent by the API. */
   hasPhoto?: boolean;
+  /** A9: the worker foreman of their current team (record only, no account). Always sent by the API. */
+  isForeman?: boolean;
 }
 
 export interface MembershipHistoryDto {

@@ -20,6 +20,9 @@ export function violationWhereSql(f: ViolationFilter, opts: { ignoreDates?: bool
   if (!opts.ignoreDates && f.to) parts.push(Prisma.sql`v.captured_at < ${riyadhDayEnd(f.to)}::timestamptz`);
   if (f.teamId) parts.push(Prisma.sql`v.team_id_snapshot = ${f.teamId}::uuid`);
   if (f.memberId) parts.push(Prisma.sql`v.member_id = ${f.memberId}::uuid`);
+  // A9 (ADR-103): assigned = a person is linked; false = recorded without a person, not assigned yet.
+  if (f.assigned === 'true') parts.push(Prisma.sql`v.member_id IS NOT NULL`);
+  if (f.assigned === 'false') parts.push(Prisma.sql`v.member_id IS NULL`);
   if (f.recordedBy) parts.push(Prisma.sql`v.recorded_by = ${f.recordedBy}::uuid`);
   if (f.typeId) parts.push(Prisma.sql`v.type_id = ${f.typeId}::uuid`);
   if (f.status) parts.push(Prisma.sql`v.status = ${f.status}::"ViolationStatus"`);
@@ -72,7 +75,7 @@ export function statsQueries(f: ViolationFilter, now: Date) {
       ORDER BY g.n DESC, tm.name`,
     topMembers: Prisma.sql`
       SELECT g.member_id, mb.full_name, ct.name AS team_name, cc.hex AS color, g.n AS count
-      FROM (SELECT v.member_id, count(*)::int AS n FROM ${FROM} WHERE ${where}
+      FROM (SELECT v.member_id, count(*)::int AS n FROM ${FROM} WHERE ${where} AND v.member_id IS NOT NULL
              GROUP BY v.member_id HAVING count(*) > 1
              ORDER BY count(*) DESC LIMIT ${Prisma.raw(String(TOP_MEMBERS))}) g
       JOIN team_members mb ON mb.id = g.member_id
@@ -105,6 +108,9 @@ export function statsQueries(f: ViolationFilter, now: Date) {
              count(*)::int AS count
       FROM ${FROM} WHERE ${where}
       GROUP BY 1, 2 ORDER BY 1, 2`,
+    /** A9: the "unassigned" KPI — same filters, violations without a person (never in byTeam). */
+    unassigned: Prisma.sql`
+      SELECT count(*)::int AS count FROM ${FROM} WHERE ${where} AND v.member_id IS NULL`,
     points: Prisma.sql`
       SELECT v.id, v.latitude AS lat, v.longitude AS lng, c.hex AS color
       FROM ${FROM}
@@ -129,6 +135,8 @@ export interface StatsRows {
   trend: Array<{ date: string; count: number }>;
   heatmap: Array<{ weekday: number; hour: number; count: number }>;
   points: Array<{ id: string; lat: number; lng: number; color: string | null }>;
+  /** A9 — optional so older callers/tests that build rows by hand keep compiling. */
+  unassigned?: Array<{ count: number }>;
 }
 
 /** Fills missing days with zero so the chart's x axis is continuous. */
@@ -156,6 +164,7 @@ export function assembleStats(rows: StatsRows, f: ViolationFilter, now: Date): V
   const totals = rows.totals[0] ?? { total: 0, this_week: 0, previous_week: 0 };
   const truncated = rows.points.length > MAX_MAP_POINTS;
   return {
+    unassigned: Number(rows.unassigned?.[0]?.count ?? 0),
     total: Number(totals.total ?? 0),
     thisWeek: Number(totals.this_week ?? 0),
     previousWeek: Number(totals.previous_week ?? 0),

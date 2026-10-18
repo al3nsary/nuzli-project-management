@@ -10,7 +10,7 @@ import { AppError } from '../common/app-error';
 import { withPrismaErrors } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { PrismaService, type Db } from '../prisma/prisma.service';
-import { canReadTeam, COLOR_SELECT, RESERVING, toColorDto, type Viewer } from '../teams/team-dto';
+import { canReadTeam, COLOR_SELECT, OPEN_LEADERS, RESERVING, toColorDto, type Viewer } from '../teams/team-dto';
 
 interface ColorRow {
   id: string;
@@ -64,7 +64,7 @@ export class ColorsService {
     let exclude = excludeTeamId;
     if (exclude && viewer) {
       // A supervisor may only "keep" the colour of a team they lead.
-      const team = await db.team.findUnique({ where: { id: exclude }, select: { supervisorId: true } });
+      const team = await db.team.findUnique({ where: { id: exclude }, select: { supervisors: OPEN_LEADERS } });
       if (!team || !canReadTeam(viewer, team)) exclude = undefined;
     }
     const [colors, reserving] = await Promise.all([this.palette(db), this.reservingTeams(db)]);

@@ -44,6 +44,16 @@ export const ERRORS = {
 
   NOT_PENDING_TEAM: 'هذا الفريق لم يعد بانتظار الاعتماد.',
   TEAM_ARCHIVED: 'هذا الفريق مؤرشف، فلا يمكن تعديله.',
+  // A9 — several supervisors, worker foreman, organisational structure
+  SUPERVISOR_ALREADY_IN_TEAM: 'هذا المشرف يقود الفريق أصلًا.',
+  PRIMARY_SUPERVISOR_REQUIRED: 'هذا هو المشرف الرئيسي للفريق. اختر مشرفًا رئيسيًّا بديلًا قبل إزالته.',
+  LAST_SUPERVISOR: 'لا يمكن إزالة آخر مشرف للفريق. أضف مشرفًا آخر أولًا.',
+  FOREMAN_NOT_MEMBER: 'مشرف العمّال يجب أن يكون عضوًا حاليًّا في هذا الفريق.',
+  FOREMAN_HAS_ACCOUNT: 'مشرف العمّال سجلّ عضو فقط، ولا يرتبط بحساب دخول في هذا الإصدار.',
+  ORG_CYCLE: 'لا يمكن نقل الوحدة تحت نفسها أو تحت إحدى وحداتها الفرعية.',
+  ORG_REPORTS_CYCLE: 'هذا الربط يجعل المنصب يتبع نفسه عبر سلسلة التبعية.',
+  ORG_UNIT_NOT_EMPTY: 'الوحدة تحتوي على وحدات فرعية أو مناصب أو فرق مرتبطة. انقلها أو أزلها أولًا.',
+  ORG_UNIT_ARCHIVED: 'هذه الوحدة مؤرشفة، فلا يمكن الإضافة إليها.',
 
   // reference data & cards
   NAME_TAKEN: 'هذا الاسم مستخدم مسبقًا. اختر اسمًا آخر.',
@@ -79,6 +89,8 @@ export const ERRORS = {
   EDIT_WINDOW_CLOSED: 'انتهت مهلة تعديل هذه المخالفة. يعدّلها مدير النظام فقط.',
   CANCEL_REASON_REQUIRED: 'اكتب سبب الإلغاء.',
   MEMBER_HAS_NO_TEAM: 'العضو لم يكن ضمن أي فريق في وقت المخالفة.',
+  PERSON_PHOTO_REQUIRED: 'صورة الشخص مطلوبة.',
+  VIOLATION_ALREADY_ASSIGNED: 'هذه المخالفة مسندة إلى شخص مسبقًا. ألغِ الإسناد أولًا.',
 
   // files
   FILE_TYPE_NOT_ALLOWED: 'نوع الملف غير مسموح. ارفع صورة JPEG أو PNG أو WebP أو ملف PDF.',

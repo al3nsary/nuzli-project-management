@@ -24,6 +24,8 @@ export const VIOLATION_SELECT = {
   clientUuid: true,
   memberId: true,
   teamIdSnapshot: true,
+  supervisorIdsSnapshot: true,
+  assignedAt: true,
   recordedById: true,
   description: true,
   notes: true,
@@ -37,6 +39,7 @@ export const VIOLATION_SELECT = {
   deviceInfo: true,
   expectedIdPhotos: true,
   expectedEvidence: true,
+  expectedPerson: true,
   status: true,
   cancelReason: true,
   typeId: true,
@@ -44,6 +47,8 @@ export const VIOLATION_SELECT = {
   team: { select: TEAM_SUMMARY_SELECT },
   supervisor: { select: { id: true, fullName: true } },
   recordedBy: { select: { id: true, fullName: true } },
+  assignedBy: { select: { id: true, fullName: true } },
+  ocr: { select: { status: true } },
   type: { select: VIOLATION_TYPE_SELECT },
   files: {
     select: { kind: true, file: { select: { id: true, mimeType: true, status: true, deletedAt: true } } },
@@ -67,20 +72,36 @@ export function editableUntil(receivedAt: Date, windowMinutes: number): Date {
   return new Date(receivedAt.getTime() + windowMinutes * 60_000);
 }
 
+/** Supervisor ids of the snapshots in `rows` (names are looked up in one query). */
+export function snapshotSupervisorIds(rows: ReadonlyArray<{ supervisorIdsSnapshot: string[] }>): string[] {
+  return [...new Set(rows.flatMap((r) => r.supervisorIdsSnapshot ?? []))];
+}
+
 export function toViolationDto(
   v: Omit<ViolationRow, 'responses'> & { responses?: ViolationRow['responses'] },
-  opts: { viewer: Viewer; editWindowMinutes: number },
+  opts: { viewer: Viewer; editWindowMinutes: number; supervisorNames?: ReadonlyMap<string, string> },
 ): ViolationDto {
+  const names = opts.supervisorNames;
   const dto: ViolationDto = {
     id: v.id,
     clientUuid: v.clientUuid,
-    member: {
-      id: v.member.id,
-      fullName: v.member.fullName,
-      nationalIdMasked: maskNationalIdParts(v.member.nationalIdFirst, v.member.nationalIdLast4),
-    },
+    // A9 (ADR-103): null until a person is assigned.
+    member: v.member
+      ? {
+          id: v.member.id,
+          fullName: v.member.fullName,
+          nationalIdMasked: maskNationalIdParts(v.member.nationalIdFirst, v.member.nationalIdLast4),
+        }
+      : null,
+    assigned: !!v.memberId,
+    assignedAt: v.assignedAt?.toISOString() ?? null,
+    assignedBy: v.assignedBy ? { id: v.assignedBy.id, fullName: v.assignedBy.fullName } : null,
     team: v.team ? toTeamSummary(v.team) : null,
     supervisor: v.supervisor ? { id: v.supervisor.id, fullName: v.supervisor.fullName } : null,
+    supervisors: (v.supervisorIdsSnapshot ?? []).map((id) => ({
+      id,
+      fullName: names?.get(id) ?? (v.supervisor?.id === id ? v.supervisor.fullName : ''),
+    })),
     recordedBy: { id: v.recordedBy.id, fullName: v.recordedBy.fullName },
     type: toTypeDto(v.type),
     description: v.description,
@@ -106,11 +127,15 @@ export function toViolationDto(
       createdAt: r.createdAt.toISOString(),
     })),
     editableUntil: editableUntil(v.receivedAt, opts.editWindowMinutes).toISOString(),
-    expectedPhotos: { idCard: v.expectedIdPhotos, evidence: v.expectedEvidence },
+    expectedPhotos: { idCard: v.expectedIdPhotos, evidence: v.expectedEvidence, person: v.expectedPerson },
     clientSentAt: v.clientSentAt?.toISOString() ?? null,
   };
   if (can(opts.viewer, 'violations.manage')) {
     dto.deviceInfo = (v.deviceInfo ?? {}) as Record<string, unknown>;
+  }
+  // OCR state: admins and the recorder (the people who assign the violation).
+  if (can(opts.viewer, 'violations.manage') || v.recordedById === opts.viewer.id) {
+    dto.ocrStatus = v.ocr?.status ?? null;
   }
   return dto;
 }

@@ -111,6 +111,8 @@ export async function insertMembers(
 export interface MoveRecord {
   memberId: string;
   fromTeamId: string | null;
+  /** A9 (ADR-101): the closed membership was the team's foreman — the flag ends with it. */
+  wasForeman?: boolean;
 }
 
 /**
@@ -127,7 +129,7 @@ export async function moveMembersInTx(
   const ids = [...new Set(memberIds)];
   const open = await tx.teamMembership.findMany({
     where: { memberId: { in: ids }, validTo: null },
-    select: { id: true, memberId: true, teamId: true },
+    select: { id: true, memberId: true, teamId: true, role: true },
   });
   const openByMember = new Map(open.map((o) => [o.memberId, o]));
   const already = ids.filter((id) => openByMember.get(id)?.teamId === toTeamId);
@@ -154,7 +156,11 @@ export async function moveMembersInTx(
       reason: opts.reason ?? null,
     })),
   });
-  return moving.map((memberId) => ({ memberId, fromTeamId: openByMember.get(memberId)?.teamId ?? null }));
+  // The new membership starts as WORKER (column default): moving the foreman out clears the flag.
+  return moving.map((memberId) => {
+    const prev = openByMember.get(memberId);
+    return { memberId, fromTeamId: prev?.teamId ?? null, ...(prev?.role === 'FOREMAN' ? { wasForeman: true } : {}) };
+  });
 }
 
 /**

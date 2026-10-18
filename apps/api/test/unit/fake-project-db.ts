@@ -143,7 +143,7 @@ const MODELS: Record<string, ModelDef> = {
   user: {
     table: 'users',
     rel: { assignedTasks: { kind: 'many', model: 'task', to: 'assigneeId' }, projectAccess: { kind: 'many', model: 'projectAccess', to: 'userId' } },
-    extra: { ledTeams: () => [] },
+    extra: { ledTeams: () => [], teamSupervisions: () => [] },
   },
   project: {
     table: 'projects',

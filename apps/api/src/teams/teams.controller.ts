@@ -1,18 +1,23 @@
-import { Controller, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  addTeamSupervisorSchema,
   archiveTeamSchema,
   changeSupervisorSchema,
   createTeamSchema,
   memberInputSchema,
   rejectTeamSchema,
+  removeTeamSupervisorSchema,
+  setForemanSchema,
+  setPrimarySupervisorSchema,
   updateTeamSchema,
   violationVisibilitySchema,
   type MemberDto,
   type SupervisorHistoryDto,
   type TeamDetailDto,
   type TeamDto,
+  type TeamSupervisorsDto,
 } from '@nuzli/shared';
 import { z } from 'zod';
 import { CurrentUser, ReqCtx, RequireAnyPermission, RequirePermission } from '../common/decorators';
@@ -114,7 +119,7 @@ export class TeamsController {
   @Post(':id/supervisor')
   @HttpCode(200)
   @RequirePermission('teams.manageAll')
-  @ApiOperation({ summary: 'تغيير مشرف الفريق (يُسجَّل في السجل التاريخي)' })
+  @ApiOperation({ summary: 'استبدال المشرف الرئيسي (يُسجَّل في السجل التاريخي؛ يبقى المشرفون المساعدون)' })
   changeSupervisor(
     @Param('id', UuidPipe) id: string,
     @ZodBody(changeSupervisorSchema) body: z.output<typeof changeSupervisorSchema>,
@@ -132,6 +137,82 @@ export class TeamsController {
     @CurrentUser() viewer: AuthUser,
   ): Promise<SupervisorHistoryDto[]> {
     return this.teams.supervisorHistory(id, viewer);
+  }
+
+  // ─────────────────────────────────────────── A9: several supervisors (ADR-100)
+
+  @Get(':id/supervisors')
+  @RequireAnyPermission('teams.readAll', 'teams.readOwn')
+  @ApiOperation({ summary: 'مشرفو الفريق الحاليون (الرئيسي أولًا) مع السجل الكامل' })
+  listSupervisors(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<TeamSupervisorsDto> {
+    return this.teams.supervisors(id, viewer);
+  }
+
+  @Post(':id/supervisors')
+  @RequirePermission('teams.manageAll')
+  @ApiOperation({ summary: 'إضافة مشرف للفريق (isPrimary يجعله الرئيسي ويبقى السابق مشرفًا)' })
+  addSupervisor(
+    @Param('id', UuidPipe) id: string,
+    @ZodBody(addTeamSupervisorSchema) body: z.output<typeof addTeamSupervisorSchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<TeamDto> {
+    return this.teams.addSupervisor(id, body, viewer, ctx);
+  }
+
+  @Delete(':id/supervisors/:userId')
+  @HttpCode(200)
+  @RequirePermission('teams.manageAll')
+  @ApiOperation({ summary: 'إزالة مشرف (الرئيسي يتطلب newPrimaryUserId، وآخر مشرف لا يُزال)' })
+  removeSupervisor(
+    @Param('id', UuidPipe) id: string,
+    @Param('userId', UuidPipe) userId: string,
+    @ZodBody(removeTeamSupervisorSchema) body: z.output<typeof removeTeamSupervisorSchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<TeamDto> {
+    return this.teams.removeSupervisor(id, userId, body, viewer, ctx);
+  }
+
+  @Post(':id/supervisors/:userId/primary')
+  @HttpCode(200)
+  @RequirePermission('teams.manageAll')
+  @ApiOperation({ summary: 'جعل أحد مشرفي الفريق الحاليين المشرف الرئيسي' })
+  setPrimarySupervisor(
+    @Param('id', UuidPipe) id: string,
+    @Param('userId', UuidPipe) userId: string,
+    @ZodBody(setPrimarySupervisorSchema) body: z.output<typeof setPrimarySupervisorSchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<TeamDto> {
+    return this.teams.setPrimarySupervisor(id, userId, body, viewer, ctx);
+  }
+
+  // ─────────────────────────────────────────── A9: worker foreman (ADR-101)
+
+  @Post(':id/foreman')
+  @HttpCode(200)
+  @RequireAnyPermission('teams.manageAll', 'teams.manageOwn')
+  @ApiOperation({ summary: 'تعيين مشرف العمّال من أعضاء الفريق الحاليين (سجل عضو فقط، دون حساب أو صلاحيات)' })
+  setForeman(
+    @Param('id', UuidPipe) id: string,
+    @ZodBody(setForemanSchema) body: z.output<typeof setForemanSchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<TeamDetailDto> {
+    return this.teams.setForeman(id, body.memberId, viewer, ctx);
+  }
+
+  @Delete(':id/foreman')
+  @HttpCode(200)
+  @RequireAnyPermission('teams.manageAll', 'teams.manageOwn')
+  @ApiOperation({ summary: 'إلغاء تعيين مشرف العمّال' })
+  clearForeman(
+    @Param('id', UuidPipe) id: string,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<TeamDetailDto> {
+    return this.teams.clearForeman(id, viewer, ctx);
   }
 
   @Put(':id/violation-visibility')

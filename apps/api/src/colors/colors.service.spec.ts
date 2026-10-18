@@ -32,7 +32,7 @@ describe('available colours (brief §5.2)', () => {
   it('service: a supervisor cannot "keep" the colour of a team they do not lead', async () => {
     const prisma = {
       team: {
-        findUnique: jest.fn().mockResolvedValue({ supervisorId: 'someone-else' }),
+        findUnique: jest.fn().mockResolvedValue({ supervisors: [{ userId: 'someone-else' }] }),
         findMany: jest.fn().mockResolvedValue(reserving),
       },
       teamColor: { findMany: jest.fn().mockResolvedValue(palette) },
@@ -40,7 +40,7 @@ describe('available colours (brief §5.2)', () => {
     const svc = new ColorsService(prisma as never, {} as never);
     const sup = { id: 's1', role: 'SUPERVISOR' as const, status: 'ACTIVE' };
     expect((await svc.available('t1', sup)).map((c) => c.id)).toEqual(['c3']);
-    prisma.team.findUnique.mockResolvedValue({ supervisorId: 's1' });
+    prisma.team.findUnique.mockResolvedValue({ supervisors: [{ userId: 's1' }] });
     expect((await svc.available('t1', sup)).map((c) => c.id)).toEqual(['c1', 'c3']);
   });
 });

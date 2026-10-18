@@ -31,6 +31,11 @@ function violationRow(over: Record<string, unknown> = {}) {
     clientUuid: UUID,
     memberId: MEMBER,
     teamIdSnapshot: TEAM_A,
+    supervisorIdsSnapshot: [SUP_A],
+    assignedAt: null,
+    assignedBy: null,
+    ocr: null,
+    expectedPerson: 1,
     recordedById: MONITOR.id,
     description: 'وصف المخالفة',
     notes: null,
@@ -76,7 +81,7 @@ function setup(
     settings?: Partial<Settings>;
     existing?: Record<string, unknown> | null;
     memberships?: Interval[];
-    supervisors?: Array<{ teamId: string; supervisorId: string; from: string; to: string | null }>;
+    supervisors?: Array<{ teamId: string; supervisorId: string; from: string; to: string | null; isPrimary?: boolean }>;
     found?: Record<string, unknown> | null;
   } = {},
 ) {
@@ -92,8 +97,10 @@ function setup(
       const memberships = (opts.memberships ?? []).filter((m) => within(m.from, m.to, at));
       const m = memberships.sort((a, b) => b.from.localeCompare(a.from))[0];
       if (!m) return Promise.resolve([]);
-      const h = (opts.supervisors ?? []).find((s) => s.teamId === m.teamId && within(s.from, s.to, at));
-      return Promise.resolve([{ team_id: m.teamId, supervisor_id: h?.supervisorId ?? null }]);
+      const open = (opts.supervisors ?? []).filter((s) => s.teamId === m.teamId && within(s.from, s.to, at));
+      const primary = open.find((s) => s.isPrimary !== false);
+      const ids = [...open].sort((a, b) => Number(b.isPrimary !== false) - Number(a.isPrimary !== false)).map((s) => s.supervisorId);
+      return Promise.resolve([{ team_id: m.teamId, supervisor_id: primary?.supervisorId ?? null, supervisor_ids: ids }]);
     }),
     violation: {
       create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
@@ -246,9 +253,12 @@ describe('team / supervisor snapshot at captured_at (brief §7.3, ADR-014)', () 
     const text = sql.text.replace(/\s+/g, ' ');
     expect(text).toContain('m.valid_from <= $');
     expect(text).toContain('(m.valid_to IS NULL OR m.valid_to > $');
-    expect(text).toContain('h.valid_from <= $');
-    expect(text).toContain('(h.valid_to IS NULL OR h.valid_to > $');
-    expect(sql.values.filter((v) => v instanceof Date)).toEqual([at, at, at, at]);
+    // A9 (ADR-100): the primary and every supervisor come from team_supervisors at the same instant.
+    expect(text).toContain('FROM team_supervisors s');
+    expect(text).toContain('s.valid_from <= $');
+    expect(text).toContain('(s.valid_to IS NULL OR s.valid_to > $');
+    expect(text).toContain('s.is_primary');
+    expect(sql.values.filter((v) => v instanceof Date)).toEqual([at, at, at, at, at, at]);
     expect(sql.values).toContain(MEMBER);
   });
 
@@ -276,7 +286,61 @@ describe('team / supervisor snapshot at captured_at (brief §7.3, ADR-014)', () 
     const s = setup(history);
     const out = await s.svc.create(input({ capturedAt: '2025-12-31T23:00:00Z' }), MONITOR, ctx);
     expect(out.created).toBe(true);
-    expect(s.created()).toMatchObject({ teamIdSnapshot: null, supervisorIdSnapshot: null });
+    expect(s.created()).toMatchObject({ teamIdSnapshot: null, supervisorIdSnapshot: null, supervisorIdsSnapshot: [] });
+  });
+
+  it('A9: several supervisors at captured_at → the primary in supervisor_id_snapshot, all of them in supervisor_ids_snapshot', async () => {
+    const s = setup({
+      memberships: history.memberships,
+      supervisors: [
+        ...history.supervisors,
+        { teamId: TEAM_A, supervisorId: 'co-sup', from: '2026-07-01T00:00:00Z', to: null, isPrimary: false },
+        { teamId: TEAM_A, supervisorId: 'gone-co', from: '2026-06-01T00:00:00Z', to: '2026-07-01T00:00:00Z', isPrimary: false },
+      ],
+    });
+    await s.svc.create(input({ capturedAt: '2026-08-01T08:00:00Z' }), MONITOR, ctx);
+    expect(s.created()).toMatchObject({ teamIdSnapshot: TEAM_A, supervisorIdSnapshot: SUP_A, supervisorIdsSnapshot: [SUP_A, 'co-sup'] });
+  });
+});
+
+describe('A9: violations without a person (ADR-103)', () => {
+  it('memberId is optional: no snapshot query, member null, person photo expected', async () => {
+    const s = setup();
+    const out = await s.svc.create(input({ memberId: undefined }), MONITOR, ctx);
+    expect(out.created).toBe(true);
+    expect(s.tx.$queryRaw).not.toHaveBeenCalled();
+    expect(s.prisma.teamMember.findUnique).not.toHaveBeenCalled();
+    expect(s.created()).toMatchObject({
+      memberId: null,
+      teamIdSnapshot: null,
+      supervisorIdSnapshot: null,
+      supervisorIdsSnapshot: [],
+      expectedPerson: 1,
+    });
+  });
+
+  it('the DTO says assigned = false and member = null for such a row', async () => {
+    const s = setup({ found: violationRow({ memberId: null, member: null, teamIdSnapshot: null, team: null, supervisor: null, supervisorIdsSnapshot: [] }) });
+    const dto = await s.svc.get('v1', ADMIN);
+    expect(dto).toMatchObject({ assigned: false, member: null, team: null, supervisors: [] });
+    const assigned = await setup().svc.get('v1', ADMIN);
+    expect(assigned.assigned).toBe(true);
+    expect(assigned.expectedPhotos).toEqual({ idCard: 1, evidence: 2, person: 1 });
+  });
+
+  it('the OCR state is shown to admins and the recorder only', async () => {
+    const row = violationRow({ ocr: { status: 'DONE' } });
+    expect((await setup({ found: row }).svc.get('v1', ADMIN)).ocrStatus).toBe('DONE');
+    expect((await setup({ found: row }).svc.get('v1', MONITOR)).ocrStatus).toBe('DONE');
+    expect((await setup({ found: row }).svc.get('v1', SUP)).ocrStatus).toBeUndefined();
+  });
+
+  it('the filter assigned=false / true maps to member_id IS NULL / NOT NULL', async () => {
+    const s = setup();
+    await s.svc.list({ page: 1, pageSize: 25, assigned: 'false' }, ADMIN);
+    expect(JSON.stringify(s.prisma.violation.findMany.mock.calls[0]![0].where)).toContain('{"memberId":null}');
+    await s.svc.list({ page: 1, pageSize: 25, assigned: 'true' }, ADMIN);
+    expect(JSON.stringify(s.prisma.violation.findMany.mock.calls[1]![0].where)).toContain('{"memberId":{"not":null}}');
   });
 });
 
@@ -312,7 +376,7 @@ describe('scope is part of the query (list, detail)', () => {
     await s.svc.list({ page: 1, pageSize: 25 }, SUP);
     const where = s.prisma.violation.findMany.mock.calls[0]![0].where;
     expect(where.AND[0]).toEqual({
-      team: { is: { supervisorId: SUP.id, status: { not: 'ARCHIVED' }, visibility: { is: { mode: 'SHOW' } } } },
+      team: { is: { supervisors: { some: { userId: SUP.id, validTo: null } }, status: { not: 'ARCHIVED' }, visibility: { is: { mode: 'SHOW' } } } },
     });
     expect(s.prisma.violation.count.mock.calls[0]![0].where).toEqual(where);
   });

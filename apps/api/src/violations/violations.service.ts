@@ -28,6 +28,7 @@ import { StorageService } from '../storage/storage.service';
 import type { Viewer } from '../teams/team-dto';
 import {
   sanitizeDeviceInfo,
+  snapshotSupervisorIds,
   toViolationDto,
   VIOLATION_LIST_SELECT,
   VIOLATION_SELECT,
@@ -43,12 +44,16 @@ import {
 import { assembleStats, statsQueries, type StatsRows } from './violation-stats';
 import { buildViolationsWorkbook, SEVERITY_LABELS, STATUS_LABELS, type ExportRow } from './violations-export';
 
+/** A9: the person column of a violation not assigned yet. */
+export const UNASSIGNED_LABEL = '— لم تُسند إلى شخص بعد';
+
 /** Rows in one Excel export; beyond it the summary sheet says the file was truncated. */
 export const MAX_EXPORT_ROWS = 50_000;
 
 export interface CreateViolationData {
   clientUuid: string;
-  memberId: string;
+  /** A9 (ADR-103): optional — assigned later when the recorder does not know the person. */
+  memberId?: string;
   typeId: string;
   description: string;
   notes?: string;
@@ -60,32 +65,46 @@ export interface CreateViolationData {
   deviceInfo: Record<string, unknown>;
   expectedIdPhotos: number;
   expectedEvidencePhotos: number;
+  /** A9: photos of the person (1); absent from pre-A9 clients → 1. */
+  expectedPersonPhotos?: number;
 }
 
 export type ListQuery = ViolationFilter & { page: number; pageSize: number; sort?: string; q?: string };
 
 export interface Snapshot {
   teamId: string | null;
+  /** The primary supervisor at the instant. */
   supervisorId: string | null;
+  /** A9 (ADR-100): every supervisor at the instant, the primary first. */
+  supervisorIds: string[];
 }
 
+export const EMPTY_SNAPSHOT: Snapshot = { teamId: null, supervisorId: null, supervisorIds: [] };
+
 /**
- * Team and supervisor of a member at instant `t` (brief §7.3, ADR-013/014): both histories are
- * half-open intervals [valid_from, valid_to), so the row valid at `t` satisfies
- * `valid_from <= t AND (valid_to IS NULL OR valid_to > t)`.
+ * Team and supervisors of a member at instant `t` (brief §7.3, ADR-013/014, A9 ADR-100): every
+ * history is half-open [valid_from, valid_to), so the row valid at `t` satisfies
+ * `valid_from <= t AND (valid_to IS NULL OR valid_to > t)`. The first bound value is `t`.
  */
 export function snapshotSql(memberId: string, at: Date): Prisma.Sql {
   return Prisma.sql`
-    SELECT m.team_id, h.supervisor_id
+    SELECT m.team_id,
+           (SELECT s.user_id FROM team_supervisors s
+             WHERE s.team_id = m.team_id AND s.is_primary
+               AND s.valid_from <= ${at}::timestamptz
+               AND (s.valid_to IS NULL OR s.valid_to > ${at}::timestamptz)
+             ORDER BY s.valid_from DESC LIMIT 1) AS supervisor_id,
+           COALESCE((SELECT array_agg(s.user_id ORDER BY s.is_primary DESC, s.valid_from)
+                       FROM team_supervisors s
+                      WHERE s.team_id = m.team_id
+                        AND s.valid_from <= ${at}::timestamptz
+                        AND (s.valid_to IS NULL OR s.valid_to > ${at}::timestamptz)),
+                    ARRAY[]::uuid[]) AS supervisor_ids
       FROM team_memberships m
-      LEFT JOIN team_supervisor_history h
-        ON h.team_id = m.team_id
-       AND h.valid_from <= ${at}::timestamptz
-       AND (h.valid_to IS NULL OR h.valid_to > ${at}::timestamptz)
      WHERE m.member_id = ${memberId}::uuid
        AND m.valid_from <= ${at}::timestamptz
        AND (m.valid_to IS NULL OR m.valid_to > ${at}::timestamptz)
-     ORDER BY m.valid_from DESC, h.valid_from DESC NULLS LAST
+     ORDER BY m.valid_from DESC
      LIMIT 1`;
 }
 
@@ -96,6 +115,7 @@ function filterLabels(f: ViolationFilter, names: Record<string, string | undefin
   if (f.to) out.push(['إلى تاريخ', f.to]);
   if (f.teamId) out.push(['الفريق', names.team ?? f.teamId]);
   if (f.memberId) out.push(['العضو', names.member ?? f.memberId]);
+  if (f.assigned) out.push(['الإسناد', f.assigned === 'true' ? 'مُسندة إلى شخص' : 'غير مُسندة بعد']);
   if (f.recordedBy) out.push(['المراقب', names.recorder ?? f.recordedBy]);
   if (f.typeId) out.push(['نوع المخالفة', names.type ?? f.typeId]);
   if (f.status) out.push(['الحالة', STATUS_LABELS[f.status]]);
@@ -127,7 +147,7 @@ export class ViolationsService {
     return violationScopeWhere(viewer, visible);
   }
 
-  private async findScoped(id: string, viewer: Viewer) {
+  async findScoped(id: string, viewer: Viewer) {
     const scope = await this.scope(viewer);
     if (scope === NOTHING) throw new AppError('NOT_FOUND');
     const row = await this.prisma.violation.findFirst({ where: { AND: [{ id }, scope] }, select: VIOLATION_SELECT });
@@ -183,9 +203,30 @@ export class ViolationsService {
   // ─────────────────────────────────────────── create (idempotent by clientUuid)
 
   async resolveSnapshot(db: Prisma.TransactionClient | PrismaService, memberId: string, at: Date): Promise<Snapshot> {
-    const rows = await db.$queryRaw<Array<{ team_id: string; supervisor_id: string | null }>>(snapshotSql(memberId, at));
+    const rows = await db.$queryRaw<Array<{ team_id: string; supervisor_id: string | null; supervisor_ids?: string[] | null }>>(
+      snapshotSql(memberId, at),
+    );
     const row = rows[0];
-    return { teamId: row?.team_id ?? null, supervisorId: row?.supervisor_id ?? null };
+    if (!row) return { ...EMPTY_SNAPSHOT };
+    const ids = row.supervisor_ids ?? (row.supervisor_id ? [row.supervisor_id] : []);
+    return { teamId: row.team_id ?? null, supervisorId: row.supervisor_id ?? null, supervisorIds: ids };
+  }
+
+  /** Names of the snapshot supervisors of these rows (one query). */
+  async supervisorNames(rows: ReadonlyArray<{ supervisorIdsSnapshot: string[] }>): Promise<Map<string, string>> {
+    const ids = snapshotSupervisorIds(rows);
+    if (!ids.length) return new Map();
+    const users = await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true } });
+    return new Map(users.map((u) => [u.id, u.fullName]));
+  }
+
+  /** One row → DTO with the edit window and the snapshot supervisors' names. */
+  async toDto(row: Parameters<typeof toViolationDto>[0], viewer: Viewer): Promise<ViolationDto> {
+    const [editWindowMinutes, supervisorNames] = await Promise.all([
+      this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES'),
+      this.supervisorNames([row]),
+    ]);
+    return toViolationDto(row, { viewer, editWindowMinutes, supervisorNames });
   }
 
   private async existing(clientUuid: string, viewer: Viewer): Promise<ViolationDto | null> {
@@ -195,7 +236,7 @@ export class ViolationsService {
     if (row.recordedById !== viewer.id && !can(viewer, 'violations.manage')) {
       throw new AppError('CONFLICT_VERSION', { field: 'clientUuid' });
     }
-    return toViolationDto(row, { viewer, editWindowMinutes: await this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES') });
+    return this.toDto(row, viewer);
   }
 
   /**
@@ -212,18 +253,21 @@ export class ViolationsService {
     const prior = await this.existing(input.clientUuid, viewer);
     if (prior) return { created: false, violation: prior };
 
-    const [member, type, maxPhotos, threshold, editWindow] = await Promise.all([
-      this.prisma.teamMember.findUnique({
-        where: { id: input.memberId },
-        select: { id: true, status: true, archivedAt: true },
-      }),
+    const [member, type, maxPhotos, threshold] = await Promise.all([
+      input.memberId
+        ? this.prisma.teamMember.findUnique({
+            where: { id: input.memberId },
+            select: { id: true, status: true, archivedAt: true },
+          })
+        : Promise.resolve(null),
       this.prisma.violationType.findUnique({ where: { id: input.typeId }, select: { id: true, isActive: true } }),
       this.settings.get('VIOLATION_MAX_PHOTOS'),
       this.settings.get('CLOCK_DRIFT_THRESHOLD_MINUTES'),
-      this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES'),
     ]);
     const fieldErrors: Record<string, string[]> = {};
-    if (!member || member.archivedAt || member.status !== 'ACTIVE') fieldErrors.memberId = ['العضو غير موجود أو غير نشط'];
+    if (input.memberId && (!member || member.archivedAt || member.status !== 'ACTIVE')) {
+      fieldErrors.memberId = ['العضو غير موجود أو غير نشط'];
+    }
     if (!type || !type.isActive) fieldErrors.typeId = ['نوع المخالفة غير موجود أو موقوف'];
     if (Object.keys(fieldErrors).length) throw new AppError('VALIDATION_FAILED', { fieldErrors });
     if (input.expectedEvidencePhotos > maxPhotos) {
@@ -237,13 +281,16 @@ export class ViolationsService {
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
-        const snap = await this.resolveSnapshot(tx, input.memberId, capturedAt);
+        // A9 (ADR-103): without a person there is no team snapshot yet — it is resolved at
+        // captured_at when the violation is assigned.
+        const snap = input.memberId ? await this.resolveSnapshot(tx, input.memberId, capturedAt) : EMPTY_SNAPSHOT;
         const created = await tx.violation.create({
           data: {
             clientUuid: input.clientUuid,
-            memberId: input.memberId,
+            memberId: input.memberId ?? null,
             teamIdSnapshot: snap.teamId,
             supervisorIdSnapshot: snap.supervisorId,
+            supervisorIdsSnapshot: snap.supervisorIds,
             recordedById: viewer.id,
             typeId: input.typeId,
             description: input.description,
@@ -258,13 +305,14 @@ export class ViolationsService {
             deviceInfo: sanitizeDeviceInfo(input.deviceInfo),
             expectedIdPhotos: input.expectedIdPhotos,
             expectedEvidence: input.expectedEvidencePhotos,
+            expectedPerson: input.expectedPersonPhotos ?? 1,
             createdById: viewer.id,
           },
           select: { id: true },
         });
         return tx.violation.findUniqueOrThrow({ where: { id: created.id }, select: VIOLATION_SELECT });
       });
-      return { created: true, violation: toViolationDto(row, { viewer, editWindowMinutes: editWindow }) };
+      return { created: true, violation: await this.toDto(row, viewer) };
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -287,7 +335,7 @@ export class ViolationsService {
       AND: [scope, violationFilterWhere(q), ...(opts.mine ? [{ recordedById: viewer.id }] : [])],
     };
     const order = parseSort(q.sort, ['capturedAt', 'receivedAt', 'status'] as const, { capturedAt: 'desc' });
-    const [rows, total, editWindow] = await Promise.all([
+    const [rows, total, editWindowMinutes] = await Promise.all([
       this.prisma.violation.findMany({
         where,
         select: VIOLATION_LIST_SELECT,
@@ -298,8 +346,9 @@ export class ViolationsService {
       this.prisma.violation.count({ where }),
       this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES'),
     ]);
+    const supervisorNames = await this.supervisorNames(rows);
     return paginate(
-      rows.map((r) => toViolationDto(r, { viewer, editWindowMinutes: editWindow })),
+      rows.map((r) => toViolationDto(r, { viewer, editWindowMinutes, supervisorNames })),
       total,
       q.page,
       q.pageSize,
@@ -308,7 +357,7 @@ export class ViolationsService {
 
   async get(id: string, viewer: Viewer): Promise<ViolationDto> {
     const row = await this.findScoped(id, viewer);
-    return toViolationDto(row, { viewer, editWindowMinutes: await this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES') });
+    return this.toDto(row, viewer);
   }
 
   /**
@@ -384,7 +433,7 @@ export class ViolationsService {
       before.notes = current.notes;
       after.notes = patch.notes;
     }
-    if (!Object.keys(data).length) return toViolationDto(current, { viewer, editWindowMinutes: window });
+    if (!Object.keys(data).length) return this.toDto(current, viewer);
     const row = await this.prisma.$transaction(async (tx) => {
       await tx.violation.update({ where: { id }, data });
       await this.audit.logCtx(
@@ -394,7 +443,7 @@ export class ViolationsService {
       );
       return tx.violation.findUniqueOrThrow({ where: { id }, select: VIOLATION_SELECT });
     });
-    return toViolationDto(row, { viewer, editWindowMinutes: window });
+    return this.toDto(row, viewer);
   }
 
   /** ADMIN. CANCELLED needs a reason (also a CHECK constraint); leaving CANCELLED clears it. */
@@ -411,7 +460,7 @@ export class ViolationsService {
     const window = await this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES');
     const cancelReason = input.status === 'CANCELLED' ? input.reason!.trim() : null;
     if (current.status === input.status && current.cancelReason === cancelReason) {
-      return toViolationDto(current, { viewer, editWindowMinutes: window });
+      return this.toDto(current, viewer);
     }
     const row = await this.prisma.$transaction(async (tx) => {
       await tx.violation.update({ where: { id }, data: { status: input.status, cancelReason } });
@@ -428,7 +477,7 @@ export class ViolationsService {
       );
       return tx.violation.findUniqueOrThrow({ where: { id }, select: VIOLATION_SELECT });
     });
-    return toViolationDto(row, { viewer, editWindowMinutes: window });
+    return this.toDto(row, viewer);
   }
 
   /**
@@ -471,11 +520,11 @@ export class ViolationsService {
           supervisorName: author,
           teamName: current.team?.name ?? '',
           typeName: current.type.name,
-          memberName: current.member.fullName,
+          memberName: current.member?.fullName ?? '',
         },
       ),
     );
-    return toViolationDto(row, { viewer, editWindowMinutes: window });
+    return this.toDto(row, viewer);
   }
 
   // ─────────────────────────────────────────── statistics (ADMIN)
@@ -483,7 +532,7 @@ export class ViolationsService {
   async stats(f: ViolationFilter, now = new Date()): Promise<ViolationStats> {
     const q = statsQueries(f, now);
     const run = <T>(sql: Prisma.Sql) => this.prisma.$queryRaw<T>(sql);
-    const [totals, byTeam, topMembers, byMonitor, byType, bySeverity, trend, heatmap, points] = await Promise.all([
+    const [totals, byTeam, topMembers, byMonitor, byType, bySeverity, trend, heatmap, points, unassigned] = await Promise.all([
       run<StatsRows['totals']>(q.totals),
       run<StatsRows['byTeam']>(q.byTeam),
       run<StatsRows['topMembers']>(q.topMembers),
@@ -493,9 +542,10 @@ export class ViolationsService {
       run<StatsRows['trend']>(q.trend),
       run<StatsRows['heatmap']>(q.heatmap),
       run<StatsRows['points']>(q.points),
+      run<NonNullable<StatsRows['unassigned']>>(q.unassigned),
     ]);
     return assembleStats(
-      { totals, byTeam, topMembers, byMonitor, byType, bySeverity, trend, heatmap, points },
+      { totals, byTeam, topMembers, byMonitor, byType, bySeverity, trend, heatmap, points, unassigned },
       f,
       now,
     );
@@ -541,8 +591,8 @@ export class ViolationsService {
       id: r.id,
       capturedAt: r.capturedAt,
       receivedAt: r.receivedAt,
-      memberName: r.member.fullName,
-      nationalIdMasked: maskNationalIdParts(r.member.nationalIdFirst, r.member.nationalIdLast4),
+      memberName: r.member?.fullName ?? UNASSIGNED_LABEL,
+      nationalIdMasked: r.member ? maskNationalIdParts(r.member.nationalIdFirst, r.member.nationalIdLast4) : '',
       teamName: r.team?.name ?? null,
       supervisorName: r.supervisor?.fullName ?? null,
       recordedByName: r.recordedBy.fullName,

@@ -91,15 +91,18 @@ export function toStored(r: StoredTaskRow): StoredTask {
   };
 }
 
-/** Assignee with the colour and name of the first ACTIVE team they lead (brief §6.1 Gantt). */
+/**
+ * Assignee with the colour and name of the first ACTIVE team they lead (brief §6.1 Gantt).
+ * A9 (ADR-100): any open leadership row counts; a team they lead as primary comes first.
+ */
 export const ASSIGNEE_SELECT = {
   id: true,
   fullName: true,
-  ledTeams: {
-    where: { status: 'ACTIVE' },
-    orderBy: { createdAt: 'asc' },
+  teamSupervisions: {
+    where: { validTo: null, team: { status: 'ACTIVE' } },
+    orderBy: [{ isPrimary: 'desc' }, { validFrom: 'asc' }],
     take: 1,
-    select: { name: true, color: { select: { hex: true } } },
+    select: { team: { select: { name: true, color: { select: { hex: true } } } } },
   },
 } satisfies Prisma.UserSelect;
 
@@ -119,7 +122,7 @@ export interface TaskExtras {
 }
 
 export function toTaskDto(r: TaskDtoRow, attachments: ReadonlyMap<string, number>, wbs?: string, extras?: TaskExtras): TaskDto {
-  const team = r.assignee?.ledTeams[0];
+  const team = r.assignee?.teamSupervisions[0]?.team;
   const s = toStored(r);
   return {
     id: s.id,

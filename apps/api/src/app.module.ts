@@ -26,6 +26,7 @@ import { CardsModule } from './cards/cards.module';
 import { ViolationsModule } from './violations/violations.module';
 import { ProjectsModule } from './projects/projects.module';
 import { PhotosModule } from './photos/photos.module';
+import { OrgModule } from './org/org.module';
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
 
@@ -106,6 +107,7 @@ export const LOG_REDACT_PATHS = [
     ViolationsModule,
     ProjectsModule,
     PhotosModule,
+    OrgModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -42,8 +42,9 @@ function setup(opts: { userPhoto?: string | null; memberPhoto?: string | null } 
     [MONITOR.id]: { status: 'ACTIVE' },
     [SUSPENDED]: { status: 'SUSPENDED' },
   };
-  const team = (supervisorId: string, status = 'ACTIVE') => [{ team: { supervisorId, status } }];
-  const members: Record<string, Array<{ team: { supervisorId: string; status: string } }>> = {
+  // A9 (ADR-100): the open leadership rows of the team.
+  const team = (supervisorId: string, status = 'ACTIVE') => [{ team: { supervisors: [{ userId: supervisorId }], status } }];
+  const members: Record<string, Array<{ team: { supervisors: Array<{ userId: string }>; status: string } }>> = {
     [M_OWN]: team(SUP.id),
     [M_OTHER]: team(OTHER_SUP.id),
     [M_FREE]: [],
@@ -119,9 +120,15 @@ const fileRow = (entityType: string, entityId: string, id = NEW_FILE) => ({
 });
 
 describe('photo policy matrix (owner request A8)', () => {
-  const scope = (supervisorId: string | null, status = 'ACTIVE') => ({
+  const scope = (supervisorId: string | null, status = 'ACTIVE', co: string[] = []) => ({
     status: 'ACTIVE',
-    team: supervisorId ? { supervisorId, status } : null,
+    team: supervisorId ? { supervisors: [supervisorId, ...co].map((userId) => ({ userId })), status } : null,
+  });
+
+  it('A9: a second (non-primary) supervisor of the team may change and see member photos', () => {
+    expect(memberPhotoWrite(OTHER_SUP, scope(SUP.id, 'ACTIVE', [OTHER_SUP.id]))).toBe('ALLOW');
+    expect(memberPhotoRead(OTHER_SUP, scope(SUP.id, 'ACTIVE', [OTHER_SUP.id]))).toBe(true);
+    expect(memberPhotoWrite(OTHER_SUP, scope(SUP.id, 'ARCHIVED', [OTHER_SUP.id]))).toBe('FORBIDDEN');
   });
 
   it('user photos: self and admin may change; others may not', () => {

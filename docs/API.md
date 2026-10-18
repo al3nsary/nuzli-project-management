@@ -272,3 +272,70 @@ Every write that changes existing tasks returns `previous: Record<taskId, TaskPr
 
 ### Audit actions
 `task.duplicated`, `task.restored`, `task.custom_value_set`, `task.checklist_reordered`, `label.created|updated|deleted`, `custom_field.created|updated|deleted`, `checklist_item.created|updated|deleted`, `project.saved_as_template`, `portfolio.created|updated|deleted`, `time_entry.created|updated|deleted`. Bulk/batch writes reuse `task.updated` / `task.moved` with `after.bulk` / `after.batch`; label changes appear as `labelIds` in `task.updated`. View preferences and read marks are personal UI state and not audited (ADR-097).
+
+## A9 — teams, org, violations (owner request A9, ADR-100..104)
+
+Schemas and DTO types are in `@nuzli/shared` (`schemas/teams.ts`, `schemas/org.ts`, `schemas/violations.ts`). New DTO fields are optional in the shared types and always sent by the API. **Two existing types changed** because the owner's decision requires it: `ViolationDto.member` is now `… | null` and `createViolationSchema.memberId` is optional.
+
+### Several supervisors per team (ADR-100)
+"Leads the team" = an open row in `team_supervisors` (primary or not). It opens team reads/writes (`teams.readOwn`/`manageOwn`), members (`members.manageOwn`), member photos, the colour picker's "keep own colour", team lists and violation visibility (`violations.readOwnTeams`). `teams.supervisor_id` stays = the primary. `ALLOW_MULTIPLE_TEAMS_PER_SUPERVISOR=false` applies per person (primary or co-supervisor) → 409 `MULTIPLE_TEAMS_DISABLED` with `details.userId`.
+
+| Method | Path | Permission | Body | Response |
+|---|---|---|---|---|
+| POST | `/teams` | teams.create / createOwn | [createTeamSchema] + `supervisorIds?: uuid[]` (≤ 10), `primarySupervisorId?: uuid` (one of them), `orgUnitId?: uuid` (admin). `supervisorId` and `newSupervisor` still work; primary default = the new supervisor › `supervisorId` › the first id. A supervisor always creates for self only. | `201 TeamDto` |
+| GET | `/teams/:id/supervisors` | readAll / readOwn | — | `TeamSupervisorsDto { current: TeamSupervisorDto[], history: SupervisorHistoryDto[] }` |
+| POST | `/teams/:id/supervisors` | teams.manageAll | [addTeamSupervisorSchema] `{ userId, isPrimary = false, reason? }` | `201 TeamDto`; already leading → 409 `SUPERVISOR_ALREADY_IN_TEAM`; not an active SUPERVISOR → 400 `NOT_A_SUPERVISOR` |
+| DELETE | `/teams/:id/supervisors/:userId` | teams.manageAll | [removeTeamSupervisorSchema] `{ reason, newPrimaryUserId? }` | `200 TeamDto`; the primary without a successor → 409 `PRIMARY_SUPERVISOR_REQUIRED`; the last one → 409 `LAST_SUPERVISOR`; a successor who is not a current supervisor → 400 |
+| POST | `/teams/:id/supervisors/:userId/primary` | teams.manageAll | [setPrimarySupervisorSchema] `{ reason? }` | `200 TeamDto` (the old primary stays as co-supervisor) |
+| POST | `/teams/:id/supervisor` (legacy) | teams.manageAll | [changeSupervisorSchema] | `200 TeamDto` — replaces the **primary** (the old primary stops leading; co-supervisors are kept) |
+| GET | `/teams/:id/supervisor-history` | readAll / readOwn | — | `SupervisorHistoryDto[]` of **all** supervisors (+ `isPrimary`); a primary change closes and reopens rows at one instant |
+| PATCH | `/teams/:id` | manageAll / manageOwn | [updateTeamSchema] + `orgUnitId?: uuid \| null` (admin only, else 403) | `TeamDto` |
+
+`TeamDto` + `supervisors: TeamSupervisorDto[]` (`{ id, fullName, isPrimary, hasPhoto, since }`, primary first) and `orgUnit: { id, name, kind } | null`. `TeamDetailDto` + `foreman: { id, fullName } | null`; members are sorted foreman first. `TEAM_APPROVED` / `TEAM_REJECTED` go to every current supervisor. Card preview with `includeSupervisors` → one card per current supervisor (primary first). The task assignee colour = the first ACTIVE team the user leads (primary teams first).
+
+### Worker foreman — مشرف عمّال (ADR-101)
+`team_memberships.role WORKER | FOREMAN` (default WORKER; at most one open FOREMAN per team). A member record only: no account and no permission. A member linked to a user is refused (409 `FOREMAN_HAS_ACCOUNT`; a DB trigger guards both directions).
+
+| Method | Path | Permission | Body | Response |
+|---|---|---|---|---|
+| POST | `/teams/:id/foreman` | manageAll / manageOwn (a leading supervisor) | [setForemanSchema] `{ memberId }` | `200 TeamDetailDto`; not a current member → 409 `FOREMAN_NOT_MEMBER`; replaces the previous foreman |
+| DELETE | `/teams/:id/foreman` | manageAll / manageOwn | — | `200 TeamDetailDto` (no foreman → no-op) |
+
+`MemberDto.isForeman: boolean`. Moving the foreman to another team (or archiving the team) ends the flag; the new membership is WORKER; audited `team.foreman_cleared` with `after.reason`.
+
+### Organisational structure (ADR-102)
+`org.read` = ADMIN + SUPERVISOR (MONITOR: none); `org.manage` = ADMIN.
+
+| Method | Path | Permission | Body / query | Response |
+|---|---|---|---|---|
+| GET | `/org?includeArchived=true` | org.read (archived units only for org.manage) | [orgTreeQuerySchema] | `OrgTreeDto { units: OrgUnitDto[] (parents first, siblings by sort), generatedAt }`. Unit = `{ id, parentId, name, kind, code, sort, archivedAt, positions: OrgPositionDto[], teams: OrgTeamLinkDto[] }`; position = `{ id, unitId, title, holder: { type: USER \| MEMBER, id, fullName, hasPhoto, role?, team? } \| null, reportsToPositionId, sort }`; team link = `{ id, name, status, color, memberCount, supervisors[] }` |
+| POST | `/org/units` | org.manage | [createOrgUnitSchema] `{ parentId = null, name, kind: DEPARTMENT \| SECTION \| UNIT \| TEAM_GROUP, code?, sort? }` | `201 OrgUnitDto`; archived parent → 409 `ORG_UNIT_ARCHIVED`; live code taken → 409 `NAME_TAKEN` |
+| PATCH | `/org/units/:id` | org.manage | [updateOrgUnitSchema] `{ name?, kind?, code?: string \| null, archived?: boolean }` | `OrgUnitDto`; archiving with live children or linked live teams → 409 `ORG_UNIT_NOT_EMPTY` |
+| POST | `/org/units/:id/move` | org.manage | [moveOrgUnitSchema] `{ parentId: uuid \| null, sort? }` | `200 OrgUnitDto`; under itself or a descendant → 409 `ORG_CYCLE` |
+| DELETE | `/org/units/:id` | org.manage | — | `204`; any child unit, position or team → 409 `ORG_UNIT_NOT_EMPTY` |
+| POST | `/org/positions` | org.manage | [createOrgPositionSchema] `{ unitId, title, holderUserId?, holderMemberId?, reportsToPositionId?, sort? }` (one holder, or vacant) | `201 OrgPositionDto` |
+| PATCH | `/org/positions/:id` | org.manage | [updateOrgPositionSchema] (naming one holder clears the other; both null = vacant) | `OrgPositionDto`; a loop → 409 `ORG_REPORTS_CYCLE` |
+| POST | `/org/positions/:id/move` | org.manage | [moveOrgPositionSchema] `{ unitId?, reportsToPositionId?, sort? }` | `200 OrgPositionDto` |
+| DELETE | `/org/positions/:id` | org.manage | — | `204` (its reports become top-level) |
+
+### Violations without a person + ID-card OCR (ADR-103, ADR-104)
+- [createViolationSchema]: `memberId?` (omit when the person is unknown) and `expectedPersonPhotos` (= 1, default 1). Without a member the violation has **no team snapshot** (team, supervisor and supervisors empty) until it is assigned, so supervisors never see it (their scope needs a team).
+- Photos: `kind: 'PERSON'` is added to [presignUploadSchema] (violations only, one per violation, partial unique index). ID_CARD (one) and EVIDENCE (1..`VIOLATION_MAX_PHOTOS`) are unchanged. The after-window allowance uses `expectedPersonPhotos` (pre-A9 violations: 0). A confirmed ID_CARD queues the OCR job.
+- `ViolationDto` + `assigned: boolean`, `supervisors: { id, fullName }[]` (every supervisor at `capturedAt`), `assignedAt`, `assignedBy`, `ocrStatus: PENDING | RUNNING | DONE | FAILED | null` (admin and recorder only), `expectedPhotos.person`; `member` is `null` while unassigned.
+- [violationFilterSchema] + `assigned: 'true' | 'false'` (list, mine, stats, export). `ViolationStats` + `unassigned` (same filters); `byTeam` and `topMembers` exclude unassigned rows. In the Excel export the person column reads «— لم تُسند إلى شخص بعد».
+
+| Method | Path | Permission | Body | Response |
+|---|---|---|---|---|
+| GET | `/violations/:id/ocr` | violations.manage, or the recorder (violations.create) | — | `ViolationOcrDto { status: … \| 'NONE', attempts, extractedAt, error?, fields: { nationalId: { value (masked unless nationalIds.readFull), masked, full, confidence, kind } \| null, name, nameLatin, birthDate { value, calendar: HIJRI \| GREGORIAN, confidence }, expiryDate, nationality }, suggestedMembers: ViolationSuggestionDto[], suggestedUsers }`. Suggestions only while unassigned: the exact blind-index match first, then name similarity ≥ 0.45 (top 5) among active members; `suggestedUsers` for admins only. `Cache-Control: no-store`. Every call is audited `violation.ocr_viewed` (`after.fullNationalId`). |
+| POST | `/violations/:id/ocr/retry` | violations.manage | — | `202 { queued: true }` |
+| POST | `/violations/:id/assign` | violations.manage, or the recorder (any time) | [assignViolationSchema] `{ memberId }` | `200 ViolationDto` — team, primary and all supervisors resolved **at captured_at**; another member already set → 409 `VIOLATION_ALREADY_ASSIGNED`; the same member → no-op |
+| POST | `/violations/:id/unassign` | violations.manage | [unassignViolationSchema] `{ reason? }` | `200 ViolationDto` (member and snapshot cleared) |
+| POST | `/violations/:id/register-member` | members.manage, or members.manageOwn leading `teamId` | [registerViolationMemberSchema] `{ fullName, nationalId, teamId?, jobTitleId?, jobTitleText?, departmentId?, departmentText?, usePersonPhoto = true }` | `201 RegisterViolationMemberResultDto { member: MemberDto, violation: ViolationDto \| null }`. The membership starts at `capturedAt` (so the snapshot is that team); the PERSON photo is copied to a new `member-photos/…` object. No `teamId` → admins only (else 403). A duplicate ID → admins 409 `NATIONAL_ID_TAKEN` + `details.existingMemberId`, others `NATIONAL_ID_NOT_ACCEPTED`. Rate limited 30/min. |
+
+OCR (ADR-104): server-side tesseract.js 5 with self-hosted `ara+eng` LSTM data (`@tesseract.js-data/*`, `4.0.0_best_int`, never a CDN) and an in-process queue (`OCR_CONCURRENCY` 1–2, `OCR_MAX_ATTEMPTS` 3, back-off 30 s ×4, a start-up sweep and a one-minute tick; `OCR_ENABLED=false` keeps jobs PENDING). Extracted fields are stored encrypted (`violation_ocr.extracted_enc`, AES-256-GCM) with `id_number_hash` (HMAC); OCR text is never stored or logged. Retention deletes OCR rows with the photos. Key rotation (`rotate-national-id-key`) also re-encrypts `violation_ocr`.
+
+### New error codes
+`SUPERVISOR_ALREADY_IN_TEAM`, `PRIMARY_SUPERVISOR_REQUIRED`, `LAST_SUPERVISOR`, `FOREMAN_NOT_MEMBER`, `FOREMAN_HAS_ACCOUNT`, `ORG_CYCLE`, `ORG_REPORTS_CYCLE`, `ORG_UNIT_NOT_EMPTY`, `ORG_UNIT_ARCHIVED`, `VIOLATION_ALREADY_ASSIGNED` (all 409). `PERSON_PHOTO_REQUIRED` is reserved for the client's completeness check.
+
+### Audit actions
+`team.supervisor_added`, `team.supervisor_removed`, `team.primary_supervisor_changed`, `team.foreman_set`, `team.foreman_cleared`, `org.unit_created`, `org.unit_updated`, `org.unit_moved`, `org.unit_deleted`, `org.position_created`, `org.position_updated`, `org.position_moved`, `org.position_deleted`, `violation.assigned` (`after.via: assign | register`), `violation.unassigned`, `violation.member_registered`, `violation.ocr_viewed`. `member.created` and `member.photo_updated` carry `fromViolationId` when the member is registered from a violation; `violations.photos_purged` gains `ocrRemoved`.

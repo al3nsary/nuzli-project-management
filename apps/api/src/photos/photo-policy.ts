@@ -12,7 +12,8 @@ export type Decision = 'ALLOW' | 'FORBIDDEN' | 'NOT_FOUND';
 /** The facts of a member that decide photo access: the open membership's team. */
 export interface MemberPhotoScope {
   status: string;
-  team: { supervisorId: string; status: string } | null;
+  /** A9 (ADR-100): `supervisors` = the open leadership rows (any of them leads the team). */
+  team: { supervisors: ReadonlyArray<{ userId: string }>; status: string } | null;
 }
 
 /** Users: everyone for themselves; admins (`users.manageRoles`) for anyone. */
@@ -44,7 +45,7 @@ export function memberPhotoWrite(viewer: Viewer, member: MemberPhotoScope): Deci
   if (can(viewer, 'members.manage')) return 'ALLOW';
   if (!can(viewer, 'members.manageOwn')) return 'FORBIDDEN';
   if (!member.team) return 'FORBIDDEN';
-  if (member.team.supervisorId !== viewer.id) return 'NOT_FOUND';
+  if (!member.team.supervisors.some((s) => s.userId === viewer.id)) return 'NOT_FOUND';
   if (member.team.status === 'ARCHIVED') return 'FORBIDDEN';
   return 'ALLOW';
 }
@@ -56,7 +57,7 @@ export function memberPhotoWrite(viewer: Viewer, member: MemberPhotoScope): Deci
  */
 export function memberPhotoRead(viewer: Viewer, member: MemberPhotoScope): boolean {
   if (can(viewer, 'teams.readAll') || can(viewer, 'members.manage')) return true;
-  if (member.team && can(viewer, 'teams.readOwn') && member.team.supervisorId === viewer.id) return true;
+  if (member.team && can(viewer, 'teams.readOwn') && member.team.supervisors.some((s) => s.userId === viewer.id)) return true;
   return (
     can(viewer, 'violations.create') &&
     member.status === 'ACTIVE' &&

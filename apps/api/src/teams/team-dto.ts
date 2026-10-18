@@ -8,6 +8,7 @@ import {
   type TeamColorDto,
   type TeamDto,
   type TeamSummaryDto,
+  type TeamSupervisorDto,
 } from '@nuzli/shared';
 import { AppError } from '../common/app-error';
 import type { CryptoService } from '../crypto/crypto.service';
@@ -22,6 +23,56 @@ export function toColorDto(c: { id: string; name: string; hex: string; isActive:
   return { id: c.id, name: c.name, hex: c.hex, isActive: c.isActive };
 }
 
+// ───────────────────────────────────────────── leaders (A9, ADR-100)
+
+/** The open leadership rows of a team — "leads the team" = any open row in team_supervisors. */
+export const OPEN_LEADERS = { where: { validTo: null }, select: { userId: true } } as const;
+
+/** Every current supervisor with what a TeamSupervisorDto needs, the primary first. */
+export const LEADERS_SELECT = {
+  where: { validTo: null },
+  orderBy: [{ isPrimary: 'desc' }, { validFrom: 'asc' }],
+  select: {
+    userId: true,
+    isPrimary: true,
+    validFrom: true,
+    user: { select: { id: true, fullName: true, photoFileId: true } },
+  },
+} satisfies Prisma.Team$supervisorsArgs;
+
+/** A team as the scope checks need it: the user ids of its open leadership rows. */
+export interface LedTeam {
+  supervisors: ReadonlyArray<{ userId: string }>;
+}
+
+export function leaderIds(team: LedTeam): string[] {
+  return team.supervisors.map((s) => s.userId);
+}
+
+/** True when `userId` currently leads the team (any open row, primary or not). */
+export function leads(userId: string, team: LedTeam): boolean {
+  return team.supervisors.some((s) => s.userId === userId);
+}
+
+/** Prisma where: teams the user leads now. */
+export function ledByWhere(userId: string): Prisma.TeamWhereInput {
+  return { supervisors: { some: { userId, validTo: null } } };
+}
+
+export type LeaderRow = Prisma.TeamSupervisorGetPayload<{ select: typeof LEADERS_SELECT.select }>;
+
+export function toSupervisorDtos(rows: readonly LeaderRow[]): TeamSupervisorDto[] {
+  return [...rows]
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.validFrom.getTime() - b.validFrom.getTime())
+    .map((r) => ({
+      id: r.user.id,
+      fullName: r.user.fullName,
+      isPrimary: r.isPrimary,
+      hasPhoto: !!r.user.photoFileId,
+      since: r.validFrom.toISOString(),
+    }));
+}
+
 /** Everything a TeamDto needs, including the number of open memberships. */
 export const TEAM_SELECT = {
   id: true,
@@ -31,6 +82,8 @@ export const TEAM_SELECT = {
   createdAt: true,
   color: { select: COLOR_SELECT },
   supervisor: { select: { id: true, fullName: true } },
+  supervisors: LEADERS_SELECT,
+  orgUnit: { select: { id: true, name: true, kind: true } },
   visibility: { select: { mode: true } },
   _count: { select: { memberships: { where: { validTo: null } } } },
 } satisfies Prisma.TeamSelect;
@@ -44,6 +97,8 @@ export function toTeamDto(t: TeamRow): TeamDto {
     color: toColorDto(t.color),
     status: t.status,
     supervisor: t.supervisor ? { id: t.supervisor.id, fullName: t.supervisor.fullName } : null,
+    supervisors: toSupervisorDtos(t.supervisors),
+    orgUnit: t.orgUnit ? { id: t.orgUnit.id, name: t.orgUnit.name, kind: t.orgUnit.kind } : null,
     memberCount: t._count.memberships,
     createdAt: t.createdAt.toISOString(),
     violationVisibility: t.visibility?.mode ?? 'INHERIT',
@@ -79,7 +134,7 @@ export const MEMBER_SELECT = {
   memberships: {
     where: { validTo: null },
     take: 1,
-    select: { teamId: true, team: { select: { ...TEAM_SUMMARY_SELECT, supervisorId: true } } },
+    select: { teamId: true, role: true, team: { select: { ...TEAM_SUMMARY_SELECT, status: true, supervisors: OPEN_LEADERS } } },
   },
 } satisfies Prisma.TeamMemberSelect;
 
@@ -115,6 +170,7 @@ export function toMemberDto(
     team: open ? toTeamSummary(open.team) : null,
     photoFileId: m.photoFileId,
     hasPhoto: !!m.photoFileId,
+    isForeman: open?.role === 'FOREMAN',
   };
   if (opts.full && opts.crypto && opts.viewer && can(opts.viewer, 'nationalIds.readFull')) {
     dto.nationalId = opts.crypto.decrypt(m.nationalIdEnc);
@@ -133,29 +189,30 @@ export function canManageAllTeams(viewer: Viewer): boolean {
 }
 
 /**
- * Read scope: admins see every team; a supervisor sees only the teams they lead. A team the
+ * Read scope: admins see every team; a supervisor sees only the teams they lead (any open
+ * row in team_supervisors — primary or not, A9 ADR-100). A team the
  * viewer cannot see answers 404 (its existence is not revealed).
  */
-export function canReadTeam(viewer: Viewer, team: { supervisorId: string }): boolean {
-  return canReadAllTeams(viewer) || (can(viewer, 'teams.readOwn') && team.supervisorId === viewer.id);
+export function canReadTeam(viewer: Viewer, team: LedTeam): boolean {
+  return canReadAllTeams(viewer) || (can(viewer, 'teams.readOwn') && leads(viewer.id, team));
 }
 
-export function assertTeamReadable(viewer: Viewer, team: { supervisorId: string }): void {
+export function assertTeamReadable(viewer: Viewer, team: LedTeam): void {
   if (!canReadTeam(viewer, team)) throw new AppError('NOT_FOUND');
 }
 
 /** Manage scope: `teams.manageAll`, or `teams.manageOwn` on a team the viewer leads. */
-export function assertTeamManageable(viewer: Viewer, team: { supervisorId: string }): void {
+export function assertTeamManageable(viewer: Viewer, team: LedTeam): void {
   assertTeamReadable(viewer, team);
   if (canManageAllTeams(viewer)) return;
-  if (can(viewer, 'teams.manageOwn') && team.supervisorId === viewer.id) return;
+  if (can(viewer, 'teams.manageOwn') && leads(viewer.id, team)) return;
   throw new AppError('FORBIDDEN');
 }
 
 /** Members: `members.manage`, or `members.manageOwn` when the member sits in a team the viewer leads. */
-export function canManageMemberIn(viewer: Viewer, team: { supervisorId: string } | null): boolean {
+export function canManageMemberIn(viewer: Viewer, team: LedTeam | null): boolean {
   if (can(viewer, 'members.manage')) return true;
-  return !!team && can(viewer, 'members.manageOwn') && team.supervisorId === viewer.id;
+  return !!team && can(viewer, 'members.manageOwn') && leads(viewer.id, team);
 }
 
 /** Where-clause limiting members to what a supervisor may see: own teams' members, or unassigned. */
@@ -163,7 +220,7 @@ export function memberScopeWhere(viewer: Viewer): Prisma.TeamMemberWhereInput {
   if (canReadAllTeams(viewer) || can(viewer, 'members.manage')) return {};
   return {
     OR: [
-      { memberships: { some: { validTo: null, team: { supervisorId: viewer.id } } } },
+      { memberships: { some: { validTo: null, team: ledByWhere(viewer.id) } } },
       { memberships: { none: { validTo: null } } },
     ],
   };

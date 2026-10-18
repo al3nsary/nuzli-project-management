@@ -47,7 +47,8 @@ const READ_PERMISSIONS: Record<FileEntity, Permission[]> = {
 };
 
 export function canUpload(user: PermissionSubject, entity: FileEntity, kind?: string, entityId?: string): boolean {
-  if (kind === 'ID_CARD' && entity !== 'violation') return false;
+  // ID-card and person photos (A9) exist only on violations.
+  if ((kind === 'ID_CARD' || kind === 'PERSON') && entity !== 'violation') return false;
   // A logo belongs to no entity; an entityId there would only be an untracked label.
   if (entity === 'logo' && entityId) return false;
   return canAny(user, UPLOAD_PERMISSIONS[entity]);

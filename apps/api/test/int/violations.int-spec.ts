@@ -120,7 +120,7 @@ describeInt('violations: idempotent sync, snapshots, visibility, photos', () => 
     // offline "hours ago" fall inside the member's team A interval.
     const monthAgo = new Date(Date.now() - 30 * 86_400_000);
     await ctx.prisma.teamMembership.updateMany({ where: { memberId }, data: { validFrom: monthAgo } });
-    await ctx.prisma.teamSupervisorHistory.updateMany({ where: { teamId: { in: [teamA, teamB] } }, data: { validFrom: monthAgo } });
+    await ctx.prisma.teamSupervisor.updateMany({ where: { teamId: { in: [teamA, teamB] } }, data: { validFrom: monthAgo } });
     typeId = (
       await ctx.http().post(`${API}/violation-types`).set(bearer(admin)).send({ name: 'نظافة الموقع', severity: 'MEDIUM' }).expect(201)
     ).body.id;

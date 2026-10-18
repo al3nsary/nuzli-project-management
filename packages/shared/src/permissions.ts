@@ -26,6 +26,9 @@ export const PERMISSIONS = [
   'members.manageOwn',
   'members.move',
   'members.import',
+  /** A9 organisational structure: read the tree (admins, supervisors) and manage it (admins). */
+  'org.read',
+  'org.manage',
   // reference data & settings
   'colors.manage',
   'reference.manage',
@@ -71,6 +74,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     'teams.createOwn',
     'teams.manageOwn',
     'members.manageOwn',
+    // A9 (ADR-102): supervisors read the organisational structure; only admins change it.
+    'org.read',
     // A9 (ADR-092): no `projects.readGranted` — supervisors see only the tasks assigned to them
     // (my tasks, the task itself, its comments, attachments, checklist and time log), never a project.
     'tasks.readAssigned',

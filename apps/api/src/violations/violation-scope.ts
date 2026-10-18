@@ -64,6 +64,8 @@ export function parseBbox(value: string | undefined): BBox | null {
 
 /** Prisma where for the shared filters (date range on captured_at in Riyadh days). */
 export function violationFilterWhere(f: ViolationFilter & { q?: string }): Prisma.ViolationWhereInput {
+  // Supervisors never see unassigned violations: their scope requires a team snapshot, which an
+  // unassigned violation does not have (CHECK violations_unassigned_no_team_chk).
   const and: Prisma.ViolationWhereInput[] = [];
   if (f.from || f.to) {
     and.push({
@@ -75,6 +77,9 @@ export function violationFilterWhere(f: ViolationFilter & { q?: string }): Prism
   }
   if (f.teamId) and.push({ teamIdSnapshot: f.teamId });
   if (f.memberId) and.push({ memberId: f.memberId });
+  // A9 (ADR-103): violations recorded without a person and not assigned yet, or the assigned ones.
+  if (f.assigned === 'true') and.push({ memberId: { not: null } });
+  if (f.assigned === 'false') and.push({ memberId: null });
   if (f.recordedBy) and.push({ recordedById: f.recordedBy });
   if (f.typeId) and.push({ typeId: f.typeId });
   if (f.status) and.push({ status: f.status });
@@ -116,7 +121,8 @@ export function violationScopeWhere(
     grants.push({
       team: {
         is: {
-          supervisorId: viewer.id,
+          // A9 (ADR-100): any team the viewer leads now (primary or not).
+          supervisors: { some: { userId: viewer.id, validTo: null } },
           status: { not: 'ARCHIVED' },
           ...(supervisorsCanSee
             ? { OR: [{ visibility: { is: null } }, { visibility: { is: { mode: { in: ['INHERIT', 'SHOW'] } } } }] }

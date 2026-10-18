@@ -30,7 +30,7 @@ describe('violation data scope (brief §7.5–7.6, enforced in the query)', () =
     expect(violationScopeWhere(SUP, true)).toEqual({
       team: {
         is: {
-          supervisorId: 's1',
+          supervisors: { some: { userId: 's1', validTo: null } },
           status: { not: 'ARCHIVED' },
           OR: [{ visibility: { is: null } }, { visibility: { is: { mode: { in: ['INHERIT', 'SHOW'] } } } }],
         },
@@ -40,7 +40,13 @@ describe('violation data scope (brief §7.5–7.6, enforced in the query)', () =
 
   it('SUPERVISOR with the global setting OFF: only teams whose override is SHOW', () => {
     expect(violationScopeWhere(SUP, false)).toEqual({
-      team: { is: { supervisorId: 's1', status: { not: 'ARCHIVED' }, visibility: { is: { mode: 'SHOW' } } } },
+      team: {
+        is: {
+          supervisors: { some: { userId: 's1', validTo: null } },
+          status: { not: 'ARCHIVED' },
+          visibility: { is: { mode: 'SHOW' } },
+        },
+      },
     });
   });
 

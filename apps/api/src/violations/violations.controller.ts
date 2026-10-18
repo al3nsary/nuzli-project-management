@@ -1,17 +1,23 @@
 import { Controller, Get, HttpCode, Param, Patch, Post, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  assignViolationSchema,
   changeViolationStatusSchema,
   createViolationSchema,
   paginationQuery,
+  registerViolationMemberSchema,
+  unassignViolationSchema,
   updateViolationSchema,
   updateViolationTypeSchema,
   violationFilterSchema,
   violationResponseSchema,
   violationTypeSchema,
   type Paginated,
+  type RegisterViolationMemberResultDto,
   type RosterResponse,
   type ViolationDto,
+  type ViolationOcrDto,
   type ViolationStats,
   type ViolationTypeDto,
 } from '@nuzli/shared';
@@ -21,6 +27,7 @@ import { CurrentUser, ReqCtx, RequireAnyPermission, RequirePermission } from '..
 import type { AuthUser, RequestContext } from '../common/request';
 import { UuidPipe } from '../common/uuid.pipe';
 import { ZodBody, ZodQuery } from '../common/zod-openapi';
+import { ViolationAssignService } from './violation-assign.service';
 import { ViolationTypesService } from './violation-types.service';
 import { ViolationsService } from './violations.service';
 
@@ -43,7 +50,10 @@ const READ_ANY = ['violations.readAll', 'violations.readRecorded', 'violations.r
 @ApiBearerAuth()
 @Controller('violations')
 export class ViolationsController {
-  constructor(private readonly violations: ViolationsService) {}
+  constructor(
+    private readonly violations: ViolationsService,
+    private readonly assignments: ViolationAssignService,
+  ) {}
 
   @Get('roster')
   @RequirePermission('violations.create')
@@ -164,6 +174,69 @@ export class ViolationsController {
     @ReqCtx() ctx: RequestContext,
   ): Promise<ViolationDto> {
     return this.violations.changeStatus(id, body, viewer, ctx);
+  }
+
+  // ─────────────────────────────────────────── A9: without a person, OCR, assign later (ADR-103/104)
+
+  @Get(':id/ocr')
+  @RequireAnyPermission('violations.manage', 'violations.create')
+  @ApiOperation({ summary: 'بيانات بطاقة الهوية المقروءة آليًّا مع الأعضاء المقترحين (المدير والمسجِّل؛ يُسجَّل العرض)' })
+  ocr(
+    @Param('id', UuidPipe) id: string,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ViolationOcrDto> {
+    res.setHeader('Cache-Control', 'no-store');
+    return this.assignments.ocrView(id, viewer, ctx);
+  }
+
+  @Post(':id/ocr/retry')
+  @HttpCode(202)
+  @RequirePermission('violations.manage')
+  @ApiOperation({ summary: 'إعادة قراءة بطاقة الهوية آليًّا' })
+  async retryOcr(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<{ queued: true }> {
+    await this.assignments.retryOcr(id, viewer);
+    return { queued: true };
+  }
+
+  @Post(':id/assign')
+  @HttpCode(200)
+  @RequireAnyPermission('violations.manage', 'violations.create')
+  @ApiOperation({ summary: 'إسناد المخالفة إلى عضو (المسجِّل أو المدير؛ اللقطة عند وقت الرصد)' })
+  assign(
+    @Param('id', UuidPipe) id: string,
+    @ZodBody(assignViolationSchema) body: z.output<typeof assignViolationSchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<ViolationDto> {
+    return this.assignments.assign(id, body.memberId, viewer, ctx);
+  }
+
+  @Post(':id/unassign')
+  @HttpCode(200)
+  @RequirePermission('violations.manage')
+  @ApiOperation({ summary: 'إلغاء إسناد المخالفة (المدير)' })
+  unassign(
+    @Param('id', UuidPipe) id: string,
+    @ZodBody(unassignViolationSchema) body: z.output<typeof unassignViolationSchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<ViolationDto> {
+    return this.assignments.unassign(id, body.reason, viewer, ctx);
+  }
+
+  @Post(':id/register-member')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @RequireAnyPermission('members.manage', 'members.manageOwn')
+  @ApiOperation({ summary: 'تسجيل عضو جديد من بيانات البطاقة وصورة الشخص ثم إسناد المخالفة إليه' })
+  registerMember(
+    @Param('id', UuidPipe) id: string,
+    @ZodBody(registerViolationMemberSchema) body: z.output<typeof registerViolationMemberSchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<RegisterViolationMemberResultDto> {
+    return this.assignments.registerMember(id, body, viewer, ctx);
   }
 
   @Post(':id/responses')

@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { isoDate, isoDateTime, optionalText, reason, uuid } from './common';
-import type { Severity, ViolationFileKind, ViolationStatus } from '../enums';
-import type { TeamSummaryDto } from './teams';
+import { fullName, isoDate, isoDateTime, nationalId, optionalText, reason, uuid } from './common';
+import type { OcrStatus, Severity, ViolationFileKind, ViolationStatus } from '../enums';
+import type { MemberDto, TeamSummaryDto } from './teams';
 
 export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const ALLOWED_UPLOAD_TYPES = [...ALLOWED_IMAGE_TYPES, 'application/pdf'] as const;
@@ -24,7 +24,11 @@ export const deviceInfoSchema = z
 export const createViolationSchema = z.object({
   /** Client-generated UUID — the idempotency key for offline sync (brief §7.4). */
   clientUuid: uuid,
-  memberId: uuid,
+  /**
+   * A9 (ADR-103): optional — a monitor who does not know the person records the violation
+   * without one and it is assigned later (`POST /violations/:id/assign` or `register-member`).
+   */
+  memberId: uuid.optional(),
   typeId: uuid,
   description: z.string().trim().min(3, { message: 'اكتب وصف المخالفة' }).max(2000),
   notes: optionalText(2000),
@@ -38,13 +42,48 @@ export const createViolationSchema = z.object({
   /** Number of photos the client is going to upload, so the server can track completeness. */
   expectedIdPhotos: z.number().int().min(1).max(1).default(1),
   expectedEvidencePhotos: z.number().int().min(1).max(20),
+  /** A9 (owner decision 4): one photo of the person is required on every violation. */
+  expectedPersonPhotos: z.number().int().min(1).max(1).default(1),
 });
+
+/** A9 `POST /violations/:id/assign`. */
+export const assignViolationSchema = z.object({ memberId: uuid });
+
+/** A9 `POST /violations/:id/unassign` (admin). */
+export const unassignViolationSchema = z.object({ reason: optionalText(500) });
+
+/**
+ * A9 `POST /violations/:id/register-member` — creates the member from the (OCR-confirmed) card
+ * data, uses the violation's PERSON photo as the member photo, then assigns the violation.
+ * Without `teamId` the member is created unassigned (admins only).
+ */
+export const registerViolationMemberSchema = z.object({
+  fullName,
+  nationalId,
+  teamId: uuid.optional(),
+  jobTitleId: uuid.optional(),
+  jobTitleText: optionalText(80),
+  departmentId: uuid.optional(),
+  departmentText: optionalText(80),
+  /** Copy the violation's PERSON photo to the new member (default true). */
+  usePersonPhoto: z.boolean().default(true),
+});
+export type RegisterViolationMemberInput = z.input<typeof registerViolationMemberSchema>;
+
+/**
+ * A9 `POST /violations/:id/register-member` answer. `violation` is null when the caller may not
+ * see it afterwards (a supervisor whose team hides violations).
+ */
+export interface RegisterViolationMemberResultDto {
+  member: MemberDto;
+  violation: ViolationDto | null;
+}
 export type CreateViolationInput = z.input<typeof createViolationSchema>;
 
 export const presignUploadSchema = z.object({
   entityType: z.enum(['violation', 'task', 'logo', 'member_photo', 'user_photo']),
   entityId: uuid.optional(),
-  kind: z.enum(['ID_CARD', 'EVIDENCE', 'ATTACHMENT', 'LOGO', 'PHOTO']).optional(),
+  kind: z.enum(['ID_CARD', 'EVIDENCE', 'PERSON', 'ATTACHMENT', 'LOGO', 'PHOTO']).optional(),
   contentType: z.enum(ALLOWED_UPLOAD_TYPES),
   sizeBytes: z.number().int().min(1).max(MAX_UPLOAD_BYTES),
   /** Hex sha256 computed by the client (optional, verified on confirm when present). */
@@ -100,6 +139,8 @@ export const violationFilterSchema = z.object({
     .string()
     .regex(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/)
     .optional(),
+  /** A9: `false` = violations recorded without a person and not assigned yet; `true` = assigned. */
+  assigned: z.enum(['true', 'false']).optional(),
 });
 export type ViolationFilter = z.infer<typeof violationFilterSchema>;
 
@@ -131,9 +172,20 @@ export interface ViolationFileDto {
 export interface ViolationDto {
   id: string;
   clientUuid: string;
-  member: { id: string; fullName: string; nationalIdMasked: string };
+  /** A9 (ADR-103): null while the violation is not assigned to a person (`assigned = false`). */
+  member: { id: string; fullName: string; nationalIdMasked: string } | null;
   team: TeamSummaryDto | null;
+  /** The primary supervisor of the team at `capturedAt`. */
   supervisor: { id: string; fullName: string } | null;
+  /** A9: false until a person is assigned. Always sent by the API. */
+  assigned?: boolean;
+  /** A9: every supervisor of the team at `capturedAt` (`supervisor_ids_snapshot`). Always sent by the API. */
+  supervisors?: { id: string; fullName: string }[];
+  /** A9: when and by whom the person was assigned (null for violations recorded with a person). */
+  assignedAt?: string | null;
+  assignedBy?: { id: string; fullName: string } | null;
+  /** A9: state of the ID-card OCR job (null = no ID-card photo confirmed yet). Admins and the recorder. */
+  ocrStatus?: OcrStatus | null;
   recordedBy: { id: string; fullName: string };
   type: ViolationTypeDto;
   description: string;
@@ -149,8 +201,8 @@ export interface ViolationDto {
   files: ViolationFileDto[];
   responses: { id: string; supervisor: { id: string; fullName: string }; body: string; createdAt: string }[];
   editableUntil: string | null;
-  /** Photo counts announced by the client at create time (completeness check in the UI). */
-  expectedPhotos?: { idCard: number; evidence: number };
+  /** Photo counts announced by the client at create time (completeness check in the UI). A9 adds `person`. */
+  expectedPhotos?: { idCard: number; evidence: number; person?: number };
   /** Device clock at sync time, when the client sent it (ADR-014). */
   clientSentAt?: string | null;
   /** UA / platform / app version only; returned to admins. */
@@ -179,7 +231,48 @@ export interface RosterEntry {
   hasPhoto?: boolean;
 }
 
+/** One extracted ID-card field with the OCR confidence (0–100). */
+export interface OcrFieldDto {
+  value: string;
+  confidence: number;
+}
+
+/** A9 `GET /violations/:id/ocr` (admin and the recorder). */
+export interface ViolationOcrDto {
+  status: OcrStatus | 'NONE';
+  attempts: number;
+  extractedAt: string | null;
+  /** Short reason after FAILED (never OCR text). */
+  error?: string | null;
+  fields: {
+    /** Masked (`1•••••••23`) unless the caller holds `nationalIds.readFull` (viewing it is audited). */
+    nationalId: (OcrFieldDto & { masked: string; full: boolean; kind: 'CITIZEN' | 'RESIDENT' }) | null;
+    name: OcrFieldDto | null;
+    nameLatin: OcrFieldDto | null;
+    birthDate: (OcrFieldDto & { calendar: 'HIJRI' | 'GREGORIAN' }) | null;
+    expiryDate: (OcrFieldDto & { calendar: 'HIJRI' | 'GREGORIAN' }) | null;
+    nationality: OcrFieldDto | null;
+  };
+  suggestedMembers: ViolationSuggestionDto[];
+  /** Users whose national ID matches exactly (a supervisor or monitor on the card), for information. */
+  suggestedUsers: { id: string; fullName: string; role: string }[];
+}
+
+export interface ViolationSuggestionDto {
+  memberId: string;
+  fullName: string;
+  nationalIdMasked: string;
+  team: TeamSummaryDto | null;
+  hasPhoto: boolean;
+  /** NATIONAL_ID = exact blind-index match; NAME = name similarity. */
+  match: 'NATIONAL_ID' | 'NAME';
+  /** 0–1 (1 for an exact ID match). */
+  score: number;
+}
+
 export interface ViolationStats {
+  /** A9: violations not assigned to a person yet (same filters; never in `byTeam`). */
+  unassigned?: number;
   total: number;
   thisWeek: number;
   previousWeek: number;
