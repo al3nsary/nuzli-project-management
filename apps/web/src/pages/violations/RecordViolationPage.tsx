@@ -44,7 +44,7 @@ import { can, createViolationSchema, type ViolationTypeDto } from '@nuzli/shared
 import { useApi } from '../../api/context';
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, PageHeader } from '../../components/ui';
-import { formatDateTime, formatNumber, t } from '../../i18n';
+import { formatDateTime, formatNumber, t, tCount } from '../../i18n';
 import { TeamBadge } from '../../theme/TeamBadge';
 import { offlineDb, type RosterRow } from '../../features/violations/offline/db';
 import {
@@ -333,7 +333,7 @@ function MemberStep({
     <Group justify="space-between" wrap="wrap" gap="xs" mb="sm">
       <Text size="sm" c="dimmed">
         {info?.lastRosterAt
-          ? t('record.roster.updated', { at: formatDateTime(info.lastRosterAt), count: info.count })
+          ? tCount('record.roster.updated', info.count, { at: formatDateTime(info.lastRosterAt) })
           : t('record.roster.never')}
       </Text>
       <Button
@@ -980,7 +980,7 @@ function SavedView({ id, onAnother }: { id: string; onAnother: () => void }) {
               {t('record.saved.another')}
             </Button>
             <Button component={Link} to="/violations/pending" variant="default" leftSection={<IconId size={18} />}>
-              {t('record.saved.openPending', { n: formatNumber(1) })}
+              {t('record.saved.openPending', { n: 1 })}
             </Button>
           </Stack>
         </Stack>

@@ -47,9 +47,10 @@ import {
   IconSubtask,
   IconTrash,
 } from '@tabler/icons-react';
-import { MINUTES_PER_DAY, toDayNumber, toMinuteNumber } from '@nuzli/scheduling';
-import type { CustomFieldDto, GanttDto, LabelDto, TaskDto } from '@nuzli/shared';
-import { formatMoney, formatNumber, t } from '../../i18n';
+import { MINUTES_PER_DAY, dueDayOf, toDayNumber, toMinuteNumber } from '@nuzli/scheduling';
+import { calendarDaysOverdue, type CustomFieldDto, type GanttDto, type LabelDto, type TaskDto } from '@nuzli/shared';
+import { formatMoney, formatNumber, t, tCount } from '../../i18n';
+import { overdueText } from '../reports/parts';
 import type { Digits } from '../../i18n/format';
 import { RIYADH_OFFSET_MS, riyadhToday } from '../projects/today';
 import { sortOrderBetween } from '../projects/engine';
@@ -218,15 +219,15 @@ export function initials(name: string): string {
   return (parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '');
 }
 
-/** Whole calendar days a task is overdue (end before today, not DONE); 0 otherwise. */
-export function overdueDays(task: Pick<TaskDto, 'endDate' | 'status' | 'type'>, today: string): number {
+/**
+ * Whole CALENDAR days a task is overdue, with the server's rule (calculations audit L1/L6): due
+ * day (`dueDayOf`: an HOUR end at 24:00 belongs to the day before) before today and not DONE;
+ * the count is `calendarDaysOverdue` — the same number as the dashboard. 0 otherwise.
+ */
+export function overdueDays(task: Pick<TaskDto, 'startDate' | 'endDate' | 'status' | 'type'>, today: string): number {
   if (task.status === 'DONE' || task.type === 'GROUP') return 0;
-  const end = task.endDate.length > 10 ? task.endDate.slice(0, 10) : task.endDate;
-  if (task.endDate.length > 10) {
-    // HOUR tasks end exclusively at a time: overdue from the end instant.
-    return toMinuteNumber(task.endDate) < nowMinute() ? Math.max(0, daysBetweenIso(end, today)) : 0;
-  }
-  return end < today ? daysBetweenIso(end, today) : 0;
+  const due = dueDayOf(task);
+  return due < today ? calendarDaysOverdue(due, today) : 0;
 }
 
 export function Gantt(props: GanttProps) {
@@ -951,10 +952,9 @@ export function Gantt(props: GanttProps) {
       </div>
       {drag?.moved && drag.mode !== 'link' && preview ? (
         <div className={classes.dragTip} role="status" aria-live="polite">
-          {t('gantt.dragTip', {
+          {tCount('gantt.dragTip', Math.max(0, preview.changes.length - 1), {
             start: when((preview.byId.get(drag.task.id) ?? drag.task).startDate, digits),
             end: when((preview.byId.get(drag.task.id) ?? drag.task).endDate, digits),
-            count: formatNumber(Math.max(0, preview.changes.length - 1)),
           })}
         </div>
       ) : null}
@@ -1025,8 +1025,8 @@ function shortDate(iso: string, digits: Digits) {
 
 function durationText(task: TaskDto & { durationHours?: number }, unit: 'DAY' | 'HOUR'): string {
   if (task.type === 'MILESTONE') return '—';
-  if (unit === 'HOUR' && task.durationHours != null) return t('duration.hours', { n: formatNumber(Math.round(task.durationHours * 100) / 100) });
-  return t('duration.days', { n: formatNumber(task.durationDays) });
+  if (unit === 'HOUR' && task.durationHours != null) return tCount('duration.hours', Math.round(task.durationHours * 100) / 100);
+  return tCount('duration.days', task.durationDays);
 }
 
 function customValueText(field: CustomFieldDto | undefined, value: unknown, digits: Digits): string {
@@ -1617,13 +1617,8 @@ function rangeLabel(task: TaskDto, digits: Digits): string {
   return `${shortDate(task.startDate.slice(0, 10), digits)} – ${shortDate(task.endDate.slice(0, 10), digits)}`;
 }
 
-/** «متأخرة يومًا واحدًا / يومين / ٥ أيام / ١٢ يومًا» (Arabic number agreement). */
-export function overdueLabel(days: number): string {
-  if (days === 1) return t('bar.overdueOne');
-  if (days === 2) return t('bar.overdueTwo');
-  if (days >= 3 && days <= 10) return t('bar.overdueFew', { count: formatNumber(days) });
-  return t('bar.overdue', { count: formatNumber(days) });
-}
+/** «متأخرة يومًا واحدًا / يومين / ٥ أيام / ١٢ يومًا / ١٠٣ أيام» — the dashboard's wording (L1). */
+export const overdueLabel = (days: number): string => overdueText(days);
 
 const Bar = memo(function Bar(p: {
   bar: BarGeom;
@@ -1722,6 +1717,7 @@ const Bar = memo(function Bar(p: {
       ) : null}
       {late > 0 ? (
         <text className={classes.overdueLabel} x={after} y={cy + 4} textAnchor="end">
+          <title>{t('a9r.overdueTip')}</title>
           {overdueLabel(late)}
         </text>
       ) : task.assignee ? (

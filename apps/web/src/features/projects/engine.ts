@@ -1,17 +1,19 @@
 /**
  * The API's write rules around `@nuzli/scheduling` (apps/api/src/projects/task-engine.ts),
- * copied as pure functions so the demo adapter behaves exactly like the server (ADR-056/057)
+ * as pure functions so the demo adapter behaves exactly like the server (ADR-056/057)
  * and screens can preview the same result. No React, no storage.
  */
 import {
   CycleError,
   HierarchyError,
   WorkCalendar,
-  MINUTES_PER_DAY,
   computeWbs,
+  normalizeStatusProgress,
+  rollUpStatus,
   schedule,
-  toMinuteNumber,
+  weightedProgress,
   type DurationUnit,
+  type ProgressItem,
   type ScheduleDependency,
 } from '@nuzli/scheduling';
 import type { Priority, TaskPrevious, TaskStatus, TaskType } from '@nuzli/shared';
@@ -104,74 +106,35 @@ export function workCalendarOf(c: CalendarLike): WorkCalendar {
   });
 }
 
-/** Minutes → hours rounded to 4 decimals (exact for quarter hours), like the engine. */
-export const minutesToHours = (m: number): number => Math.round((m / 60) * 10000) / 10000 || 0;
-/** The smallest duration of an HOUR task: one quarter hour. */
-export const MIN_TASK_MINUTES = 15;
-
-/** `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` → a local date-time (a bare date = midnight). */
-export const asLocal = (v: string): string => (v.length <= 10 ? `${v}T00:00` : v.slice(0, 16));
-
-/** Working days an HOUR task touches (`durationDays` derived as the engine does). */
-export function touchedDays(cal: WorkCalendar, start: string, end: string, minutes: number): number {
-  if (minutes <= 0 || toMinuteNumber(end) <= toMinuteNumber(start)) return 0;
-  const s = Math.floor(cal.nextWorkingMinuteNum(toMinuteNumber(start)) / MINUTES_PER_DAY);
-  const e = Math.floor(cal.addWorkingMinutesNum(toMinuteNumber(end), -1) / MINUTES_PER_DAY);
-  return cal.workingDaysBetweenNum(s, e);
-}
-
 /**
- * A milestone has duration 0; a task lasts ≥ 1 working day; end = endFromDuration(start, d).
- * HOUR projects: the start snaps to the next working minute, the duration is working minutes
- * (≥ 15; from `durationHours`, else `durationDays` × the standard day) and the end is exclusive.
+ * The date-edit, due-day, status and weighting rules are the API's own, imported from
+ * `@nuzli/scheduling` (calculations audit 2026-10, ADR-133/134) — never copied here.
  */
-export function normalizeLeaf<T extends StoredTask>(t: T, cal: WorkCalendar, snapStart = true, unit: DurationUnit = 'DAY'): T {
-  if (unit === 'HOUR') {
-    const raw = asLocal(t.startDate);
-    const start = snapStart || t.startDate.length <= 10 ? cal.nextWorkingMinute(raw) : raw;
-    if (t.type === 'MILESTONE') return { ...t, startDate: start, endDate: start, durationDays: 0, durationHours: 0 };
-    const fromHours = t.durationHours != null && Number.isFinite(t.durationHours) ? Math.round(t.durationHours * 60) : null;
-    const minutes = Math.max(MIN_TASK_MINUTES, fromHours ?? Math.max(1, Math.trunc(t.durationDays)) * cal.standardMinutesPerDay);
-    const end = cal.endFromDurationMinutes(start, minutes);
-    return { ...t, startDate: start, endDate: end, durationHours: minutesToHours(minutes), durationDays: touchedDays(cal, start, end, minutes) };
-  }
-  const start = snapStart ? cal.addWorkingDays(t.startDate, 0) : t.startDate;
-  if (t.type === 'MILESTONE') return { ...t, startDate: start, endDate: start, durationDays: 0 };
-  const duration = Math.max(1, Math.trunc(t.durationDays));
-  return { ...t, startDate: start, durationDays: duration, endDate: cal.endFromDuration(start, duration) };
-}
-
-export interface ScheduleEdit {
-  startDate?: string;
-  endDate?: string;
-  durationDays?: number;
-  /** HOUR projects. */
-  durationHours?: number;
-}
-
-/**
- * `durationDays` wins over `endDate`; an `endDate` alone becomes a working-day count.
- * HOUR projects: `durationHours` wins, then `endDate` (working minutes up to it), then `durationDays`.
- */
-export function applyScheduleEdit<T extends StoredTask>(t: T, edit: ScheduleEdit, cal: WorkCalendar, unit: DurationUnit = 'DAY'): T {
-  if (unit === 'HOUR') {
-    let next: T = { ...t };
-    if (edit.startDate !== undefined) next.startDate = edit.startDate;
-    next = { ...next, startDate: cal.nextWorkingMinute(asLocal(next.startDate)) };
-    if (edit.durationHours !== undefined) next.durationHours = edit.durationHours;
-    else if (edit.endDate !== undefined) {
-      const end = cal.prevWorkingEnd(asLocal(edit.endDate));
-      next.durationHours = minutesToHours(cal.workingMinutesBetween(next.startDate, end));
-    } else if (edit.durationDays !== undefined) next.durationHours = (edit.durationDays * cal.standardMinutesPerDay) / 60;
-    return normalizeLeaf(next, cal, false, unit);
-  }
-  let next: T = { ...t };
-  if (edit.startDate !== undefined) next.startDate = edit.startDate;
-  next = { ...next, startDate: cal.addWorkingDays(next.startDate, 0) };
-  if (edit.durationDays !== undefined) next.durationDays = edit.durationDays;
-  else if (edit.endDate !== undefined) next.durationDays = cal.workingDaysBetween(next.startDate, edit.endDate);
-  return normalizeLeaf(next, cal, false);
-}
+export {
+  applyScheduleEdit,
+  applyScheduleEditHours,
+  coerceEndLocal,
+  coerceStart,
+  deadlinePassed,
+  deriveGroupStatus,
+  dueDayOf,
+  dueFlags,
+  DUE_SOON_WORKING_DAYS,
+  endDayOfLocal,
+  isLocalDateTime,
+  MIN_TASK_MINUTES,
+  minutesToHours,
+  normalizeLeaf,
+  normalizeLeafHours,
+  normalizeStatusProgress,
+  progressWeight,
+  rollUpStatus,
+  roundHalfAway,
+  syncStatusProgress,
+  touchedWorkingDays,
+  weightedProgress,
+  type ScheduleEdit,
+} from '@nuzli/scheduling';
 
 /** Ids of `rootId` and every descendant (iterative). */
 export function subtreeIds(tasks: ReadonlyArray<Pick<StoredTask, 'id' | 'parentId'>>, rootId: string): string[] {
@@ -249,7 +212,12 @@ export function engineError(err: unknown): unknown {
 
 /** Promotes parents, re-runs the engine and refreshes the WBS cache. */
 export function recompute<T extends StoredTask>(input: RecomputeInput<T>): T[] {
-  const promoted = promoteParents(input.tasks);
+  // Calculations audit H1 (as the API): leaves obey the status/progress invariant before the roll-up.
+  const promoted = promoteParents(input.tasks).map((t) => {
+    if (t.type === 'GROUP') return t;
+    const n = normalizeStatusProgress(t.status, t.progress);
+    return n.status === t.status && n.progress === t.progress ? t : { ...t, ...n };
+  });
   let scheduled: T[];
   try {
     scheduled = schedule({
@@ -264,11 +232,14 @@ export function recompute<T extends StoredTask>(input: RecomputeInput<T>): T[] {
     throw engineError(err);
   }
   const wbs = computeWbs(scheduled);
-  return rollUpCosts(
-    scheduled.map((t) => {
-      const code = wbs.get(t.id) ?? '';
-      return t.wbsCache === code ? t : { ...t, wbsCache: code };
-    }),
+  // H1/H2: group status derived bottom-up; a GROUP without children is zeroed (dates kept).
+  return rollUpStatus(
+    rollUpCosts(
+      scheduled.map((t) => {
+        const code = wbs.get(t.id) ?? '';
+        return t.wbsCache === code ? t : { ...t, wbsCache: code };
+      }),
+    ),
   );
 }
 
@@ -354,45 +325,31 @@ export function diffTasks<T extends StoredTask>(before: ReadonlyMap<string, T>, 
   return { versioned, wbsOnly };
 }
 
-/** Project progress = roll-up of the roots (duration-weighted, milestones weigh 0). */
-export function projectProgress(roots: ReadonlyArray<Pick<StoredTask, 'type' | 'durationDays' | 'progress'>>): number {
-  if (!roots.length) return 0;
-  let weighted = 0;
-  let weights = 0;
-  let plain = 0;
-  for (const r of roots) {
-    const w = r.type === 'MILESTONE' ? 0 : Math.max(0, r.durationDays);
-    weighted += w * r.progress;
-    weights += w;
-    plain += r.progress;
-  }
-  return Math.round((weights > 0 ? weighted / weights : plain / roots.length) * 100) / 100;
+/**
+ * Project progress = the shared `weightedProgress` of the roots (milestones and empty groups
+ * weigh 0; HOUR projects weigh by working minutes — audit M1). The unit is inferred from
+ * `durationHours` when not given (only HOUR tasks carry it).
+ */
+export function projectProgress(
+  roots: ReadonlyArray<Pick<ProgressItem, 'type' | 'durationDays' | 'durationHours' | 'progress' | 'isEmptyGroup'>>,
+  unit?: DurationUnit,
+): number {
+  const u = unit ?? (roots.some((r) => r.durationHours != null) ? 'HOUR' : 'DAY');
+  return weightedProgress(roots, u);
+}
+
+/** Roots of a task list, each flagged `isEmptyGroup` when it is a GROUP without children in the list. */
+export function rootsForProgress<T extends Pick<StoredTask, 'id' | 'parentId' | 'type'>>(tasks: readonly T[]): Array<T & { isEmptyGroup: boolean }> {
+  const ids = new Set(tasks.map((t) => t.id));
+  const parents = new Set(tasks.map((t) => t.parentId).filter((p): p is string => !!p));
+  return tasks.filter((t) => !t.parentId || !ids.has(t.parentId)).map((t) => ({ ...t, isEmptyGroup: t.type === 'GROUP' && !parents.has(t.id) }));
 }
 
 export { RIYADH_OFFSET_MS, riyadhToday } from './today';
 
-export const DUE_SOON_WORKING_DAYS = 2;
-
-/** A9: the deadline is before today (Riyadh) and the task is not DONE. */
-export function deadlinePassed(t: Pick<StoredTask, 'deadline' | 'status'>, today: string): boolean {
-  return !!t.deadline && t.status !== 'DONE' && t.deadline < today;
-}
-
 /** `YYYY-MM-DD` + n calendar days. */
 export function addCalendarDaysIso(iso: string, days: number): string {
   return new Date(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
-}
-
-/** Overdue: ended before today, not DONE. Due soon: not overdue/DONE, ends by the 2nd working day. */
-export function dueFlags(
-  t: Pick<StoredTask, 'endDate' | 'status'>,
-  today: string,
-  cal: WorkCalendar,
-): { overdue: boolean; dueSoon: boolean } {
-  if (t.status === 'DONE') return { overdue: false, dueSoon: false };
-  const end = t.endDate.slice(0, 10);
-  if (end < today) return { overdue: true, dueSoon: false };
-  return { overdue: false, dueSoon: end <= cal.addWorkingDays(today, DUE_SOON_WORKING_DAYS) };
 }
 
 /** `1.10` after `1.9`. */

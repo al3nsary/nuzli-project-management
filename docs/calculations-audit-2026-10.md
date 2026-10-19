@@ -23,26 +23,26 @@ All suites pass, yet the findings below are real. The tests do not cover these c
 
 | # | Severity | Finding | Where | Status |
 |---|---|---|---|---|
-| H1 | High | A group's status is never derived. A group at 100 % still shows «لم تبدأ». Status and progress are also decoupled on leaves. | `apps/api/src/projects/task-engine.ts:314`, `apps/web/src/features/projects/engine.ts:251`, `ListView.tsx:416-421` | Fixed (server) · Pending web port |
-| H2 | High | A group left with no children keeps its old rolled-up cost, progress and dates. Budget totals and project progress then count money from archived tasks. | `task-engine.ts:376` (API) and `engine.ts:312` (web), `packages/scheduling/src/model.ts:159` | Fixed (server) · Pending web port |
-| M1 | Medium | In HOUR projects, project progress and person progress are weighted by touched days, not by minutes. They disagree with the engine (50 % vs 12.5 %). | `task-engine.ts:433-448`, `project-dto.ts:238`, `reports.ts:162` | Fixed (server) · Pending web port |
-| M2 | Medium | Demo and API handle HOUR date edits differently: a bare `endDate`, the field priority, and truncation of `durationDays`. | `web/.../projects/engine.ts:156-167` vs `api/.../task-engine.ts:199-207` | Fixed (server: rules shared in `@nuzli/scheduling`) · Pending web port |
-| M3 | Medium | Demo `rescheduleProject` in HOUR projects leaves starts in non-working time. The API snaps them. | `web/.../engine.ts:131` via `demo/phase4.ts:514`; API `task-engine.ts:183` via `project-store.ts:406` | Fixed (server: rule shared) · Pending web port |
-| M4 | Medium | The workload UI ignores the API's per-day `capacityMinutes` (holidays, short days). Utilisation counts holidays as capacity. The demo does not send the field at all. | `features/workload/WorkloadGrid.tsx:34,104`, `math.ts:129-148`, `features/projects/reports.ts:340,366` | Fixed (server: `totalCapacityMinutes`) · Pending web port |
-| M5 | Medium | 27 Arabic count strings have no plural forms, so they produce «أُعيدت جدولة ٥ مهمة», «٥ يوم», «٥ ساعة» and «(١ مهام)». | `i18n/ar.ts` (list below), `Gantt.tsx:1024-1025`, `TaskDrawer.tsx:213`… | Pending web port |
-| L1 | Low | The Gantt overdue label uses the wrong plural for 103–110 days and disagrees with the dashboard. | `features/gantt/Gantt.tsx:1617` | Pending web port |
-| L2 | Low | `hijriSpan` drops the first year when a range crosses a Hijri year: «ذو الحجة – محرم 1448». | `features/calendar/calendarFormat.ts:51-58` | Pending web port |
-| L3 | Low | `formatDate` on an HOUR local string depends on the device time zone (shows the 23rd instead of the 22nd). The list view is not HOUR-aware. | `ListView.tsx:385-405`, `BoardView.tsx:207` | Pending web port |
-| L4 | Low | Demo `bbox` with south > north matches nothing. The API normalises it. | `features/violations/stats.ts:40-45` | Pending web port |
+| H1 | High | A group's status is never derived. A group at 100 % still shows «لم تبدأ». Status and progress are also decoupled on leaves. | `apps/api/src/projects/task-engine.ts:314`, `apps/web/src/features/projects/engine.ts:251`, `ListView.tsx:416-421` | Fixed (server) · Fixed (web) |
+| H2 | High | A group left with no children keeps its old rolled-up cost, progress and dates. Budget totals and project progress then count money from archived tasks. | `task-engine.ts:376` (API) and `engine.ts:312` (web), `packages/scheduling/src/model.ts:159` | Fixed (server) · Fixed (web) |
+| M1 | Medium | In HOUR projects, project progress and person progress are weighted by touched days, not by minutes. They disagree with the engine (50 % vs 12.5 %). | `task-engine.ts:433-448`, `project-dto.ts:238`, `reports.ts:162` | Fixed (server) · Fixed (web) |
+| M2 | Medium | Demo and API handle HOUR date edits differently: a bare `endDate`, the field priority, and truncation of `durationDays`. | `web/.../projects/engine.ts:156-167` vs `api/.../task-engine.ts:199-207` | Fixed (server: rules shared in `@nuzli/scheduling`) · Fixed (web) |
+| M3 | Medium | Demo `rescheduleProject` in HOUR projects leaves starts in non-working time. The API snaps them. | `web/.../engine.ts:131` via `demo/phase4.ts:514`; API `task-engine.ts:183` via `project-store.ts:406` | Fixed (server: rule shared) · Fixed (web) |
+| M4 | Medium | The workload UI ignores the API's per-day `capacityMinutes` (holidays, short days). Utilisation counts holidays as capacity. The demo does not send the field at all. | `features/workload/WorkloadGrid.tsx:34,104`, `math.ts:129-148`, `features/projects/reports.ts:340,366` | Fixed (server: `totalCapacityMinutes`) · Fixed (web) |
+| M5 | Medium | 27 Arabic count strings have no plural forms, so they produce «أُعيدت جدولة ٥ مهمة», «٥ يوم», «٥ ساعة» and «(١ مهام)». | `i18n/ar.ts` (list below), `Gantt.tsx:1024-1025`, `TaskDrawer.tsx:213`… | Fixed (web) |
+| L1 | Low | The Gantt overdue label uses the wrong plural for 103–110 days and disagrees with the dashboard. | `features/gantt/Gantt.tsx:1617` | Fixed (web) |
+| L2 | Low | `hijriSpan` drops the first year when a range crosses a Hijri year: «ذو الحجة – محرم 1448». | `features/calendar/calendarFormat.ts:51-58` | Fixed (web) |
+| L3 | Low | `formatDate` on an HOUR local string depends on the device time zone (shows the 23rd instead of the 22nd). The list view is not HOUR-aware. | `ListView.tsx:385-405`, `BoardView.tsx:207` | Fixed (web) |
+| L4 | Low | Demo `bbox` with south > north matches nothing. The API normalises it. | `features/violations/stats.ts:40-45` | Fixed (web) |
 | L5 | Low | Offset pagination has no unique tiebreaker, so pages can repeat or skip rows. `topMembers` ties at the LIMIT are not deterministic. | `members.service.ts:86`, `users.service.ts:88`, `notifications.service.ts:196`, `audit.service.ts:243`, `print.service.ts:488`, `violation-stats.ts:76-80` | Fixed (server) |
-| L6 | Low | A calendar that ends at 24:00 makes `endDate.slice(0,10)` one day later than the DATE column, so the overdue rules disagree. | `task-engine.ts:469` (+ web `engine.ts:393`, `reports.ts` slices) | Fixed (server) · Pending web port |
-| L7 | Low | HOUR→DAY lag rounding is asymmetric: +4 h becomes 1 d but −4 h becomes 0 d. | `packages/scheduling/src/convert.ts:97`, `imports/import-model.ts:578` | Fixed (server + engine) · Pending web port (demo importer) |
-| L8 | Low | Import parser edge cases: 24:00 becomes 23:00, `Z` and offsets are dropped, Excel serial ≤ 60 is off by one, "edays" is not parsed, MSPDI elapsed lags are treated as working minutes. | `imports/import-model.ts:214,225,261,291`, `mspdi.ts:273` | Fixed (server) · Pending web port (demo importer) |
+| L6 | Low | A calendar that ends at 24:00 makes `endDate.slice(0,10)` one day later than the DATE column, so the overdue rules disagree. | `task-engine.ts:469` (+ web `engine.ts:393`, `reports.ts` slices) | Fixed (server) · Fixed (web) |
+| L7 | Low | HOUR→DAY lag rounding is asymmetric: +4 h becomes 1 d but −4 h becomes 0 d. | `packages/scheduling/src/convert.ts:97`, `imports/import-model.ts:578` | Fixed (server + engine) · Fixed (web: demo importer, demo lags) |
+| L8 | Low | Import parser edge cases: 24:00 becomes 23:00, `Z` and offsets are dropped, Excel serial ≤ 60 is off by one, "edays" is not parsed, MSPDI elapsed lags are treated as working minutes. | `imports/import-model.ts:214,225,261,291`, `mspdi.ts:273` | Fixed (server) · Fixed (web: demo importer) |
 | L9 | Low | The 2.25″ × 1.25″ label is 57 × 32 mm instead of 57.15 × 31.75 mm, which can overflow the label stock. | `packages/ui-print/src/sizes.ts:24` | Fixed (ui-print + seed + migration) |
-| L10 | Low | Reminders: the cron includes groups (and the API deadline sweep too, while the demo checks leaves only). An HOUR time change on the same day resets reminders and sends them again. | `task-due.service.ts:49-54,96-105`, `project-store.ts:350-353` | Fixed (server) · Pending web port (demo reset rule) |
-| L11 | Low | The «حسب الوسم» budget view counts a task once per label, so the bars add up to more than the total. The schema documents this; the UI does not explain it. | `features/reports/BudgetSection.tsx:121` | Fixed (server: `byLabelOverlapping`/`byLabelNote`) · Pending web port (show the note) |
+| L10 | Low | Reminders: the cron includes groups (and the API deadline sweep too, while the demo checks leaves only). An HOUR time change on the same day resets reminders and sends them again. | `task-due.service.ts:49-54,96-105`, `project-store.ts:350-353` | Fixed (server) · Fixed (web: demo reset rule, groups skipped) |
+| L11 | Low | The «حسب الوسم» budget view counts a task once per label, so the bars add up to more than the total. The schema documents this; the UI does not explain it. | `features/reports/BudgetSection.tsx:121` | Fixed (server: `byLabelOverlapping`/`byLabelNote`) · Fixed (web: note shown) |
 | L12 | Low | Workload "logged" includes archived tasks and projects while "assigned" excludes them. | `project-reports.service.ts:198-201` | Fixed (server) |
-| L13 | Low | The edit-window boundary differs: the API is closed at `now >= until`, the demo at `now > until`. | `violations.service.ts:415` vs `demo/phase3.ts:845` | Fixed (server: shared `isEditWindowOpen`) · Pending web port |
+| L13 | Low | The edit-window boundary differs: the API is closed at `now >= until`, the demo at `now > until`. | `violations.service.ts:415` vs `demo/phase3.ts:845` | Fixed (server: shared `isEditWindowOpen`) · Fixed (web) |
 
 ---
 
@@ -171,7 +171,7 @@ The rule exists (`tCount` with `.few/.many` keys), but these 27 keys have no plu
 
 ## To verify (design questions, not confirmed bugs)
 
-> **Decided by the owner and done on the server (ADR-134, ADR-136).** Week KPI: compare with the same elapsed span of the previous week (`previousWeekToDate`, shared `weekChangePct`). Portfolio progress: weighted by duration (`progressWeightDays`). Per member: `perMemberRate` is null without members. Days overdue: calendar days (shared `calendarDaysOverdue`). The UI parts are pending the web port.
+> **Decided by the owner; done on the server (ADR-134, ADR-136) and in the web (ADR-137, ADR-139).** Week KPI: compare with the same elapsed span of the previous week (`previousWeekToDate`, shared `weekChangePct`). Portfolio progress: weighted by duration (`progressWeightDays`). Per member: `perMemberRate` is null without members. Days overdue: calendar days (shared `calendarDaysOverdue`). The UI parts are done: «هذا الأسبوع» compares with `previousWeekToDate` («مقارنةً بالفترة نفسها من الأسبوع الماضي»), the per-member chart shows «—» for null, the portfolio is weighted by `progressWeightDays`, and «متأخرة N يومًا» counts calendar days (its tooltip says so).
 
 - The week KPI compares a *partial* current week with a *full* previous week. On a Monday this shows about −70 % by construction. Compare with the same weekday range of the previous week, or relabel the KPI.
 - Portfolio progress is weighted by `leafCount`, while project progress is weighted by duration. The two scales are different.
@@ -294,3 +294,37 @@ The engine's `rollUp`/`schedule` already give an empty GROUP progress 0 and weig
 - Workload "logged" excludes archived tasks and projects.
 - Import parsers: `24:00` → next day 00:00. `Z`/offset → Riyadh. Excel serial < 61 gets +1 day. European `1.234,50`. Elapsed units.
 - The group status from the file is no longer kept: it is derived.
+
+## الإصلاح — Fix status (2026-10-19, web port)
+
+Every "pending web port" item is done (ADR-137 to ADR-140). The demo and the UI now import the
+shared rules instead of keeping copies:
+
+- `apps/web/src/features/projects/engine.ts` re-exports `applyScheduleEdit*`, `normalizeLeaf*`,
+  `coerceStart`, `coerceEndLocal`, `MIN_TASK_MINUTES`, `dueDayOf`, `dueFlags`, `deadlinePassed`,
+  `syncStatusProgress`, `normalizeStatusProgress`, `deriveGroupStatus`, `rollUpStatus`,
+  `weightedProgress`, `progressWeight` and `roundHalfAway` from `@nuzli/scheduling`; `recompute`
+  runs the leaf invariant and `rollUpStatus` like the API. The demo's own copies are deleted.
+- DemoApi: `PATCH` of a group's status answers `TASK_GROUP_STATUS_DERIVED`; update, batch and bulk
+  sync status ↔ progress; reminders skip groups and are re-armed only when the due day moves;
+  `isEditWindowOpen`; per-day workload capacity (default calendar) with `totalCapacityMinutes`;
+  logged time of live tasks only; `previousWeekToDate`, `perMemberRate`, `progressWeightDays`;
+  HOUR lags rounded half away from zero; a working calendar exception keeps its hours.
+- Demo importer: 24:00, zoned ISO, Excel serials below 61, European numbers, elapsed units and MSPDI
+  elapsed lag formats, symmetric lag rounding, derived group status — the API's import-audit cases run
+  in `features/imports/import-audit.test.ts`.
+- UI: a group's status is shown but not editable («تُحسب من مهامها») in the list and the drawer; the
+  status ↔ progress sync is optimistic in the list, the board and the drawer, and an undo sends both
+  fields; DONE tasks never show overdue; workload cells use each day's capacity (holidays hatched,
+  short days marked); the «حسب الوسم» note; HOUR dates read in Asia/Riyadh whatever the device zone;
+  list-view date-time and hours editors in HOUR projects; Hijri ranges across years show both years.
+- M5: `plural(n, forms)` (`Intl.PluralRules('ar')`) and `tCount`; 53 count messages gained their
+  forms (the audit's 27 and every other one found in `ar.ts`); no caller passes a formatted string;
+  `scripts/check-i18n.mjs` fails on a counted noun without forms or a `t()` call on a plural key.
+- Seed: groups re-derived through `recompute`/`rollUpStatus`; `seed/demo/version.json` → 11.
+
+Tests (apps/web, vitest): 45 files, **520 passed** (was 38 files / 413). New:
+`features/projects/calc-audit.test.ts`, `features/imports/import-audit.test.ts`,
+`api/demo/DemoApi.calcAudit.test.ts`, `i18n/plural.test.ts`, `i18n/timezone.test.ts`
+(TZ = America/New_York), `pages/projects/statusSync.render.test.tsx`,
+`features/reports/budgetNote.render.test.tsx`, plus M4 cases in `features/workload/math.test.ts`.

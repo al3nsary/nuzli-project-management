@@ -82,7 +82,7 @@ function Box({ box, rtl }: { box: ChartBox; rtl: boolean }) {
       })}
       {more > 0 ? (
         <text x={tx} y={box.y + CHART.headerHeight + shown.length * CHART.lineHeight + 14} textAnchor={anchor} fontSize={12} fill="var(--ogc-faint, #6F7787)">
-          {t('org.chart.more', { n: formatNumber(more) })}
+          {t('org.chart.more', { n: more })}
         </text>
       ) : null}
       {u.teams.length ? (

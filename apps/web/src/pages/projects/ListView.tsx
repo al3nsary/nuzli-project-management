@@ -24,7 +24,7 @@ import { errorMessage } from '../../api/errors';
 import { useSupervisors } from '../../api/queries';
 import type { useProjectWrites } from '../../api/projectWrites';
 import { useAuthStore } from '../../stores/auth';
-import { formatDate, formatMoney, formatNumber, t } from '../../i18n';
+import { formatDate, formatDateTime, formatHours, formatMoney, formatNumber, t, tCount } from '../../i18n';
 import { useViewPref } from '../../api/a9Queries';
 import {
   COLUMN_DEFS,
@@ -42,6 +42,7 @@ import {
   type ColumnPref,
 } from '../../features/gantt/columns';
 import { buildRows } from '../../features/gantt/geometry';
+import { unitOf } from '../../api/hoursWire';
 import { riyadhToday } from '../../features/projects/engine';
 import { PRIORITIES, TASK_STATUSES, priorityLabel, taskStatusLabel } from './parts';
 import { ConflictAlert } from './TaskDrawer';
@@ -74,6 +75,9 @@ export function ListView({
   onSelectionChange?(next: Set<string>): void;
 }) {
   // A9: the columns are the user's (`list.columns`, per project), like the Gantt grid.
+  // Calculations audit L3: HOUR projects edit a date-time and working hours here, as the drawer does.
+  const hours = unitOf(data.project as { durationUnit?: 'DAY' | 'HOUR' }) === 'HOUR';
+  const when = (v: string) => (hours ? formatDateTime(v, COMPACT) : formatDate(v, COMPACT));
   const [colsRaw, setColsPref] = useViewPref<ColumnPref[] | null>('list.columns', data.project.id, null);
   const cols = useMemo(() => normalizeColumns(colsRaw ?? DEFAULT_LIST_COLUMNS, data.customFields ?? [], DEFAULT_LIST_COLUMNS), [colsRaw, data.customFields]);
   const [liveCols, setLiveCols] = useState<ColumnPref[] | null>(null);
@@ -381,34 +385,59 @@ export function ListView({
                   </>);
                   case 'start':
                     return (<>
-                    {admin && !isGroup ? (
-                      <TextInput size="xs" type="date" aria-label={t('task.start')} value={task.startDate} onChange={(e) => e.currentTarget.value && e.currentTarget.value !== task.startDate && void update(task, { startDate: e.currentTarget.value })} />
+                    {admin && !isGroup && hours ? (
+                      <TextInput
+                        size="xs"
+                        type="datetime-local"
+                        aria-label={t('a9s.drawer.startTime')}
+                        value={task.startDate.slice(0, 16)}
+                        onChange={(e) => e.currentTarget.value && e.currentTarget.value !== task.startDate.slice(0, 16) && void update(task, { startDate: e.currentTarget.value })}
+                      />
+                    ) : admin && !isGroup ? (
+                      <TextInput size="xs" type="date" aria-label={t('task.start')} value={task.startDate.slice(0, 10)} onChange={(e) => e.currentTarget.value && e.currentTarget.value !== task.startDate && void update(task, { startDate: e.currentTarget.value })} />
                     ) : (
                       <Text size="sm">
-                        {formatDate(task.startDate, COMPACT)}
+                        {when(task.startDate)}
                       </Text>
                     )}
                   </>);
                   case 'duration':
                     return (<>
-                    {admin && !isGroup && task.type !== 'MILESTONE' ? (
+                    {admin && !isGroup && task.type !== 'MILESTONE' && hours ? (
+                      // HOUR projects: working hours (quarter hours), never `durationDays` (a 4 h task is not 16 h).
+                      <CommitNumber
+                        value={task.durationHours ?? 0}
+                        min={0.25}
+                        max={29200}
+                        step={0.25}
+                        label={t('a9s.drawer.durationHours')}
+                        onCommit={(v) => {
+                          const q = Math.round(v * 4) / 4;
+                          if (q !== task.durationHours) void update(task, { durationHours: q });
+                        }}
+                      />
+                    ) : admin && !isGroup && task.type !== 'MILESTONE' ? (
                       <CommitNumber value={task.durationDays} min={1} max={3650} label={t('task.duration')} onCommit={(v) => v !== task.durationDays && void update(task, { durationDays: v })} />
                     ) : (
                       <Text size="sm" className="num">
-                        {formatNumber(task.durationDays)}
+                        {hours ? formatHours(task.durationHours ?? 0) : tCount('duration.days', task.durationDays)}
                       </Text>
                     )}
                   </>);
                   case 'end':
                     return (<>
                     <Text size="sm">
-                      {formatDate(task.endDate, COMPACT)}
+                      {when(task.endDate)}
                     </Text>
                   </>);
                   case 'progress':
                     return (<>
                     {editStatus && !isGroup ? (
                       <CommitNumber value={task.progress} min={0} max={100} step={5} label={t('task.progress')} suffix="٪" onCommit={(v) => v !== task.progress && void update(task, { progress: v })} />
+                    ) : isGroup ? (
+                      <Tooltip label={t('task.groupStatusDerived')} withArrow>
+                        <Text size="sm" className="num" data-derived>{`${formatNumber(Math.round(task.progress))}٪`}</Text>
+                      </Tooltip>
                     ) : (
                       <Text size="sm" className="num">{`${formatNumber(Math.round(task.progress))}٪`}</Text>
                     )}
@@ -417,6 +446,19 @@ export function ListView({
                     return (<>
                     {editStatus && !isGroup ? (
                       <NativeSelect size="xs" aria-label={t('task.status')} value={task.status} data={TASK_STATUSES.map((s) => ({ value: s, label: taskStatusLabel(s) }))} onChange={(e) => void update(task, { status: e.currentTarget.value as TaskStatus })} />
+                    ) : isGroup && editStatus ? (
+                      // Calculations audit H1: a group's status is derived from its tasks — shown, not editable.
+                      <Tooltip label={t('task.groupStatusDerived')} withArrow>
+                        <div data-derived>
+                          <NativeSelect
+                            size="xs"
+                            disabled
+                            aria-label={`${t('task.status')} — ${t('task.groupStatusDerived')}`}
+                            value={task.status}
+                            data={TASK_STATUSES.map((s) => ({ value: s, label: taskStatusLabel(s) }))}
+                          />
+                        </div>
+                      </Tooltip>
                     ) : (
                       <Text size="sm">{taskStatusLabel(task.status)}</Text>
                     )}

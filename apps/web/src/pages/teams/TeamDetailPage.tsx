@@ -986,7 +986,7 @@ export function TeamDetailPage() {
                       <Table.Td colSpan={5}>
                         <span className="nz-members-sep-label">
                           <IconUsersGroup size={15} aria-hidden />
-                          {t('a10.foreman.workers', { n: formatNumber(list.filter((x) => !x.isForeman).length) })}
+                          {t('a10.foreman.workers', { n: list.filter((x) => !x.isForeman).length })}
                         </span>
                       </Table.Td>
                     </Table.Tr>
@@ -1033,7 +1033,7 @@ export function TeamDetailPage() {
           </Table.ScrollContainer>
         )}
         <Text size="xs" c="dimmed" mt="xs">
-          {t('common.total', { count: formatNumber(tm.members.length) })}
+          {t('common.total', { count: tm.members.length })}
         </Text>
       </Card>
 

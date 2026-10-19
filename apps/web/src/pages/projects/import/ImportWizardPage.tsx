@@ -137,7 +137,7 @@ const isSource = (v: string | null): v is ImportSource =>
 
 const sizeLabel = (bytes: number) =>
   bytes >= 1024 * 1024
-    ? t('import.file.mb', { n: formatNumber(Math.round((bytes / 1024 / 1024) * 10) / 10) })
+    ? t('import.file.mb', { n: Math.round((bytes / 1024 / 1024) * 10) / 10 })
     : t('import.file.kb', { n: formatNumber(Math.max(1, Math.round(bytes / 1024))) });
 
 export function ImportWizardPage() {

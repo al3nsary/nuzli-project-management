@@ -206,7 +206,7 @@ describe('project-manager chat from inside projects (A10)', () => {
         </div>
       </MantineProvider>,
     );
-    const btn = screen.getByRole('button', { name: 'محادثة المهمة «صب الخرسانة»: 4 رسالة، 2 غير مقروءة' });
+    const btn = screen.getByRole('button', { name: 'محادثة المهمة «صب الخرسانة»: 4 رسائل، 2 غير مقروءة' });
     expect(btn).toHaveAttribute('data-unread', 'true');
     expect(within(btn).getByText('4')).toBeInTheDocument();
     expect(within(btn).getByText('2')).toBeInTheDocument();

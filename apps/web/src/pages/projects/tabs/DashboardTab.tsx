@@ -142,7 +142,7 @@ export function ProjectDashboardTab(props: TabProps) {
                         <span>{t('a9r.dash.endedOn', { date: formatDate(o.endDate.slice(0, 10)) })}</span>
                       </span>
                     </span>
-                    <Badge color="breach" variant="light" radius="xl" style={{ flex: 'none' }}>
+                    <Badge color="breach" variant="light" radius="xl" style={{ flex: 'none' }} title={t('a9r.overdueTip')}>
                       {overdueText(o.daysOverdue)}
                     </Badge>
                   </button>

@@ -171,8 +171,8 @@ export function ImportPreview({
         color: 'ok',
         message: t('import.done', {
           name: name.trim(),
-          tasks: formatNumber(res.taskCount),
-          links: formatNumber(res.dependencyCount),
+          tasks: tCount('projects.taskCount', res.taskCount),
+          links: tCount('import.preview.links', res.dependencyCount),
         }),
       });
       navigate(`/projects/${res.projectId}`, { replace: true });
@@ -271,7 +271,7 @@ export function ImportPreview({
           </Text>
           {holidays ? (
             <Text size="xs" c="dimmed">
-              {t('import.preview.holidays', { n: formatNumber(holidays) })}
+              {tCount('import.preview.holidays', holidays)}
             </Text>
           ) : null}
         </div>
@@ -297,13 +297,13 @@ export function ImportPreview({
               list: sourceTypes
                 .map(([k, n]) =>
                   hasKey(`import.stats.sourceType.${k}`)
-                    ? t(`import.stats.sourceType.${k}` as MessageKey, { n: formatNumber(n) })
+                    ? tCount(`import.stats.sourceType.${k}` as MessageKey, n)
                     : `${k}: ${formatNumber(n)}`,
                 )
                 .join('، '),
             })}
             {pv.stats.estimatedHours || pv.stats.timeLogMinutes
-              ? ` · ${t('import.stats.notImported', { hours: formatNumber(pv.stats.estimatedHours ?? 0), minutes: formatNumber(pv.stats.timeLogMinutes ?? 0) })}`
+              ? ` · ${t('import.stats.notImported', { hours: tCount('duration.hours', pv.stats.estimatedHours ?? 0), minutes: tCount('duration.minutes', pv.stats.timeLogMinutes ?? 0) })}`
               : ''}
           </Text>
         ) : null}
@@ -315,7 +315,7 @@ export function ImportPreview({
           <Group gap={8} mb="xs">
             <IconAlertTriangle size={18} color="var(--amber)" aria-hidden />
             <Text id="imp-warn" fw={600}>
-              {t('import.warnings.title', { n: formatNumber(pv.warnings.length) })}
+              {t('import.warnings.title', { n: pv.warnings.length })}
             </Text>
           </Group>
           <Text size="xs" c="dimmed" mb="sm">
@@ -330,7 +330,7 @@ export function ImportPreview({
                 <span>{isolateRanges(w.message_ar)}</span>
                 {w.row ? (
                   <span className="nz-imp-dim num">
-                    {t('import.warnings.row', { n: formatNumber(w.row) })}
+                    {t('import.warnings.row', { n: w.row })}
                   </span>
                 ) : null}
               </li>
@@ -345,7 +345,7 @@ export function ImportPreview({
             >
               {showAllWarnings
                 ? t('import.warnings.less')
-                : t('import.warnings.all', { n: formatNumber(pv.warnings.length) })}
+                : t('import.warnings.all', { n: pv.warnings.length })}
             </Button>
           ) : null}
         </section>
@@ -370,8 +370,8 @@ export function ImportPreview({
         </Group>
         <Text size="xs" c="dimmed" mb="xs">
           {hours
-            ? t('import.preview.ganttHintHours', { links: formatNumber(pv.stats.dependencyCount) })
-            : t('import.preview.ganttHint', { links: formatNumber(pv.stats.dependencyCount) })}
+            ? t('import.preview.ganttHintHours', { links: tCount('import.preview.links', pv.stats.dependencyCount) })
+            : t('import.preview.ganttHint', { links: tCount('import.preview.links', pv.stats.dependencyCount) })}
         </Text>
         <div className="nz-imp-gantt" data-testid="import-gantt">
           <Gantt
@@ -455,7 +455,7 @@ export function ImportPreview({
         )}
         {unmapped ? (
           <Text size="xs" c="dimmed" mt="xs">
-            {t('import.map.unassignedNote', { n: formatNumber(unmapped) })}
+            {tCount('import.map.unassignedNote', unmapped)}
           </Text>
         ) : null}
       </section>

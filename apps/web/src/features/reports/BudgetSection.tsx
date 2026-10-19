@@ -140,6 +140,12 @@ export function BudgetSection({
                     extraTooltip={extraTooltip}
                     label={t('a9r.budget.breakdownAria', { by: t(BY_KEY[by]) })}
                   />
+                  {by === 'label' && report?.byLabelOverlapping ? (
+                    // Calculations audit L11: a task with several labels counts under each one.
+                    <Text size="xs" c="dimmed" mt={6} role="note" data-testid="by-label-note">
+                      {report.byLabelNote || t('a9r.budget.byLabelNote')}
+                    </Text>
+                  ) : null}
                 </>
               ) : (
                 <CardEmpty>{t('a9r.budget.noCosts')}</CardEmpty>

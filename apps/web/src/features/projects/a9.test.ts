@@ -267,9 +267,9 @@ describe('Gantt rows, reorder and HOUR snapping', () => {
   });
 
   it('overdue days after the end date, never for done tasks or groups', () => {
-    expect(overdueDays({ endDate: '2026-10-12', status: 'IN_PROGRESS', type: 'TASK' }, '2026-10-19')).toBe(7);
-    expect(overdueDays({ endDate: '2026-10-12', status: 'DONE', type: 'TASK' }, '2026-10-19')).toBe(0);
-    expect(overdueDays({ endDate: '2026-10-12', status: 'IN_PROGRESS', type: 'GROUP' }, '2026-10-19')).toBe(0);
+    expect(overdueDays({ startDate: '2026-10-11', endDate: '2026-10-12', status: 'IN_PROGRESS', type: 'TASK' }, '2026-10-19')).toBe(7);
+    expect(overdueDays({ startDate: '2026-10-11', endDate: '2026-10-12', status: 'DONE', type: 'TASK' }, '2026-10-19')).toBe(0);
+    expect(overdueDays({ startDate: '2026-10-11', endDate: '2026-10-12', status: 'IN_PROGRESS', type: 'GROUP' }, '2026-10-19')).toBe(0);
   });
 });
 

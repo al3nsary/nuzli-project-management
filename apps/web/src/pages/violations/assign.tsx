@@ -49,7 +49,7 @@ import { useAuthStore } from '../../stores/auth';
 import { FormError } from '../../components/ui';
 import { MemberAvatar } from '../../components/UserAvatar';
 import { TeamBadge } from '../../theme/TeamBadge';
-import { formatDateTime, formatNumber, localizeDigits, t, tKey } from '../../i18n';
+import { formatDateTime, formatNumber, localizeDigits, t, tCount, tKey } from '../../i18n';
 import { offlineDb, type RosterRow } from '../../features/violations/offline/db';
 import { ReferenceInput, refFields } from '../teams/shared';
 import './violations-a9.css';
@@ -80,7 +80,7 @@ function FieldRow({ label, field, mono, suffix }: { label: string; field: OcrFie
         </Text>
         {field ? (
           <Text size="xs" c="dimmed" className="num" aria-label={t('ocr.confidenceAria', { n: field.confidence })}>
-            {t('ocr.confidence', { n: formatNumber(field.confidence) })}
+            {t('ocr.confidence', { n: field.confidence })}
           </Text>
         ) : null}
       </Group>
@@ -120,7 +120,7 @@ function Suggestion({ s, busy, onAssign }: { s: ViolationSuggestionDto; busy: bo
           </Text>
           {s.team ? <TeamBadge name={s.team.name} color={s.team.color.hex} size="sm" /> : <Text size="xs" c="dimmed">{t('record.member.noTeam')}</Text>}
           <Badge size="xs" variant={s.match === 'NATIONAL_ID' ? 'filled' : 'light'} color={s.match === 'NATIONAL_ID' ? 'ok' : 'field'}>
-            {s.match === 'NATIONAL_ID' ? t('ocr.matchId') : t('ocr.matchName', { n: formatNumber(Math.round(s.score * 100)) })}
+            {s.match === 'NATIONAL_ID' ? t('ocr.matchId') : t('ocr.matchName', { n: Math.round(s.score * 100) })}
           </Badge>
         </Group>
       </Box>
@@ -450,7 +450,7 @@ function RegisterMemberForm({
       // A9 security review (ADR-118): a capture older than the setting cannot backdate a membership.
       if (err instanceof ApiError && err.code === 'VIOLATION_TOO_OLD_TO_REGISTER') {
         const days = (err.details as { maxAgeDays?: number } | undefined)?.maxAgeDays;
-        setError(days ? new ApiError(err.status, err.code, t('violations.register.tooOld', { days }), err.details) : err);
+        setError(days ? new ApiError(err.status, err.code, tCount('violations.register.tooOld', days), err.details) : err);
         return;
       }
       setError(err);

@@ -7,7 +7,7 @@ import { useApi } from '../../api/context';
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { useTabParam } from '../../lib/useUrlState';
-import { formatNumber, t } from '../../i18n';
+import { formatNumber, t, tCount } from '../../i18n';
 import { LinkTeamDialog, MoveDialog, PositionDialog, UnitDialog } from './dialogs';
 import { OrgTree, type TreeIntent } from './OrgTree';
 import { OrgChart } from './OrgChart';
@@ -73,7 +73,7 @@ export function OrgPage() {
       ) : (
         <>
           <p className="og-summary">
-            {t('org.summary', { units: formatNumber(units.length), positions: formatNumber(positions), vacant: formatNumber(vacant) })}
+            {t('org.summary', { units: tCount('org.units', units.length), positions: tCount('org.tree.positions', positions), vacant: t('org.vacant', { count: vacant }) })}
           </p>
           {view === 'tree' ? (
             <div className="og-card">

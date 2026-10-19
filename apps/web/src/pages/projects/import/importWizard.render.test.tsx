@@ -164,7 +164,7 @@ describe('import wizard /projects/import', () => {
     );
     expect(screen.getByTestId('import-detected')).toHaveTextContent('اخترت «Excel»');
     expect(screen.getByTestId('import-format')).toHaveTextContent('GanttPRO (Excel)');
-    expect(screen.getByTestId('import-source-types')).toHaveTextContent('2 مشروع');
+    expect(screen.getByTestId('import-source-types')).toHaveTextContent('مشروعان، 3 مجموعات مهام، 7 مهام، معلَم واحد');
     expect(screen.getByTestId('import-unit')).toHaveTextContent('ساعات');
     expect(screen.getByText('الصيغة المكتشفة')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^إنشاء المشروع/ }));

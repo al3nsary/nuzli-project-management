@@ -109,9 +109,16 @@ export function projectRange(start: string, end: string | null, today: string, m
 type Person = WorkloadDto['people'][number];
 type Day = Person['days'][number];
 
-/** Dates where the allocation exceeds the capacity. */
-export function overloadDays(days: readonly Pick<Day, 'date' | 'assignedMinutes'>[], capacityMinutes: number): string[] {
-  return days.filter((d) => isOverloaded(d.assignedMinutes, capacityMinutes)).map((d) => d.date);
+/**
+ * The capacity of one day (calculations audit M4): the API's per-day `capacityMinutes` (0 on a
+ * holiday, the real minutes on a short day), else the standard `capacityMinutesPerDay`.
+ */
+export const dayCapacity = (day: { capacityMinutes?: number | undefined } | undefined, fallback: number): number =>
+  day?.capacityMinutes ?? fallback;
+
+/** Dates where the allocation exceeds that day's capacity. */
+export function overloadDays(days: readonly (Pick<Day, 'date' | 'assignedMinutes'> & { capacityMinutes?: number })[], capacityMinutes: number): string[] {
+  return days.filter((d) => isOverloaded(d.assignedMinutes, dayCapacity(d, capacityMinutes))).map((d) => d.date);
 }
 
 export interface PersonTotals {
@@ -126,18 +133,31 @@ export interface PersonTotals {
   peakMinutes: number;
 }
 
-export function personTotals(person: Pick<Person, 'days'>, capacityPerDay: number, weekendDays: readonly number[] = DEFAULT_WEEKEND): PersonTotals {
+/**
+ * A person's totals. The capacity is the API's `totalCapacityMinutes` (or the sum of the per-day
+ * `capacityMinutes`: holidays 0, short days their minutes — calculations audit M4); an older
+ * answer without them falls back to working days × `capacityPerDay`.
+ */
+export function personTotals(
+  person: Pick<Person, 'days'> & { totalCapacityMinutes?: number | undefined },
+  capacityPerDay: number,
+  weekendDays: readonly number[] = DEFAULT_WEEKEND,
+): PersonTotals {
   let assigned = 0;
   let logged = 0;
   let working = 0;
+  let perDay = 0;
+  let hasPerDay = person.days.length > 0;
   let peak = 0;
   for (const d of person.days) {
     assigned += d.assignedMinutes;
     logged += d.loggedMinutes;
     if (!isWeekend(d.date, weekendDays)) working++;
+    if (d.capacityMinutes === undefined) hasPerDay = false;
+    else perDay += d.capacityMinutes;
     if (d.assignedMinutes > peak) peak = d.assignedMinutes;
   }
-  const capacity = working * capacityPerDay;
+  const capacity = person.totalCapacityMinutes ?? (hasPerDay ? perDay : working * capacityPerDay);
   return {
     assignedMinutes: assigned,
     loggedMinutes: logged,

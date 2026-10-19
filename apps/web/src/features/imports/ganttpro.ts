@@ -26,6 +26,7 @@ import {
   parentsFromLevels,
   parentsFromWbs,
   parseDateValue,
+  parseZonedInstant,
   parseMoney,
   parseNumber,
   parsePredecessors,
@@ -297,6 +298,9 @@ export function utcCellToLocal(v: unknown): string | null {
   let ms: number | null = null;
   if (v instanceof Date) ms = Number.isNaN(v.getTime()) ? null : v.getTime();
   else if (v !== null && v !== undefined && v !== '') {
+    // An ISO text with an explicit zone is an instant already (calculations audit L8).
+    const zoned = typeof v === 'string' ? parseZonedInstant(v) : null;
+    if (zoned !== null) return new Date(zoned + RIYADH_OFFSET_MS).toISOString().slice(0, 16);
     const p = parseDateValue(v, 'MDY'); // GanttPRO writes US dates when it writes text
     if (p) ms = Date.parse(p.length === 10 ? `${p}T00:00:00Z` : `${p}:00Z`);
   }
@@ -740,6 +744,7 @@ export function ganttproToDraft(
         type: it.type as DependencyType,
         ...(it.lagMinutes !== undefined ? { lagMinutes: it.lagMinutes } : {}),
         ...(it.lagDays !== undefined ? { lagDays: it.lagDays } : {}),
+        ...(it.lagElapsedMinutes !== undefined ? { lagElapsedMinutes: it.lagElapsedMinutes } : {}),
       });
     }
   }

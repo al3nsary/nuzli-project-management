@@ -12,7 +12,7 @@ import { IconChecklist, IconFlag, IconListCheck, IconMessageCircle, IconSearch, 
 import type { MyTaskDto, TaskStatus } from '@nuzli/shared';
 import { useMyTasks } from '../../api/projectQueries';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
-import { formatDate, formatNumber, t } from '../../i18n';
+import { formatDate, formatNumber, t, tCount } from '../../i18n';
 import { useTabParam } from '../../lib/useUrlState';
 import { useUnreadByTask } from '../../features/tasks/useUnreadByTask';
 import { taskWhen } from '../../features/tasks/when';
@@ -140,7 +140,7 @@ export function MyTasksPage() {
               {groups.done.length ? (
                 <Accordion variant="contained" radius="md" defaultValue={status === 'DONE' ? 'done' : null}>
                   <Accordion.Item value="done">
-                    <Accordion.Control>{t('myTasks.doneCount', { count: formatNumber(groups.done.length) })}</Accordion.Control>
+                    <Accordion.Control>{t('myTasks.doneCount', { count: groups.done.length })}</Accordion.Control>
                     <Accordion.Panel>
                       <ul className="nz-task-cards">
                         {groups.done.map((task) => (
@@ -173,7 +173,7 @@ function SummaryTile({ tone, label, value }: { tone: string; label: string; valu
 function TaskCard({ task, bucket, unread }: { task: MyTaskDto; bucket: Bucket; unread: number }) {
   const checklist = task.checklist;
   const late = bucket === 'overdue';
-  const label = [task.name, task.project.name, taskStatusLabel(task.status as TaskStatus), unread ? t('a9s.myTasks.unreadAria', { count: formatNumber(unread) }) : '']
+  const label = [task.name, task.project.name, taskStatusLabel(task.status as TaskStatus), unread ? tCount('a9s.myTasks.unreadAria', unread) : '']
     .filter(Boolean)
     .join('، ');
   return (

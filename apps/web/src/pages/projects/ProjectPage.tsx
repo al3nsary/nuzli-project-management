@@ -83,7 +83,7 @@ import { unitOf, type GanttView, type TaskView } from '../../api/hoursWire';
 import { useSupervisors } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
 import { ErrorBlock, LoadingBlock } from '../../components/ui';
-import { formatNumber, getDisplayPrefs, t } from '../../i18n';
+import { formatNumber, getDisplayPrefs, t, tCount } from '../../i18n';
 import { Gantt, linkMessage, type AddTaskInput, type ReorderChange } from '../../features/gantt/Gantt';
 import { DEFAULT_COLUMNS, normalizeColumns, type ColumnPref } from '../../features/gantt/columns';
 import { dayOf, fitZoom, zoomsFor, type Zoom } from '../../features/gantt/geometry';
@@ -508,7 +508,7 @@ function ProjectBody(p: BodyProps) {
         const dep = await writes.run(() => api.dependencies.create(data.project.id, { predecessorId, successorId, type: 'FS', lagDays: 0 }));
         writes.merge(dep.affected);
         await writes.refresh();
-        notifications.show({ color: 'ok', message: t('gantt.linkAdded', { count: formatNumber(dep.affected.length) }) });
+        notifications.show({ color: 'ok', message: tCount('gantt.linkAdded', dep.affected.length) });
       } catch (err) {
         const msg =
           err instanceof ApiError && err.code === 'DEPENDENCY_CYCLE'
@@ -557,7 +557,7 @@ function ProjectBody(p: BodyProps) {
           try {
             const res = await writes.archive([id]);
             p.setSelected(new Set([...p.selected].filter((s) => !res.archivedIds.includes(s))));
-            notifications.show({ color: 'ok', message: t('grid.deleted', { count: formatNumber(res.archivedIds.length) }) });
+            notifications.show({ color: 'ok', message: tCount('grid.deleted', res.archivedIds.length) });
           } catch (err) {
             notifications.show({ color: 'breach', message: errorMessage(err) });
           }
@@ -571,7 +571,7 @@ function ProjectBody(p: BodyProps) {
     async (id: string, withSubtasks: boolean) => {
       try {
         const res = await writes.duplicate(id, withSubtasks);
-        notifications.show({ color: 'ok', message: t('grid.duplicated', { name: data.tasks.find((x) => x.id === id)?.name ?? '', count: formatNumber(res.tasks.length) }) });
+        notifications.show({ color: 'ok', message: tCount('grid.duplicated', res.tasks.length, { name: data.tasks.find((x) => x.id === id)?.name ?? '' }) });
       } catch (err) {
         notifications.show({ color: 'breach', message: errorMessage(err) });
       }
@@ -1083,7 +1083,7 @@ function BulkBar({ data, writes, selected, onClear }: { data: GanttView; writes:
   const run = async (patch: Parameters<ProjectWrites['bulk']>[1]) => {
     try {
       const res = await writes.bulk(ids, patch);
-      notifications.show({ color: 'ok', message: t('bulk.done', { count: formatNumber(res.tasks.length) }) });
+      notifications.show({ color: 'ok', message: tCount('bulk.done', res.tasks.length) });
     } catch (err) {
       notifications.show({ color: 'breach', message: err instanceof ApiError && err.code === 'CONFLICT_VERSION' ? t('gantt.conflict') : errorMessage(err) });
     }
@@ -1091,7 +1091,7 @@ function BulkBar({ data, writes, selected, onClear }: { data: GanttView; writes:
   const archive = () =>
     modals.openConfirmModal({
       title: t('bulk.archiveTitle'),
-      children: <Text size="sm">{t('bulk.archiveBody', { count: formatNumber(ids.length) })}</Text>,
+      children: <Text size="sm">{tCount('bulk.archiveBody', ids.length)}</Text>,
       labels: { confirm: t('bulk.archive'), cancel: t('common.cancel') },
       confirmProps: { color: 'breach' },
       onConfirm: async () => {
@@ -1104,8 +1104,8 @@ function BulkBar({ data, writes, selected, onClear }: { data: GanttView; writes:
       },
     });
   return (
-    <div className="nz-bulk" role="region" aria-label={t('bulk.selected', { count: formatNumber(ids.length) })}>
-      <span className="nz-bulk-count">{t('bulk.selected', { count: formatNumber(ids.length) })}</span>
+    <div className="nz-bulk" role="region" aria-label={t('bulk.selected', { count: ids.length })}>
+      <span className="nz-bulk-count">{t('bulk.selected', { count: ids.length })}</span>
       <Menu withinPortal position="bottom-start">
         <Menu.Target>
           <Button size="xs" variant="default" leftSection={<IconChecks size={15} />}>

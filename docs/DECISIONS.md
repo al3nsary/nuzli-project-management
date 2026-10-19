@@ -718,3 +718,39 @@ Format: each ADR has **Context · Decision · Consequences**. Status is *Accepte
 - All DTO changes are additive.
 
 **Consequences.** The web must show `byLabelNote` and use `perMemberRate`, `previousWeekToDate`, `totalCapacityMinutes` and `days[].capacityMinutes` (pending web port).
+
+## ADR-137 — Calculations audit (web): the demo imports the server's rules instead of copying them
+**Context.** ADR-133..136 moved the API's calculation rules to `@nuzli/scheduling` and `@nuzli/shared`, but the web demo kept its own copies (`features/projects/engine.ts`, `api/demo/phase4.ts`, `features/imports/model.ts`), so the demo still showed a group at 100 % as «لم تبدأ», disagreed on HOUR edits, and imported edge cases differently.
+**Decision.**
+- `features/projects/engine.ts` deletes its copies and re-exports the shared helpers (`applyScheduleEdit*`, `normalizeLeaf*`, `coerceStart`, `coerceEndLocal`, `MIN_TASK_MINUTES`, `dueDayOf`, `dueFlags`, `deadlinePassed`, `syncStatusProgress`, `normalizeStatusProgress`, `deriveGroupStatus`, `rollUpStatus`, `weightedProgress`, `progressWeight`, `roundHalfAway`). `recompute` applies the leaf invariant and `rollUpStatus`, exactly like `task-engine.recompute`. `projectProgress` = `weightedProgress` with the unit; `rootsForProgress` marks empty groups.
+- DemoApi mirrors the server: a group's status `PATCH` → `TASK_GROUP_STATUS_DERIVED`; update, batch and bulk sync status ↔ progress on leaves and ignore it on groups; reminders skip groups and are re-armed only when the due day moves; the edit window uses `isEditWindowOpen`; HOUR lags round half away from zero; the project end date is the latest due day; a working calendar exception keeps its hours (as the API stores them).
+- Reports in the demo: budget leaves exclude empty groups, `byLabelOverlapping`/`byLabelNote`, the due day in `plannedByWeek` and the dashboard, workload `capacityMinutes` per day from the default calendar and `totalCapacityMinutes`, logged time of live tasks only, `previousWeekToDate`, `perMemberRate`, portfolio `progressWeightDays`. The importer ports the API's L7/L8 parsers and drops the group status from the file.
+- The seed goes through the same `recompute`/`rollUpStatus`; `seed/demo/version.json` → 11 so returning browsers are re-seeded.
+**Consequences.** One rule set for the API, the demo and the UI previews; the API's audit cases run as web tests (`calc-audit.test.ts`, `import-audit.test.ts`, `DemoApi.calcAudit.test.ts`).
+
+## ADR-138 — Calculations audit (web): group status is read-only; status and progress move together on screen
+**Context.** H1 on the server makes a group's status derived and couples a leaf's status with its progress. The UI let a group's status be chosen in the drawer and only showed the server's answer after a round trip.
+**Decision.**
+- The list view shows a group's status as a disabled select with the tooltip «تُحسب من مهامها» (progress too); the drawer disables the status select for groups with the same hint. The server's `TASK_GROUP_STATUS_DERIVED` message is shown as is.
+- `updateTask` (one write path for the list, the board and the drawer) applies the shared `syncStatusProgress` optimistically (`features/projects/statusSync.ts`) and rolls back on an error. The drawer form syncs the two fields while editing. The board now writes through `updateTask`, so a move is undoable; the inverse batch carries both fields because the server reports both as changed.
+- The board, the dashboard widget and the Gantt compute "late" with `dueDayOf` and never for a DONE task; the Gantt days overdue are `calendarDaysOverdue`, the same number and wording as the dashboard, with a tooltip saying they are calendar days.
+**Consequences.** Moving a card to «مكتملة» shows 100 % at once; a group reads «مكتملة» when all its tasks are.
+
+## ADR-139 — Calculations audit (web): Arabic plural forms everywhere, enforced by the i18n check
+**Context.** M5/L1: count messages produced «أُعيدت جدولة ٥ مهمة», «٥ يوم», «(١ مهام)», and several callers passed `formatNumber(n)` so the plural rules could not read the number.
+**Decision.**
+- `i18n/plural.ts`: `plural(n, { zero, one, two, few, many, other })` on `Intl.PluralRules('ar')` (the sign ignored); `tCount(key, n, vars)` takes the forms from `key.zero` … `key.many` with `key` as "other" and fills `{count}` and `{n}` with the formatted number. `formatHours` uses the same forms.
+- 53 messages gained forms: the audit's 27 and every other counted noun in `ar.ts` (e.g. «لون متاح», «صف», «كرت», «رسالة», «منصب»/«فريق», «ثانية», «يوم عمل», «رابط»). Messages with two counts are composed from per-count forms. The Gantt overdue label uses the dashboard's forms (103–110 = few). Unused `bar.overdue*` keys are removed.
+- No caller passes a formatted count; `interpolate` formats numbers.
+- `scripts/check-i18n.mjs` fails when a number placeholder is followed by a counted noun without `.one/.two/.few/.many`, when a plural key is called with `t()`, and when `tCount` gets `formatNumber(…)`.
+**Consequences.** New count messages must ship their forms or the build check fails.
+
+## ADR-140 — Calculations audit (web): Riyadh-anchored HOUR dates, HOUR-aware list, per-day capacity, KPI wording
+**Context.** L2–L4, M4, L11 and the owner's design decisions on the violations dashboard.
+**Decision.**
+- `formatDate`/`formatDateTime` read a zone-less `YYYY-MM-DDTHH:MM` as Asia/Riyadh (`+03:00`), so the list, the board and the drawer show the same day on any device. The list view edits HOUR tasks with a date-time start and working hours (quarter hours), never `durationDays`.
+- `hijriSpan` names both years when a range crosses a Hijri year. The demo `parseBbox` orders south and north like the API.
+- Workload: each cell uses `days[].capacityMinutes ?? capacityMinutesPerDay`; a holiday column is hatched with «٠ س», a short day shows its capacity; totals use `totalCapacityMinutes`.
+- «حسب الوسم» shows `byLabelNote` when tasks are counted under several labels.
+- «هذا الأسبوع»: the change % is `weekChangePct(thisWeek, previousWeekToDate)` labelled «مقارنةً بالفترة نفسها من الأسبوع الماضي»; the per-member chart shows «—» when `perMemberRate` is null.
+**Consequences.** A device-zone test (`i18n/timezone.test.ts`, TZ = America/New_York) guards L3.

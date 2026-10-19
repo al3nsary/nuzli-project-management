@@ -27,6 +27,7 @@ import { ApiError, errorMessage } from '../../api/errors';
 import { useViolationStats } from '../../api/queries';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { formatDateTime, formatNumber, t } from '../../i18n';
+import { weekChangePct } from '@nuzli/shared';
 import { TeamBadge } from '../../theme/TeamBadge';
 import { useViolationFilters } from '../../features/violations/filterStore';
 import { riyadhDate } from '../../features/violations/time';
@@ -49,8 +50,12 @@ function Kpi({ label, value, foot }: { label: string; value: ReactNode; foot?: R
   );
 }
 
-/** Week-over-week change. More violations is bad news (breach), fewer is good (ok). */
-function Change({ now, prev }: { now: number; prev: number }) {
+/**
+ * Week-over-week change. More violations is bad news (breach), fewer is good (ok). Calculations
+ * audit: this week so far is compared with the SAME elapsed span of the previous week
+ * (`previousWeekToDate`, shared `weekChangePct`), so a Monday is not «−70 %» by construction.
+ */
+function Change({ now, prev, toDate }: { now: number; prev: number; toDate: boolean }) {
   if (prev === 0 && now === 0) {
     return (
       <Group gap={4}>
@@ -68,7 +73,7 @@ function Change({ now, prev }: { now: number; prev: number }) {
       </Text>
     );
   }
-  const pct = Math.round(((now - prev) / prev) * 100);
+  const pct = weekChangePct(now, prev) ?? 0;
   const up = pct > 0;
   const Icon = pct === 0 ? IconMinus : up ? IconArrowUpRight : IconArrowDownRight;
   const color = pct === 0 ? 'var(--muted)' : up ? 'var(--breach)' : 'var(--ok)';
@@ -78,8 +83,8 @@ function Change({ now, prev }: { now: number; prev: number }) {
       <Text size="sm" c={color} fw={600}>
         {t(up ? 'vdash.changeUp' : pct === 0 ? 'vdash.noChange' : 'vdash.changeDown', { pct: Math.abs(pct) })}
       </Text>
-      <Text size="sm" c="dimmed">
-        {t('vdash.vsPrev', { n: prev })}
+      <Text size="sm" c="dimmed" title={toDate ? t('vdash.vsPrevToDateHint') : undefined}>
+        {toDate ? t('vdash.vsPrevToDate', { n: prev }) : t('vdash.vsPrev', { n: prev })}
       </Text>
     </Group>
   );
@@ -163,7 +168,7 @@ export function ViolationsDashboardPage() {
         <Stack gap="md">
           <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
             <Kpi label={t('vdash.kpiTotal')} value={formatNumber(s.total)} foot={<Text size="sm" c="dimmed">{t('vdash.kpiTotalFoot')}</Text>} />
-            <Kpi label={t('vdash.kpiWeek')} value={formatNumber(s.thisWeek)} foot={<Change now={s.thisWeek} prev={s.previousWeek} />} />
+            <Kpi label={t('vdash.kpiWeek')} value={formatNumber(s.thisWeek)} foot={<Change now={s.thisWeek} prev={s.previousWeekToDate ?? s.previousWeek} toDate={s.previousWeekToDate !== undefined} />} />
             <Kpi
               label={t('vdash.kpiPrevWeek')}
               value={formatNumber(s.previousWeek)}

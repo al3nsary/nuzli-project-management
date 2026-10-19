@@ -93,11 +93,12 @@ function Chart({ option, height, label }: { option: EChartsOption; height: numbe
 /** Horizontal ranked bars, RTL: names on the right, bars growing to the left. */
 function rankedBar(
   p: Palette,
-  rows: { name: string; value: number; color?: string }[],
+  rows: { name: string; value: number | null; color?: string }[],
   opts: { decimals?: number } = {},
 ): EChartsOption {
   const d = opts.decimals ?? 0;
-  const show = (n: number) => (d ? formatNumber(Math.round(n * 10 ** d) / 10 ** d) : fmt(n));
+  // A null value is "n/a" (a team without members has no per-member rate): «—», never 0.
+  const show = (n: number | null) => (n === null || !Number.isFinite(n) ? '—' : d ? formatNumber(Math.round(n * 10 ** d) / 10 ** d) : fmt(n));
   return {
     ...base(p),
     grid: { top: 8, bottom: 8, left: 48, right: 8, containLabel: true },
@@ -116,7 +117,7 @@ function rankedBar(
       axisLine: { lineStyle: { color: p.line } },
       axisTick: { show: false },
     },
-    tooltip: { ...(base(p).tooltip as object), trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v) => show(Number(v)) },
+    tooltip: { ...(base(p).tooltip as object), trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v) => show(v === null || v === undefined || v === '-' ? null : Number(v)) },
     series: [
       {
         type: 'bar',
@@ -125,7 +126,7 @@ function rankedBar(
           value: r.value,
           itemStyle: { color: r.color ?? p.field, borderRadius: [4, 0, 0, 4] },
         })),
-        label: { show: true, position: 'left', color: p.ink, formatter: (x) => show(Number((x as { value: number }).value)) },
+        label: { show: true, position: 'left', color: p.ink, formatter: (x) => { const v = (x as { value: number | null }).value; return show(v === null || v === undefined ? null : Number(v)); } },
       },
     ],
   };
@@ -134,12 +135,13 @@ function rankedBar(
 export function TeamsChart({ stats, mode }: { stats: ViolationStats; mode: 'count' | 'perMember' }) {
   const p = usePalette();
   const rows = useMemo(() => {
+    // Calculations audit: `perMemberRate` is null for a team without members → «—» (older answers: perMember).
     const list = stats.byTeam.map((r) => ({
       name: r.teamName,
-      value: mode === 'count' ? r.count : r.perMember,
+      value: mode === 'count' ? r.count : r.perMemberRate !== undefined ? r.perMemberRate : r.perMember,
       color: r.color,
     }));
-    return mode === 'perMember' ? list.sort((a, b) => b.value - a.value) : list;
+    return mode === 'perMember' ? list.sort((a, b) => (b.value ?? -1) - (a.value ?? -1)) : list;
   }, [stats, mode]);
   const option = useMemo(() => rankedBar(p, rows, { decimals: mode === 'perMember' ? 2 : 0 }), [p, rows, mode]);
   return <Chart option={option} height={Math.max(160, rows.length * 40 + 24)} label={t('vdash.teamsAria')} />;

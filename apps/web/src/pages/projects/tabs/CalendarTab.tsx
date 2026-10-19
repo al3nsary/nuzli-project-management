@@ -9,7 +9,7 @@ import type { TaskView } from '../../../api/hoursWire';
 import { unitOf } from '../../../api/hoursWire';
 import { ApiError, errorMessage } from '../../../api/errors';
 import { useAuthStore } from '../../../stores/auth';
-import { formatLocalTime, formatNumber, getDisplayPrefs, t } from '../../../i18n';
+import { formatLocalTime, formatNumber, getDisplayPrefs, t, tCount } from '../../../i18n';
 import { riyadhToday } from '../../../features/projects/engine';
 import { engineState } from '../../../features/gantt/batch';
 import { UserAvatar } from '../../../components/UserAvatar';
@@ -426,7 +426,7 @@ export function ProjectCalendarTab({ data, writes, onOpenTask, visible }: TabPro
                 {hidden.length ? (
                   <Popover position="bottom" withArrow shadow="md" withinPortal>
                     <Popover.Target>
-                      <button type="button" className={cls.more} aria-label={t('a9c.moreAria', { n: hidden.length, date: shortDate(day, digits) })}>
+                      <button type="button" className={cls.more} aria-label={tCount('a9c.moreAria', hidden.length, { date: shortDate(day, digits) })}>
                         {t('a9c.more', { n: hidden.length })}
                       </button>
                     </Popover.Target>

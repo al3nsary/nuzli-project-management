@@ -1,24 +1,18 @@
 import type { ReactNode } from 'react';
 import { Progress, Text } from '@mantine/core';
 import type { Icon } from '@tabler/icons-react';
-import { formatMoney, t, type MessageKey } from '../../i18n';
+import { formatMoney, t, tCount, type MessageKey } from '../../i18n';
 import { formatPct, meterValue, remainingOf, toneColor, usedPct, usedTone } from './budget';
 import './reports.css';
 
-/** Arabic counted noun: 1, 2, 3–10, 11+ (n % 100 rule for the large numbers). */
-export function pluralKey(n: number, one: MessageKey, two: MessageKey, few: MessageKey, many: MessageKey): MessageKey {
-  if (n === 1) return one;
-  if (n === 2) return two;
-  const r = n % 100;
-  return r >= 3 && r <= 10 ? few : many;
-}
+/**
+ * «متأخرة يومًا واحدًا / يومين / ٥ أيام / ١٢ يومًا / ١٠٣ أيام / ١٠٠ يوم» — CALENDAR days from the due
+ * day (shared `calendarDaysOverdue`). The Gantt bar label and the dashboard use this one wording (L1).
+ */
+export const overdueText = (days: number) => tCount('a9r.overdue', days);
 
-/** «متأخرة يومًا واحدًا / يومين / ٥ أيام / ١٢ يومًا». */
-export const overdueText = (days: number) =>
-  t(pluralKey(days, 'a9r.overdue.one', 'a9r.overdue.two', 'a9r.overdue.few', 'a9r.overdue.many'), { n: days });
-
-/** «يوم واحد / يومان / ٥ أيام / ١٢ يومًا». */
-export const daysText = (days: number) => t(pluralKey(days, 'a9r.days.one', 'a9r.days.two', 'a9r.days.few', 'a9r.days.many'), { n: days });
+/** «يوم واحد / يومان / ٥ أيام / ١٢ يومًا / ١٠٠ يوم». */
+export const daysText = (days: number) => tCount('a9r.days', days);
 
 export function Kpi({
   label,

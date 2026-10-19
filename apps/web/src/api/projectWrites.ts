@@ -12,6 +12,7 @@ import { invalidateProjectReads } from './a9Queries';
 import { mergeTasks, runOptimisticBatch } from '../features/gantt/batch';
 import { archiveOp, inverseOf, rootsOf, tasksOfResult, useUndoStore, versionMoves, type UndoEntry, type UndoOp } from '../features/projects/undo';
 import { t } from '../i18n';
+import { withStatusSync } from '../features/projects/statusSync';
 
 type BulkPatch = z.input<typeof taskBulkSchema>['patch'];
 
@@ -112,12 +113,23 @@ export function useProjectWrites(projectId: string) {
 
   const updateTask = useCallback(
     async (id: string, patch: z.input<typeof updateTaskSchemaH>, label = t('undo.label.edit')) => {
-      const res = await run(() => api.tasks.update(id, patch));
+      // Calculations audit H1: a leaf's status and progress move together (shared rule), shown at
+      // once in the grid, the board and the drawer; the server answer (same rule) then replaces it.
+      const snapshot = get();
+      const optimistic = snapshot ? withStatusSync(snapshot, id, patch) : null;
+      if (optimistic) set(optimistic);
+      let res: Awaited<ReturnType<typeof api.tasks.update>>;
+      try {
+        res = await run(() => api.tasks.update(id, patch));
+      } catch (err) {
+        if (optimistic && snapshot) set(snapshot);
+        throw err;
+      }
       merge([res.task, ...res.affected]);
       record(label, inverseOf(res.previous, [res.task, ...res.affected]));
       return res;
     },
-    [api, run, merge, record],
+    [api, get, set, run, merge, record],
   );
 
   const createTask = useCallback(

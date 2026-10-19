@@ -34,6 +34,7 @@ import {
 } from '@tabler/icons-react';
 import {
   can,
+  isEditWindowOpen,
   changeViolationStatusSchema,
   type ViolationDto,
   type ViolationFileDto,
@@ -414,7 +415,7 @@ export function ViolationDrawer({ id, onClose }: { id: string | null; onClose: (
 
   const isAdmin = can(user, 'violations.manage');
   const canEditOwn =
-    !!v && v.recordedBy.id === user?.id && !!v.editableUntil && Date.parse(v.editableUntil) > Date.now();
+    !!v && v.recordedBy.id === user?.id && !!v.editableUntil && isEditWindowOpen(Date.now(), v.editableUntil);
   const canRespond = !!v && can(user, 'violations.respond') && user?.role === 'SUPERVISOR';
   const evidence = v?.files.filter((f) => f.kind === 'EVIDENCE') ?? [];
   const idCard = v?.files.find((f) => f.kind === 'ID_CARD');
@@ -615,7 +616,7 @@ export function ViolationDrawer({ id, onClose }: { id: string | null; onClose: (
             </>
           ) : null}
 
-          <Divider label={t('vdetail.responses', { n: formatNumber(v.responses.length) })} labelPosition="right" />
+          <Divider label={t('vdetail.responses', { n: v.responses.length })} labelPosition="right" />
           {v.responses.length ? (
             <Stack gap="xs">
               {v.responses.map((r) => (

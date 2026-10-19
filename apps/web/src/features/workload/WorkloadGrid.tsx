@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import type { WorkloadDto } from '@nuzli/shared';
 import { UserAvatar } from '../../components/UserAvatar';
 import { formatDate, formatMinutes, formatNumber, getDisplayPrefs, t } from '../../i18n';
-import { DEFAULT_WEEKEND, dayTotals, hoursOf, isWeekend, loadLevel, personTotals, type LoadLevel } from './math';
+import { DEFAULT_WEEKEND, dayCapacity, dayTotals, hoursOf, isWeekend, loadLevel, personTotals, type LoadLevel } from './math';
 import './workload.css';
 
 const weekdayFmt = () => new Intl.DateTimeFormat(`ar-SA-u-ca-gregory-nu-${getDisplayPrefs().digits}`, { weekday: 'short', timeZone: 'UTC' });
@@ -38,6 +38,11 @@ export function WorkloadGrid({
     () => data.people.map((p) => ({ person: p, totals: personTotals(p, cap, weekendDays), byDate: new Map(p.days.map((d) => [d.date, d])) })),
     [data.people, cap, weekendDays],
   );
+  // M4: the capacity of each column (the API gives the same per-day capacity to everyone).
+  const columnCap = useMemo(() => {
+    const first = data.people[0];
+    return new Map(data.days.map((d) => [d, dayCapacity(first?.days.find((x) => x.date === d), cap)]));
+  }, [data.people, data.days, cap]);
   const wd = weekdayFmt();
   const mf = monthFmt();
 
@@ -62,19 +67,26 @@ export function WorkloadGrid({
               </th>
               {data.days.map((d, i) => {
                 const first = i === 0 || d.endsWith('-01');
+                const weekend = isWeekend(d, weekendDays);
+                const dc = columnCap.get(d) ?? cap;
+                const holiday = !weekend && dc === 0;
+                const short = !weekend && dc > 0 && dc < cap;
                 return (
                   <th
                     key={d}
                     scope="col"
                     className="wl-day-h"
-                    data-weekend={isWeekend(d, weekendDays) || undefined}
+                    data-weekend={weekend || undefined}
+                    data-holiday={holiday || undefined}
+                    data-short={short || undefined}
                     data-today={d === today || undefined}
                     data-month-start={first || undefined}
-                    title={formatDate(d)}
+                    title={[formatDate(d), holiday ? t('a9r.wl.holiday') : short ? t('a9r.wl.shortDay', { h: hours(dc) }) : null].filter(Boolean).join('\n')}
                   >
                     <span className="wl-month">{first ? mf.format(utc(d)) : ' '}</span>
                     <span className="wl-wd">{wd.format(utc(d))}</span>
                     <span className="wl-dn num">{formatNumber(Number(d.slice(8, 10)))}</span>
+                    {holiday || short ? <span className="wl-cap num">{t('a9r.wl.capMark', { h: hours(dc) })}</span> : null}
                   </th>
                 );
               })}
@@ -101,20 +113,23 @@ export function WorkloadGrid({
                   const day = byDate.get(d);
                   const assigned = day?.assignedMinutes ?? 0;
                   const logged = day?.loggedMinutes ?? 0;
-                  const level = loadLevel(assigned, cap);
+                  // M4: this day's own capacity (0 on a holiday, less on a short day).
+                  const dayCap = dayCapacity(day, cap);
+                  const level = loadLevel(assigned, dayCap);
                   const weekend = isWeekend(d, weekendDays);
+                  const holiday = !weekend && dayCap === 0;
                   const tip = [
                     `${person.user.fullName} · ${formatDate(d)}`,
-                    assigned ? t('a9r.wl.tipAssigned', { h: hours(assigned), cap: hours(cap) }) : t('a9r.wl.tipFree'),
+                    assigned ? t('a9r.wl.tipAssigned', { h: hours(assigned), cap: hours(dayCap) }) : t('a9r.wl.tipFree'),
                     day?.taskCount ? t('a9r.wl.tipTasks', { n: day.taskCount }) : null,
                     logged ? t('a9r.wl.tipLogged', { time: formatMinutes(logged) }) : null,
-                    level === 'over' ? t('a9r.wl.tipOver', { h: hours(assigned - cap) }) : null,
-                    weekend ? t('a9r.wl.weekend') : null,
+                    level === 'over' ? t('a9r.wl.tipOver', { h: hours(assigned - dayCap) }) : null,
+                    weekend ? t('a9r.wl.weekend') : holiday ? t('a9r.wl.holiday') : !weekend && dayCap < cap ? t('a9r.wl.shortDay', { h: hours(dayCap) }) : null,
                   ]
                     .filter(Boolean)
                     .join('\n');
                   return (
-                    <td key={d} className="wl-cell" data-level={level} data-weekend={weekend || undefined} data-today={d === today || undefined} title={tip}>
+                    <td key={d} className="wl-cell" data-level={level} data-weekend={weekend || undefined} data-holiday={holiday || undefined} data-today={d === today || undefined} title={tip}>
                       {assigned ? <span className="wl-h num">{hours(assigned)}</span> : null}
                       {logged ? <span className="wl-l num">{hours(logged)}</span> : null}
                       <span className="sr-only">{tip}</span>

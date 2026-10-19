@@ -95,8 +95,19 @@
   font-weight: 600;
   color: var(--ink);
 }
-.wl-day-h[data-weekend] {
+.wl-day-h[data-weekend],
+.wl-day-h[data-holiday] {
   background: color-mix(in srgb, var(--dim2) 12%, var(--panel2));
+}
+/* M4: a holiday or a short day shows its own capacity under the date. */
+.wl-cap {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--amber);
+}
+.wl-day-h[data-holiday] .wl-cap {
+  color: var(--dim);
 }
 .wl-day-h[data-today] .wl-dn {
   display: inline-grid;
@@ -156,12 +167,14 @@
   --wl-bg: transparent;
   background: var(--wl-bg);
 }
-.wl-cell[data-weekend] {
+.wl-cell[data-weekend],
+.wl-cell[data-holiday] {
   background:
     repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--dim2) 14%, transparent) 5px 6px),
     var(--wl-bg);
 }
-.wl-cell[data-weekend][data-level='idle'] {
+.wl-cell[data-weekend][data-level='idle'],
+.wl-cell[data-holiday][data-level='idle'] {
   --wl-bg: color-mix(in srgb, var(--dim2) 5%, transparent);
 }
 .wl-cell[data-level='light'] {

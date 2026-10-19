@@ -10,6 +10,7 @@ import { useApi } from '../../api/context';
 import { qk4, useMyTasks, useProjects } from '../../api/projectQueries';
 import { formatNumber, t } from '../../i18n';
 import { riyadhToday } from '../../features/projects/today';
+import { dueDayOf } from '@nuzli/scheduling';
 import { bucketOf } from './parts';
 
 /** Overdue = leaf tasks ended before today (Riyadh) and not DONE, across up to 12 active projects. */
@@ -24,7 +25,7 @@ export function ProjectsKpi() {
   const overdue = gantts.reduce((n, g) => {
     const tasks = g.data?.tasks ?? [];
     const parents = new Set(tasks.map((x) => x.parentId).filter(Boolean));
-    return n + tasks.filter((x) => !parents.has(x.id) && x.status !== 'DONE' && x.endDate < today).length;
+    return n + tasks.filter((x) => !parents.has(x.id) && x.type !== 'GROUP' && x.status !== 'DONE' && dueDayOf(x) < today).length;
   }, 0);
   return (
     <Card className="nz-kpi-card" data-tone={overdue ? 'no' : undefined}>

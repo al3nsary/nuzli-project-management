@@ -94,7 +94,7 @@ function UnitConvert({ project, onDone }: { project: ProjectView; onDone(): Prom
       title: t(target === 'HOUR' ? 'convert.toHoursTitle' : 'convert.toDaysTitle'),
       children: (
         <Stack gap="xs">
-          <Text size="sm">{t(target === 'HOUR' ? 'convert.toHoursBody' : 'convert.toDaysBody', { count: formatNumber(project.taskCount) })}</Text>
+          <Text size="sm">{t(target === 'HOUR' ? 'convert.toHoursBody' : 'convert.toDaysBody', { count: project.taskCount })}</Text>
           <Alert color="signal" variant="light">
             <Text size="sm">{t('convert.milestoneCaveat')}</Text>
           </Alert>
@@ -235,7 +235,7 @@ function GeneralPanel({ project, onClose, opened }: { project: ProjectView; onCl
         </Button>
       </Group>
       <Alert color="gray" variant="light" mt="md">
-        <Text size="sm">{t('projects.archiveHint', { count: formatNumber(project.taskCount) })}</Text>
+        <Text size="sm">{t('projects.archiveHint', { count: project.taskCount })}</Text>
         <Button mt="xs" size="xs" color="breach" variant="light" onClick={archive}>
           {t('projects.archive')}
         </Button>

@@ -39,7 +39,7 @@ import { PhotoAvatar } from '../../components/UserAvatar';
 import { TeamBadge } from '../../theme/TeamBadge';
 import { buildForest, canMoveUnit, visibleRows, type OrgNode } from '../../features/org/layout';
 import { dirSign } from '../../lib/direction';
-import { formatNumber, t, type MessageKey } from '../../i18n';
+import { formatNumber, t, tCount, type MessageKey } from '../../i18n';
 import { kindLabel, useOrgAction } from './dialogs';
 import { ForemanAvatar, ForemanBadge } from '../../components/Foreman';
 
@@ -261,7 +261,7 @@ export function OrgTree({
             <span className="og-kind">{kindLabel(u.kind)}</span>
             {u.code ? <span className="og-code ltr mono">{u.code}</span> : null}
             <span className="og-counts">
-              {t('org.tree.counts', { positions: formatNumber(u.positions.length), teams: formatNumber(u.teams.length) })}
+              {t('org.tree.counts', { positions: tCount('org.tree.positions', u.positions.length), teams: tCount('org.tree.teams', u.teams.length) })}
             </span>
             {canManage ? (
               <Menu position="bottom-end" width={240} shadow="md" withinPortal>

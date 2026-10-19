@@ -20,7 +20,7 @@ import { ApiError } from '../../api/errors';
 import { useAuthStore } from '../../stores/auth';
 import { useZodForm } from '../../forms/useZodForm';
 import { FormError, roleLabel } from '../../components/ui';
-import { t } from '../../i18n';
+import { t, tCount } from '../../i18n';
 import { AuthLayout } from './AuthLayout';
 
 const ROLE_ICON: Partial<Record<Role, Icon>> = {
@@ -100,7 +100,7 @@ export function LoginPage() {
           <FormError error={error} />
           {retryUntil ? (
             <Alert color={waitSeconds > 0 ? 'signal' : 'ok'} role="status" aria-live="polite">
-              {waitSeconds > 0 ? t('login.rateLimited', { seconds: waitSeconds }) : t('login.retryNow')}
+              {waitSeconds > 0 ? tCount('login.rateLimited', waitSeconds) : t('login.retryNow')}
             </Alert>
           ) : null}
           <TextInput

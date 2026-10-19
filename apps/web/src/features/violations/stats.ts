@@ -1,4 +1,4 @@
-import type { Severity, ViolationFilter, ViolationStats, ViolationStatus } from '@nuzli/shared';
+import { perMemberRate, type Severity, type ViolationFilter, type ViolationStats, type ViolationStatus } from '@nuzli/shared';
 import {
   DAY_MS,
   riyadhDate,
@@ -41,7 +41,8 @@ export function parseBbox(bbox: string | undefined) {
   if (!bbox) return null;
   const [south, west, north, east] = bbox.split(',').map(Number);
   if ([south, west, north, east].some((n) => n === undefined || Number.isNaN(n))) return null;
-  return { south: south!, west: west!, north: north!, east: east! };
+  // Calculations audit L4 (as the API's violation-scope): south and north in either order.
+  return { south: Math.min(south!, north!), west: west!, north: Math.max(south!, north!), east: east! };
 }
 
 /** The same WHERE as the API's `violationWhereSql()` (dates are Riyadh days). */
@@ -105,11 +106,15 @@ export function computeViolationStats(
   const week = riyadhWeekBounds(now);
   let thisWeek = 0;
   let previousWeek = 0;
+  // The same elapsed span of the previous week: previous Sunday 00:00 → now − 7 days (as the API).
+  let previousWeekToDate = 0;
+  const prevToDateEnd = Math.min(now.getTime(), week.nextStart.getTime()) - 7 * 86_400_000;
   for (const v of all) {
     if (!matchesFilter(v, f, { ignoreDates: true })) continue;
     const t = Date.parse(v.capturedAt);
     if (t >= week.thisStart.getTime() && t < week.nextStart.getTime()) thisWeek++;
     else if (t >= week.prevStart.getTime() && t < week.thisStart.getTime()) previousWeek++;
+    if (t >= week.prevStart.getTime() && t < prevToDateEnd) previousWeekToDate++;
   }
 
   const end = periodEnd(f, now);
@@ -124,6 +129,7 @@ export function computeViolationStats(
         count,
         members,
         perMember: members > 0 ? round2(count / members) : 0,
+        perMemberRate: perMemberRate(count, members),
       };
     })
     .sort((a, b) => b.count - a.count || a.teamName.localeCompare(b.teamName, 'ar'));
@@ -175,6 +181,7 @@ export function computeViolationStats(
     total: rows.length,
     thisWeek,
     previousWeek,
+    previousWeekToDate,
     byTeam,
     topMembers,
     byMonitor,

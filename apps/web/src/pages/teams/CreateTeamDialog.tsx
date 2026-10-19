@@ -39,7 +39,7 @@ import {
 import { useAuthStore } from '../../stores/auth';
 import { FormError } from '../../components/ui';
 import { validateImportRows } from '../../features/members/importRows';
-import { t } from '../../i18n';
+import { t, tCount } from '../../i18n';
 import { ColorPicker } from './shared';
 import { MembersImporter } from './MembersImporter';
 
@@ -350,7 +350,7 @@ export function CreateTeamDialog({ opened, onClose }: { opened: boolean; onClose
               if (!team) return;
               return api.teams.importMembers({ teamId: team.id, rows, commit: true });
             }}
-            commitLabel={(n) => t('teams.createWithMembers', { count: n })}
+            commitLabel={(n) => tCount('teams.createWithMembers', n)}
             extraActions={
               created ? (
                 <Button variant="light" onClick={() => finish(created)}>
