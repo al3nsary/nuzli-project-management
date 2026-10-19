@@ -7,7 +7,7 @@
  * bulk bar · the task drawer and the settings drawer. Drawers, the tab and the filter live in
  * the URL / view preferences so links and back work.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   ActionIcon,
@@ -53,10 +53,10 @@ import {
   IconFileTypeXml,
   IconFileTypePdf,
   IconFilter,
-  IconFolder,
   IconLayoutKanban,
   IconListTree,
   IconPalette,
+  IconPencil,
   IconPhoto,
   IconSettings,
   IconSortAscending2,
@@ -83,6 +83,7 @@ import { unitOf, type GanttView, type TaskView } from '../../api/hoursWire';
 import { useSupervisors } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
 import { ErrorBlock, LoadingBlock } from '../../components/ui';
+import { UserAvatar } from '../../components/UserAvatar';
 import { formatNumber, getDisplayPrefs, t } from '../../i18n';
 import { Gantt, linkMessage, type AddTaskInput, type ReorderChange } from '../../features/gantt/Gantt';
 import { DEFAULT_COLUMNS, normalizeColumns, type ColumnPref } from '../../features/gantt/columns';
@@ -140,7 +141,7 @@ interface SavedView {
   columns?: ColumnPref[];
 }
 
-const BAR_SWATCHES = ['#303F9F', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F9A825', '#EF6C00', '#C62828', '#AD1457', '#6A1B9A', '#5D4037', '#546E7A'];
+const BAR_SWATCHES = ['#5030e5', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F9A825', '#EF6C00', '#C62828', '#AD1457', '#6A1B9A', '#5D4037', '#546E7A'];
 
 export function ProjectPage() {
   const { id = '' } = useParams();
@@ -282,9 +283,6 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
   };
   return (
     <header className="nz-ps-head">
-      <span className="nz-pl-folder nz-ps-folder" aria-hidden>
-        <IconFolder size={20} />
-      </span>
       {editing ? (
         <TextInput
           autoFocus
@@ -306,6 +304,13 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
           {p.name}
         </h1>
       )}
+      {admin && !editing ? (
+        <Tooltip label={t('project.rename')} withinPortal>
+          <button type="button" className="nz-ps-chip" aria-label={t('project.rename')} onClick={() => setEditing(true)}>
+            <IconPencil size={16} aria-hidden />
+          </button>
+        </Tooltip>
+      ) : null}
       <Tooltip label={fav ? t('projects.unfavourite') : t('projects.favourite')} withinPortal>
         <ActionIcon
           variant="subtle"
@@ -332,8 +337,9 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
       ) : null}
       {unitOf(p) === 'HOUR' ? <span className="pill brand">{t('projects.hourBadge')}</span> : null}
       <span className="nz-ps-spacer" />
+      <TeamStack tasks={data.tasks} />
       {admin ? (
-        <Group gap={4} wrap="nowrap">
+        <Group gap={8} wrap="nowrap">
           <Button variant="default" size="xs" leftSection={<IconSettings size={16} />} onClick={onSettings}>
             {t('project.menu.settings')}
           </Button>
@@ -356,6 +362,30 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
       ) : null}
       <SaveTemplateModal opened={tplOpen} onClose={() => setTplOpen(false)} projectId={p.id} projectName={p.name} />
     </header>
+  );
+}
+
+/** The people on the project's tasks, overlapped like the design's member stack, with «+N» for the rest. */
+function TeamStack({ tasks }: { tasks: GanttView['tasks'] }) {
+  const people = useMemo(() => {
+    const seen = new Map<string, NonNullable<GanttView['tasks'][number]['assignee']>>();
+    for (const x of tasks) if (x.assignee && !seen.has(x.assignee.id)) seen.set(x.assignee.id, x.assignee);
+    return [...seen.values()];
+  }, [tasks]);
+  if (!people.length) return null;
+  const shown = people.slice(0, 4);
+  const rest = people.length - shown.length;
+  return (
+    <div className="nz-ps-stack" role="group" aria-label={t('project.people', { n: formatNumber(people.length) })}>
+      {shown.map((a) => (
+        <Tooltip key={a.id} label={`${a.fullName}${a.teamName ? ` — ${a.teamName}` : ''}`} withinPortal>
+          <span className="nz-ps-stack-i" style={{ '--team': a.teamColor ?? 'var(--primary)' } as CSSProperties}>
+            <UserAvatar name={a.fullName} size={38} ring={false} />
+          </span>
+        </Tooltip>
+      ))}
+      {rest > 0 ? <span className="nz-ps-stack-more num">{`+${formatNumber(rest)}`}</span> : null}
+    </div>
   );
 }
 

@@ -116,8 +116,8 @@ export function LogoRow({
 export const PHOTO_ASPECT = 4 / 3;
 // A9 identity (QA): the placeholder takes the Nozoly indigo tints instead of the old Muhsen green.
 export const PHOTO_BORDER = '#C5CAE9';
-export const PHOTO_FILL = '#E8EAF6';
-export const PHOTO_INK = '#303F9F';
+export const PHOTO_FILL = '#f0edfd';
+export const PHOTO_INK = '#5030e5';
 export const PHOTO_RADIUS_MM = 1;
 export const PHOTO_BORDER_MM = 0.25;
 
@@ -172,7 +172,7 @@ export function PhotoArea({ model, widthMm, heightMm }: { model: CardModel; widt
 }
 
 /** Foreman indigo (Nozoly indigo 700) and its print-safe white text: contrast 8.6:1. */
-export const FOREMAN_INK = '#303F9F';
+export const FOREMAN_INK = '#5030e5';
 
 /** A hard hat (helmet) glyph as inline SVG — no icon font, prints as vector. */
 export function HelmetGlyph({ sizeMm, color = '#FFFFFF' }: { sizeMm: number; color?: string }) {

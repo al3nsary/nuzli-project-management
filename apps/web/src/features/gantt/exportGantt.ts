@@ -31,7 +31,7 @@ const C = {
   ground: '#F7F8FA',
   surface: '#FFFFFF',
   line: '#E6E8EC',
-  field: '#303F9F',
+  field: '#5030e5',
   signal: '#A35C00',
   breach: '#C62828',
   ok: '#2E7D32',

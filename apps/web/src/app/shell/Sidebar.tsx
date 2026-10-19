@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Tooltip } from '@mantine/core';
 import { useFocusTrap, useMergedRef } from '@mantine/hooks';
 import {
@@ -8,12 +8,17 @@ import {
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
+  IconBulb,
   IconPlus,
+  IconSquareRoundedPlus,
   IconX,
 } from '@tabler/icons-react';
+import { can } from '@nuzli/shared';
 import { NAV_GROUPS, type BadgeKind, type NavNode } from '../nav';
 import { formatNumber, t } from '../../i18n';
-import { MuhsenSystemLine, NozolyLogo } from '../../components/Brand';
+import { NozolyLogo } from '../../components/Brand';
+import { useAuthStore } from '../../stores/auth';
+import { useProjects } from '../../api/projectQueries';
 import { useShellStore } from './store';
 import { sumBadges } from './useNavModel';
 import { dirSign } from '../../lib/direction';
@@ -123,29 +128,87 @@ function NavContainer({
   );
 }
 
+/** The four dot colours of the design's project list, picked per project from its id. */
+const PROJECT_DOTS = ['#7ac555', '#ffa500', '#a18ff3', '#76a5ea'];
+const dotOf = (id: string) => PROJECT_DOTS[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % PROJECT_DOTS.length]!;
+const SIDE_PROJECTS = 6;
+
+/** «مشاريعي»: the live projects with a colour dot, the open one on the tint (the design's side list). */
+function MyProjects({ canCreate, onPick }: { canCreate: boolean; onPick(): void }) {
+  const user = useAuthStore((s) => s.user);
+  const { pathname } = useLocation();
+  const list = useProjects({}, can(user, 'projects.readAll'));
+  const projects = (list.data ?? []).filter((p) => !p.isTemplate).slice(0, SIDE_PROJECTS);
+  if (!projects.length) return null;
+  return (
+    <div className="nz-myp" role="group" aria-label={t('nav.myProjects')}>
+      <div className="nz-myp-head">
+        <span>{t('nav.myProjects')}</span>
+        {canCreate ? (
+          <Tooltip label={t('nav.newProject')}>
+            <Link to="/projects?create=1" aria-label={t('nav.newProject')} onClick={onPick}>
+              <IconSquareRoundedPlus size={18} stroke={1.5} aria-hidden />
+            </Link>
+          </Tooltip>
+        ) : null}
+      </div>
+      {projects.map((p) => {
+        const on = pathname === `/projects/${p.id}` || pathname.startsWith(`/projects/${p.id}/`);
+        return (
+          <Link
+            key={p.id}
+            to={`/projects/${p.id}`}
+            className={on ? 'nz-myp-row on' : 'nz-myp-row'}
+            aria-current={on ? 'page' : undefined}
+            onClick={onPick}
+          >
+            <i style={{ background: dotOf(p.id) }} aria-hidden />
+            <b>{p.name}</b>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The design's quiet card at the foot of the side: one line and the way to the communication centre. */
+function ThoughtsCard({ onPick }: { onPick(): void }) {
+  return (
+    <div className="nz-thoughts">
+      <span className="nz-thoughts-bulb" aria-hidden>
+        <IconBulb size={22} stroke={1.6} />
+      </span>
+      <b>{t('nav.thoughtsTitle')}</b>
+      <p>{t('nav.thoughtsBody')}</p>
+      <Link to="/hub" className="nz-thoughts-btn" onClick={onPick}>
+        {t('nav.thoughtsAction')}
+      </Link>
+    </div>
+  );
+}
+
 /**
- * The side navigation, GanttPRO-style (owner request A9): a white panel with the Nozoly logo and
- * the fold button on top, the prominent «+ إنشاء مشروع جديد» button (admins), then the items in
- * GanttPRO's order with quiet hairline separators; the active item is indigo on an indigo tint
- * with a 3px bar on its inline-start edge. «منظومة مُحسن» sits quietly at the foot.
- * Desktop: 256px or the 68px rail (Ctrl+B). Phones: a drawer from the inline start.
+ * The side navigation (owner requests A9 and A11, the Figma project dashboard): a white panel with
+ * the Nozoly logo and the fold button on top, the «+ إنشاء مشروع جديد» button (admins), the
+ * items in order with quiet hairline separators, «مشاريعي» with a colour dot per project, and the
+ * «وقت الأفكار» card at the foot. The active item sits on the violet tint.
+ * Desktop: 250px or the 68px rail (Ctrl+B). Phones: a drawer from the inline start.
  */
 export function Sidebar({
   tree,
   chain,
   badges,
   mobile,
-  footer,
   canCreate = false,
 }: {
   tree: NavNode[];
   chain: string[];
   badges: Record<BadgeKind, number>;
   mobile: boolean;
-  footer?: ReactNode;
   /** Shows «+ إنشاء مشروع جديد» (opens the existing create-project dialog). */
   canCreate?: boolean;
 }) {
+  const user = useAuthStore((s) => s.user);
   const mini = useShellStore((s) => s.mini) && !mobile;
   const drawer = useShellStore((s) => s.drawer);
   const setDrawer = useShellStore((s) => s.setDrawer);
@@ -282,12 +345,14 @@ export function Sidebar({
             </div>
           );
         })}
+        {mini ? null : <MyProjects canCreate={canCreate} onPick={ctx.onPick} />}
       </div>
 
-      <div className="nz-side-foot">
-        {footer}
-        <MuhsenSystemLine mini={mini} />
-      </div>
+      {mini || !can(user, 'tasks.comment') ? null : (
+        <div className="nz-side-foot">
+          <ThoughtsCard onPick={ctx.onPick} />
+        </div>
+      )}
     </nav>
   );
 }

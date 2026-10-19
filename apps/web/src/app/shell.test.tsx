@@ -54,7 +54,7 @@ describe('RTL app shell', () => {
     expect(await screen.findByText('أعضاء محفوظون على الجهاز')).toBeInTheDocument();
   });
 
-  it('gives admins the GanttPRO-style side: «+ إنشاء مشروع جديد» and «كل المشاريع» first (A9)', async () => {
+  it('gives admins the side of the A11 design: «+ إنشاء مشروع جديد» and «كل المشاريع» first (A9)', async () => {
     await renderAs('admin1@demo.nuzli.example');
     const nav = await screen.findByRole('navigation', { name: 'القائمة الرئيسية' });
     const create = within(nav).getByRole('link', { name: 'إنشاء مشروع جديد' });
@@ -64,7 +64,8 @@ describe('RTL app shell', () => {
       .map((a) => a.textContent ?? '')
       .filter((x) => x && x !== 'إنشاء مشروع جديد');
     expect(links.slice(1, 7)).toEqual(['كل المشاريع', 'المحافظ', 'مهامي', 'سجل وقتي', 'التقارير', 'عبء العمل']);
-    expect(within(nav).getByText('منظومة مُحسن')).toBeInTheDocument();
+    expect(within(nav).queryByText(/مُحسن/)).toBeNull();
+    expect(within(nav).getByText('وقت الأفكار')).toBeInTheDocument();
   });
 
   it('shows a supervisor «مهامي» first and no project management (A9)', async () => {
