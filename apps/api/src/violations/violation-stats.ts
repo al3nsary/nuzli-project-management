@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { ViolationFilter, ViolationStats } from '@nuzli/shared';
+import { perMemberRate, type ViolationFilter, type ViolationStats } from '@nuzli/shared';
 import { parseBbox, riyadhDate, riyadhDayEnd, riyadhDayStart, riyadhWeekBounds } from './violation-scope';
 
 /** The map shows at most this many points (newest first); `pointsTruncated` says when more matched. */
@@ -53,13 +53,16 @@ export function statsQueries(f: ViolationFilter, now: Date) {
   const where = violationWhereSql(f);
   const whereNoDates = violationWhereSql(f, { ignoreDates: true });
   const week = riyadhWeekBounds(now);
+  // The same elapsed span of the previous week: previous Sunday 00:00 → now − 7 days.
+  const prevToDateEnd = new Date(Math.min(now.getTime(), week.nextStart.getTime()) - 7 * 86_400_000);
   const end = periodEnd(f, now);
   return {
     totals: Prisma.sql`
       SELECT
         (SELECT count(*)::int FROM ${FROM} WHERE ${where}) AS total,
         count(*) FILTER (WHERE v.captured_at >= ${week.thisStart}::timestamptz AND v.captured_at < ${week.nextStart}::timestamptz)::int AS this_week,
-        count(*) FILTER (WHERE v.captured_at >= ${week.prevStart}::timestamptz AND v.captured_at < ${week.thisStart}::timestamptz)::int AS previous_week
+        count(*) FILTER (WHERE v.captured_at >= ${week.prevStart}::timestamptz AND v.captured_at < ${week.thisStart}::timestamptz)::int AS previous_week,
+        count(*) FILTER (WHERE v.captured_at >= ${week.prevStart}::timestamptz AND v.captured_at < ${prevToDateEnd}::timestamptz)::int AS previous_week_to_date
       FROM ${FROM}
       WHERE ${whereNoDates} AND v.captured_at >= ${week.prevStart}::timestamptz AND v.captured_at < ${week.nextStart}::timestamptz`,
     byTeam: Prisma.sql`
@@ -77,12 +80,12 @@ export function statsQueries(f: ViolationFilter, now: Date) {
       SELECT g.member_id, mb.full_name, ct.name AS team_name, cc.hex AS color, g.n AS count
       FROM (SELECT v.member_id, count(*)::int AS n FROM ${FROM} WHERE ${where} AND v.member_id IS NOT NULL
              GROUP BY v.member_id HAVING count(*) > 1
-             ORDER BY count(*) DESC LIMIT ${Prisma.raw(String(TOP_MEMBERS))}) g
+             ORDER BY count(*) DESC, v.member_id LIMIT ${Prisma.raw(String(TOP_MEMBERS))}) g
       JOIN team_members mb ON mb.id = g.member_id
       LEFT JOIN team_memberships om ON om.member_id = g.member_id AND om.valid_to IS NULL
       LEFT JOIN teams ct ON ct.id = om.team_id
       LEFT JOIN team_colors cc ON cc.id = ct.color_id
-      ORDER BY g.n DESC, mb.full_name`,
+      ORDER BY g.n DESC, mb.full_name, g.member_id`,
     byMonitor: Prisma.sql`
       SELECT v.recorded_by AS user_id, u.full_name, count(*)::int AS count
       FROM ${FROM} JOIN users u ON u.id = v.recorded_by
@@ -126,7 +129,7 @@ export type StatsQueries = ReturnType<typeof statsQueries>;
 
 /** Raw rows as returned by `$queryRaw` for each query. */
 export interface StatsRows {
-  totals: Array<{ total: number; this_week: number; previous_week: number }>;
+  totals: Array<{ total: number; this_week: number; previous_week: number; previous_week_to_date?: number }>;
   byTeam: Array<{ team_id: string; team_name: string; color: string; count: number; members: number }>;
   topMembers: Array<{ member_id: string; full_name: string; team_name: string | null; color: string | null; count: number }>;
   byMonitor: Array<{ user_id: string; full_name: string; count: number }>;
@@ -168,6 +171,7 @@ export function assembleStats(rows: StatsRows, f: ViolationFilter, now: Date): V
     total: Number(totals.total ?? 0),
     thisWeek: Number(totals.this_week ?? 0),
     previousWeek: Number(totals.previous_week ?? 0),
+    previousWeekToDate: Number(totals.previous_week_to_date ?? 0),
     byTeam: rows.byTeam.map((r) => {
       const count = Number(r.count);
       const members = Number(r.members);
@@ -178,6 +182,7 @@ export function assembleStats(rows: StatsRows, f: ViolationFilter, now: Date): V
         count,
         members,
         perMember: members > 0 ? round2(count / members) : 0,
+        perMemberRate: perMemberRate(count, members),
       };
     }),
     topMembers: rows.topMembers.map((r) => ({

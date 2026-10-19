@@ -38,7 +38,7 @@ export const BUILTIN_CARD_SIZES: ReadonlyArray<{ name: string; widthMm: number; 
   { name: '4″ × 2″', widthMm: 101.6, heightMm: 50.8 },
   { name: '3″ × 2″', widthMm: 76.2, heightMm: 50.8 },
   { name: '4″ × 3″', widthMm: 101.6, heightMm: 76.2 },
-  { name: '2.25″ × 1.25″', widthMm: 57, heightMm: 32 },
+  { name: '2.25″ × 1.25″', widthMm: 57.15, heightMm: 31.75 },
 ];
 
 export const DEFAULT_CALENDAR = {

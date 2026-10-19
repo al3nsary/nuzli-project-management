@@ -72,6 +72,8 @@ export const ERRORS = {
   TASK_PARENT_INVALID: 'لا يمكن وضع المهمة تحت نفسها أو تحت إحدى مهامها الفرعية أو تحت معلَم.',
   PROJECT_ARCHIVED: 'هذا المشروع مؤرشف، فلا يمكن تعديله.',
   CALENDAR_DATE_EXISTS: 'يوجد استثناء في هذا التاريخ في التقويم مسبقًا.',
+  /** Calculations audit H1: a group's status follows its sub-tasks. */
+  TASK_GROUP_STATUS_DERIVED: 'حالة المجموعة تُحسب من مهامّها الفرعية، فلا تُعدَّل يدويًّا. غيّر حالة المهامّ داخلها.',
   // A9 — budget, labels, custom fields, view prefs, templates, time log
   LABEL_NOT_IN_PROJECT: 'الوسم لا يتبع هذا المشروع. حدّث الصفحة واختر وسمًا من المشروع نفسه.',
   CUSTOM_FIELD_VALUE_INVALID: 'القيمة لا تناسب نوع الحقل المخصّص.',

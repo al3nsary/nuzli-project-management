@@ -7,6 +7,7 @@ import {
   toMinuteNumber,
 } from './dates';
 import type { ScheduleDependency, ScheduleTask } from './types';
+import { roundHalfAway } from './progress';
 import { hoursToMinutes, minutesToHours } from './units';
 
 /**
@@ -92,7 +93,8 @@ export function dependenciesToHours<D extends ScheduleDependency>(
 
 /**
  * HOUR → DAY dependencies: `lagDays` = `lagHours` ÷ the standard day length,
- * rounded to the nearest whole day (a missing `lagHours` keeps `lagDays`).
+ * rounded to the nearest whole day HALF AWAY FROM ZERO (+4 h → +1 d and −4 h → −1 d on an
+ * 8-hour day; calculations audit L7). A missing `lagHours` keeps `lagDays`.
  */
 export function dependenciesToDays<D extends ScheduleDependency>(
   deps: readonly D[],
@@ -102,6 +104,6 @@ export function dependenciesToDays<D extends ScheduleDependency>(
   return deps.map((d) =>
     d.lagHours == null
       ? d
-      : { ...d, lagDays: Math.round(hoursToMinutes(d.lagHours) / cal.standardMinutesPerDay) || 0 },
+      : { ...d, lagDays: roundHalfAway(hoursToMinutes(d.lagHours) / cal.standardMinutesPerDay) },
   );
 }

@@ -14,14 +14,18 @@ export interface BuiltinCardSize extends CardDimensions {
   isDefault: boolean;
 }
 
-/** The six presets of brief §8.3, landscape (long side = width). CR80 is the default. */
+/**
+ * The six presets of brief §8.3, landscape (long side = width). CR80 is the default.
+ * Inch sizes are exact (1″ = 25.4 mm): 2.25″ × 1.25″ = 57.15 × 31.75 mm (calculations audit L9 —
+ * a page 0.25 mm taller than continuous label stock drifts or feeds an extra label).
+ */
 export const BUILTIN_CARD_SIZES: readonly BuiltinCardSize[] = Object.freeze([
   { key: 'CR80', name: 'CR80 — بطاقة هوية قياسية (افتراضي)', widthMm: 85.6, heightMm: 54, isDefault: true },
   { key: 'W90_H40', name: '90 × 40 — المقاس المطلوب أصلًا', widthMm: 90, heightMm: 40, isDefault: false },
   { key: 'IN4_IN2', name: '4″ × 2″ — ملصق زيبرا شائع', widthMm: 101.6, heightMm: 50.8, isDefault: false },
   { key: 'IN3_IN2', name: '3″ × 2″ — ملصق زيبرا شائع', widthMm: 76.2, heightMm: 50.8, isDefault: false },
   { key: 'IN4_IN3', name: '4″ × 3″ — بطاقة كبيرة', widthMm: 101.6, heightMm: 76.2, isDefault: false },
-  { key: 'IN225_IN125', name: '2.25″ × 1.25″ — ملصق صغير', widthMm: 57, heightMm: 32, isDefault: false },
+  { key: 'IN225_IN125', name: '2.25″ × 1.25″ — ملصق صغير', widthMm: 57.15, heightMm: 31.75, isDefault: false },
 ] as BuiltinCardSize[]);
 
 export const DEFAULT_CARD_SIZE: BuiltinCardSize = BUILTIN_CARD_SIZES.find((s) => s.isDefault)!;

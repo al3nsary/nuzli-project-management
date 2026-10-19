@@ -286,7 +286,11 @@ export interface PortfolioSummaryDto extends PortfolioDto {
   projects: PortfolioProjectSummary[];
   totals: {
     projectCount: number;
-    /** Average of the project progress values weighted by their leaf counts. */
+    /**
+     * Average of the project progress values weighted by duration, like a project's own progress
+     * (calculations audit): each project weighs its root tasks' working days (`progressWeightDays`;
+     * HOUR projects: working minutes ÷ the calendar's standard day). Plain average when all weigh 0.
+     */
     progress: number;
     /** Sum of the project budgets that have one (null when none has). */
     budget: number | null;
@@ -342,6 +346,13 @@ export interface BudgetReportDto extends CostLine {
   byAssignee: Array<CostLine & { assignee: { id: string; fullName: string } | null; taskCount: number; loggedMinutes: number }>;
   /** A task with two labels counts under both; `label: null` = tasks without a label. */
   byLabel: Array<CostLine & { label: LabelDto | null; taskCount: number }>;
+  /**
+   * Calculations audit L11: true when a task with several labels is counted under each, so the
+   * `byLabel` bars add up to more than the totals. The UI shows `byLabelNote` under the chart.
+   */
+  byLabelOverlapping?: boolean;
+  /** Arabic note for the label chart when `byLabelOverlapping` («المهمة ذات أكثر من وسم تُحسب تحت كلٍّ منها»). */
+  byLabelNote?: string | null;
   overBudgetTasks: Array<{ taskId: string; wbs: string; name: string; plannedCost: number; actualCost: number; overBy: number }>;
 }
 
@@ -368,6 +379,8 @@ export interface ProjectReportRow {
   overdueCount: number;
   deadlinePassedCount: number;
   milestoneCount: number;
+  /** Duration weight of the project in working days (sum over its root tasks; milestones and empty groups 0). */
+  progressWeightDays?: number;
 }
 
 export interface ProjectDashboardDto {
@@ -421,6 +434,8 @@ export interface WorkloadDto {
     days: Array<{ date: string; assignedMinutes: number; loggedMinutes: number; taskCount: number; capacityMinutes?: number }>;
     totalAssignedMinutes: number;
     totalLoggedMinutes: number;
+    /** Calculations audit M4: sum of `days[].capacityMinutes` (holidays 0, short days their own minutes). */
+    totalCapacityMinutes?: number;
   }>;
 }
 

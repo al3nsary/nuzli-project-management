@@ -265,7 +265,8 @@ describe('Jira', () => {
       ['1', 'OPS-1', 'GROUP', 'IN_PROGRESS', null],
       ['1.1', 'OPS-2', 'TASK', 'DONE', 'مشرف ١'],
       ['1.2', 'OPS-3', 'TASK', 'NOT_STARTED', 'مشرف ٢'],
-      ['2', 'OPS-4', 'GROUP', 'ON_HOLD', null],
+      // Calculations audit H1: a group's status is derived from its children (the file said ON_HOLD).
+      ['2', 'OPS-4', 'GROUP', 'NOT_STARTED', null],
       ['2.1', 'OPS-5', 'TASK', 'NOT_STARTED', 'مشرف ٢'],
     ]);
     // Original Estimate 57,600 s = 16 h = 2 working days from the custom Start date.

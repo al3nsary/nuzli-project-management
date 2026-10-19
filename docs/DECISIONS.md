@@ -634,3 +634,87 @@ Format: each ADR has **Context · Decision · Consequences**. Status is *Accepte
 **Context.** The formation-board card menu opened past the page edge when its column was scrolled partly off-screen: Mantine's default `shift` uses `limitShift`, which keeps the dropdown attached to a target that is itself outside the viewport. Separately, the owner's GanttPRO project (all in 2025) opened on an empty «now», because the first-view anchor clamped today to a scale that always includes today.
 **Decision.** `lib/floating.ts`: `EDGE_SAFE_MIDDLEWARES` (`flip` with fallbacks, `shift` on both axes with 8px padding and no limiter) for portal menus, plus `revealTarget` (scroll the target into view on open); used by the board card menu and the export menu. The Gantt's first view anchors on today only when today lies inside the project's span (start … last task end); otherwise on the project start.
 **Consequences.** A dropdown may detach slightly from a target near the edge rather than leave the screen; checked at 1440 and 360 px. Projects in the past or future open on their first bars; current projects still open on today.
+
+## ADR-133 — Calculations audit: a group's status is derived; status and progress move together; an empty group is zeroed
+**Context.** The calculations audit of October 2026 (`docs/calculations-audit-2026-10.md`, H1/H2) found three problems. A group's status was never derived, so a group at 100 % showed «لم تبدأ». A leaf could be DONE at 30 %, or at 100 % and still IN_PROGRESS (and then counted as overdue). A group left without live children kept the cost and progress of archived tasks. The owner asked for correct calculations and chose the rules below.
+**Decision.** The rules are pure functions in `@nuzli/scheduling` (`status.ts`). The API uses them on every write, and the web demo can import them.
+- *Leaf invariant* (`normalizeStatusProgress`): DONE ⇒ progress 100; progress ≥ 100 ⇒ DONE; NOT_STARTED with progress > 0 ⇒ IN_PROGRESS.
+- *Leaf edit* (`syncStatusProgress`): the field that changed decides.
+  - Progress only: 100 ⇒ DONE; below 100 on a DONE task ⇒ IN_PROGRESS; > 0 on NOT_STARTED ⇒ IN_PROGRESS.
+  - Status only: DONE ⇒ 100; NOT_STARTED ⇒ 0; leaving DONE while at 100 ⇒ 0.
+  - Both sent (an undo step): taken as sent, then the invariant.
+- *Group* (`deriveGroupStatus`), in the owner's order: every child DONE → DONE; any child IN_PROGRESS or DONE, or rolled progress > 0 → IN_PROGRESS; every non-DONE child ON_HOLD → ON_HOLD; otherwise NOT_STARTED.
+- *Roll-up*: `rollUpStatus` applies these rules bottom-up after the date and cost roll-ups. `task-engine.recompute` runs it on every write: create, update, batch, bulk, archive, restore, duplicate, dependency, reschedule, conversion, templates and imports. Moves and archives therefore always recompute.
+- *Group status is not editable*: `PATCH /tasks/:id` answers `TASK_GROUP_STATUS_DERIVED` (400) when the status differs. Batch and bulk ignore status and progress sent for groups, because an undo step may send them.
+- *Empty group* (a GROUP with no live child): progress 0, planned and actual cost 0, NOT_STARTED. Its dates and duration are kept and it stays a GROUP (it is not demoted to TASK), so a restore or a new child finds it as it was. It weighs 0 in every progress roll-up (engine `rollUpModel`, `progressWeight`).
+- *Due flags*: DONE tasks are never overdue, due soon or past their deadline.
+- *Existing data*: migration `20261022000000_calc_audit_fixes` applies the invariant to existing leaves, zeroes empty groups, and recomputes every group's progress, costs and status bottom-up. Each changed row gets version + 1. The migration was verified on PGlite.
+
+**Consequences.**
+- A board move to «منجزة» now shows 100 %. Dragging a card out of DONE reopens it at 0 %.
+- Imports no longer keep a status that the file gave to a group.
+- The web demo must adopt the same functions (pending web port).
+
+## ADR-134 — Calculations audit: one set of scheduling rules for the API and the demo (HOUR edits, due day, weighting)
+**Context.** Audit M1/M2/M3/L6 found four problems:
+- In HOUR projects, project and person progress were weighted by touched days (50 % instead of the engine's 12.5 %).
+- The demo and the API disagreed on HOUR edits: bare end dates, field priority and fractional days.
+- They also disagreed on snapping HOUR starts in a full reschedule.
+- With a 16:00–24:00 working day, an end at `…T00:00` made `endDate.slice(0,10)` one day later than the DATE column the reminder cron uses.
+
+**Decision.** The API's rules move to `@nuzli/scheduling` (`edits.ts`, `progress.ts`), and `task-engine.ts` re-exports them.
+- *HOUR edits* (`applyScheduleEdit` / `applyScheduleEditHours`):
+  - The start is always snapped forward into working time, also in a full reschedule (`normalizeLeaf` ignores `snapStart` there).
+  - Priority: `durationHours` > `durationDays` > `endDate`.
+  - `durationDays` = whole days × the standard day (1.5 → 1 day).
+  - A bare `endDate` = the end of that day's working time (`coerceEndLocal`). Example: Sun 09:00 with `{endDate:'2026-10-20'}` ends Tue 18:00, 24 h.
+  - A non-milestone lasts at least 15 minutes.
+  - DAY edits are unchanged: `durationDays` wins over `endDate`.
+- *Due day* (`dueDayOf`): DAY = `endDate`; HOUR = the day of the last working minute (`endDayOfLocal`). It is used by `dueFlags`, the dashboard (overdue days, upcoming), `plannedByWeek`, the project end date, the reminder cron (DATE column) and the reminder reset.
+- *Weighting* (`weightedProgress(items, unit)`): milestones and empty groups weigh 0; HOUR weighs by working minutes, DAY by working days; plain average when every weight is 0. It is used for:
+  - project progress (`toProjectDto(stats, unit)`; roots now carry `durationHours` and `isEmptyGroup`);
+  - people;
+  - the export header.
+- *Portfolio* progress is weighted by duration too: `ProjectReportRow.progressWeightDays` is the roots' working days (HOUR: minutes ÷ the calendar's standard day).
+- *Days overdue* are calendar days from the due day (shared `calendarDaysOverdue`).
+
+**Consequences.** HOUR projects where short tasks are done now show a lower, correct progress. The demo must import these functions instead of its own copies (pending web port).
+
+## ADR-135 — Calculations audit: import edge cases and symmetric lag rounding
+**Context.** Audit L7/L8 found these import problems:
+- `Math.round(-0.5)` is −0, so −4 h became 0 d while +4 h became 1 d.
+- `24:00` became 23:00.
+- ISO text with `Z` or an offset was read as Riyadh wall time (a 3 h shift).
+- Excel serials ≤ 60 were one day early.
+- `2 edays` did not parse, and MSPDI elapsed lags were treated as working minutes (1 elapsed day = 3 working days).
+- `1.234,50` became 0.
+
+**Decision.**
+- `roundHalfAway` (shared) is used for every lag conversion: `dependenciesToDays`, `createDependency` in HOUR projects, and the import preview.
+- `24:00` = 00:00 of the next day.
+- An ISO instant with `Z` or `±hh:mm` is converted to Riyadh wall time (`parseZonedInstant`). GanttPRO text cells are no longer shifted twice.
+- Excel 1900 serials below 61 get one extra day (1 → 1900-01-01, 60 → 1900-03-01).
+- Elapsed units (`ed`, `eday(s)`, `eh`, `ew`, `emo`, …) parse as calendar minutes (`elapsedMinutes`, `lagElapsedMinutes`). MSPDI LagFormat 4/6/8/10/12 and the estimated forms 36–44 are read as elapsed.
+- `buildPreview` converts elapsed spans to working time on the project calendar (`elapsedToWorkingMinutes`): a lag from the predecessor's end, a duration from the task's start.
+- Numbers:
+  - With both separators, the last one is the decimal mark.
+  - A lone comma is a thousands separator only in the `1,234` shape.
+  - Several dots are thousands separators.
+
+**Consequences.** An elapsed lag is converted once, from the predecessor's pre-schedule end. If the forward pass later moves the predecessor, the stored working lag is kept, because the engine schedules in working time only.
+
+## ADR-136 — Calculations audit: reports, reminders, statistics and pagination
+**Context.** Audit findings L5, L9–L13 and M4 (server side), plus the design questions in the audit.
+**Decision.**
+- *L5*: every offset-paginated list ends its `orderBy` with `{ id: 'asc' }` (`withIdTiebreak`): members, users, audit, notifications and print batches; the file-retention sweep too. `topMembers` breaks ties by member id.
+- *L9*: 2.25″ × 1.25″ = 57.15 × 31.75 mm in ui-print, the seed and a data migration.
+- *L10*: reminders skip GROUP rows (overdue, due soon, deadline). `dueSoonNotifiedAt` and `overdueNotifiedAt` are reset only when the due DAY moves.
+- *L11*: `BudgetReportDto.byLabelOverlapping` and an Arabic `byLabelNote` are set when a task with several labels is counted under each.
+- *L12*: workload logged minutes count only live tasks of live, non-template projects.
+- *L13*: one boundary, `isEditWindowOpen(now, until) = now < until` (shared), for edits and late uploads.
+- *M4*: `WorkloadDto.people[].totalCapacityMinutes` sums the per-day capacity (holidays 0, short days their own minutes).
+- *Week KPI*: `ViolationStats.previousWeekToDate` = the previous week over the same elapsed span. The change % is `weekChangePct(thisWeek, previousWeekToDate)` (shared; null without a base).
+- *Per member*: `byTeam[].perMemberRate` is null when the team had no members at the end of the period. `perMember` keeps 0 for older clients.
+- All DTO changes are additive.
+
+**Consequences.** The web must show `byLabelNote` and use `perMemberRate`, `previousWeekToDate`, `totalCapacityMinutes` and `days[].capacityMinutes` (pending web port).

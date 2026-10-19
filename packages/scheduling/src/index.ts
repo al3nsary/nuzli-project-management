@@ -38,6 +38,37 @@ export { rollUp } from './rollup';
 export { detectCycle, wouldCreateCycle } from './cycles';
 export { moveTask, resizeTask, schedule } from './schedule';
 export { dependenciesToDays, dependenciesToHours, tasksToDays, tasksToHours } from './convert';
+export {
+  applyScheduleEdit,
+  applyScheduleEditHours,
+  coerceEndLocal,
+  coerceStart,
+  deadlinePassed,
+  dueDayOf,
+  dueFlags,
+  DUE_SOON_WORKING_DAYS,
+  elapsedToWorkingMinutes,
+  endDayOfLocal,
+  hoursToMinutes,
+  isLocalDateTime,
+  MIN_TASK_MINUTES,
+  minutesToHours,
+  normalizeLeaf,
+  normalizeLeafHours,
+  normalizeLocal,
+  touchedWorkingDays,
+  type ScheduleEdit,
+} from './edits';
+export { progressWeight, roundHalfAway, weightedProgress, type ProgressItem } from './progress';
+export {
+  deriveGroupStatus,
+  normalizeStatusProgress,
+  rollUpStatus,
+  syncStatusProgress,
+  type StatusNode,
+  type StatusProgress,
+  type WorkStatus,
+} from './status';
 export type {
   DependencyType,
   DurationUnit,

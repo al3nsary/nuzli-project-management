@@ -200,7 +200,14 @@ export const PROJECT_SELECT = {
 export type ProjectRow = Prisma.ProjectGetPayload<{ select: typeof PROJECT_SELECT }>;
 
 export interface ProjectStats {
-  roots: Array<Pick<StoredTask, 'type' | 'durationDays' | 'progress'> & Partial<Pick<StoredTask, 'plannedCost' | 'actualCost'>>>;
+  /**
+   * Root tasks. `durationHours` is set in HOUR projects (progress weighs by working minutes there,
+   * calculations audit M1); `isEmptyGroup` marks a GROUP without live children (weighs 0, H2).
+   */
+  roots: Array<
+    Pick<StoredTask, 'type' | 'durationDays' | 'progress'> &
+      Partial<Pick<StoredTask, 'plannedCost' | 'actualCost' | 'durationHours'>> & { isEmptyGroup?: boolean }
+  >;
   endDate: string | null;
   taskCount: number;
 }
@@ -235,7 +242,7 @@ export function toProjectDto(p: ProjectRow, stats: ProjectStats): ProjectDto {
     calendarId: p.calendarId,
     autoSchedule: p.autoSchedule,
     owner: { id: p.owner.id, fullName: p.owner.fullName },
-    progress: projectProgress(stats.roots),
+    progress: projectProgress(stats.roots, p.durationUnit),
     taskCount: stats.taskCount,
     createdAt: p.createdAt.toISOString(),
     currency: p.currency,

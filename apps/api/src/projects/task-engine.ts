@@ -8,18 +8,48 @@
 import {
   CycleError,
   HierarchyError,
-  MINUTES_PER_DAY,
   WorkCalendar,
   computeWbs,
-  fromMinuteNumber,
+  normalizeStatusProgress,
+  rollUpStatus,
   schedule,
   toMinuteNumber,
+  weightedProgress,
   type DurationUnit,
+  type ProgressItem,
   type ScheduleDependency,
   type WorkingHours,
 } from '@nuzli/scheduling';
 import type { Priority, TaskStatus, TaskType } from '@nuzli/shared';
 import { AppError } from '../common/app-error';
+
+/**
+ * The date-edit, due-day and status rules are shared with the web demo through
+ * `@nuzli/scheduling` (calculations audit 2026-10, ADR-134): re-exported here so the services
+ * keep importing them from one place.
+ */
+export {
+  applyScheduleEdit,
+  applyScheduleEditHours,
+  coerceEndLocal,
+  coerceStart,
+  deadlinePassed,
+  dueDayOf,
+  dueFlags,
+  DUE_SOON_WORKING_DAYS,
+  endDayOfLocal,
+  hoursToMinutes,
+  isLocalDateTime,
+  MIN_TASK_MINUTES,
+  minutesToHours,
+  normalizeLeaf,
+  normalizeLeafHours,
+  normalizeLocal,
+  roundHalfAway,
+  syncStatusProgress,
+  touchedWorkingDays,
+  type ScheduleEdit,
+} from '@nuzli/scheduling';
 
 /** The persisted fields of a task that a write may change (dates as `YYYY-MM-DD`). */
 export interface StoredTask {
@@ -86,54 +116,17 @@ export const dateOf = (iso: string): Date => new Date(`${iso.slice(0, 10)}T00:00
 // ─────────────────────────────────────────── A9 hours (ADR-109)
 
 export type Unit = DurationUnit;
-/** True for a local date-time `YYYY-MM-DDTHH:MM` (HOUR projects), false for `YYYY-MM-DD`. */
-export const isLocalDateTime = (s: string): boolean => s.length > 10;
 /** Asia/Riyadh is UTC+03:00 all year (no DST). */
 export const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000;
 /** A timestamptz instant → Asia/Riyadh wall time `YYYY-MM-DDTHH:MM`. */
 export const localOf = (d: Date): string => new Date(d.getTime() + RIYADH_OFFSET_MS).toISOString().slice(0, 16);
 /** Asia/Riyadh wall time (`YYYY-MM-DD[THH:MM[:SS]][+03:00]`) → the instant. */
 export const instantOf = (local: string): Date => new Date(toMinuteNumber(local) * 60_000 - RIYADH_OFFSET_MS);
-/** Canonical `YYYY-MM-DDTHH:MM` (seconds and `+03:00` dropped). */
-export const normalizeLocal = (local: string): string => fromMinuteNumber(toMinuteNumber(local));
-export const hoursToMinutes = (h: number): number => Math.round(h * 60);
-/** Minutes → hours, 4 decimals (exact for any 15-minute multiple), like the engine. */
-export const minutesToHours = (m: number): number => Math.round((m / 60) * 10000) / 10000 || 0;
 /** A9 default working day (09:00–13:00, 14:00–18:00). */
 export const DEFAULT_WORKING_HOURS: WorkingHours[] = [
   { start: '09:00', end: '13:00' },
   { start: '14:00', end: '18:00' },
 ];
-
-/** The day of the last working minute of an HOUR task (its start day for a zero-length task). */
-export function endDayOfLocal(start: string, end: string): string {
-  const s = toMinuteNumber(start);
-  const e = toMinuteNumber(end);
-  return fromMinuteNumber(e > s ? e - 1 : s).slice(0, 10);
-}
-
-/** Working days touched by `[start, end)` (0 when empty). */
-export function touchedWorkingDays(cal: WorkCalendar, start: string, end: string): number {
-  const s = cal.nextWorkingMinuteNum(toMinuteNumber(start));
-  const e = toMinuteNumber(end);
-  if (e <= s) return 0;
-  return cal.workingDaysBetweenNum(Math.floor(s / MINUTES_PER_DAY), Math.floor(cal.addWorkingMinutesNum(e, -1) / MINUTES_PER_DAY));
-}
-
-/**
- * A start value for a project of unit `unit`: an HOUR project turns a bare date into the first
- * working minute of that day and normalises a date-time; a DAY project keeps the date part.
- */
-export function coerceStart(value: string, unit: Unit, cal: WorkCalendar): string {
-  if (unit === 'DAY') return value.slice(0, 10);
-  return isLocalDateTime(value) ? normalizeLocal(value) : cal.nextWorkingMinute(`${value}T00:00`);
-}
-
-/** An end value for an HOUR project: a bare date means the end of that day's last working minute. */
-export function coerceEndLocal(value: string, cal: WorkCalendar): string {
-  if (isLocalDateTime(value)) return normalizeLocal(value);
-  return fromMinuteNumber(cal.prevWorkingEndNum(toMinuteNumber(value) + MINUTES_PER_DAY));
-}
 
 /** Reads a jsonb working-hours value; anything malformed falls back to `fallback`. */
 export function parseWorkingHours(v: unknown, fallback: WorkingHours[] | null = DEFAULT_WORKING_HOURS): WorkingHours[] | null {
@@ -168,80 +161,6 @@ export function workCalendarOf(c: CalendarLike): WorkCalendar {
       };
     }),
   });
-}
-
-/** Minimum duration of a non-milestone HOUR task (the engine's resize floor). */
-export const MIN_TASK_MINUTES = 15;
-
-/**
- * HOUR-project version of {@link normalizeLeaf}: the start is snapped forward to a working minute
- * (a bare date becomes the first working minute of that day), a milestone has 0 hours and ends
- * on its start, any other task lasts at least 15 working minutes (`durationHours`, or
- * `durationDays` × the standard day when hours are missing) and ends after them.
- */
-export function normalizeLeafHours<T extends StoredTask>(t: T, cal: WorkCalendar): T {
-  const start = cal.nextWorkingMinute(coerceStart(t.startDate, 'HOUR', cal));
-  if (t.type === 'MILESTONE') return { ...t, startDate: start, endDate: start, durationDays: 0, durationHours: 0 };
-  const raw =
-    t.durationHours != null && Number.isFinite(t.durationHours)
-      ? hoursToMinutes(t.durationHours)
-      : Math.max(1, Math.trunc(t.durationDays)) * cal.standardMinutesPerDay;
-  const minutes = Math.max(MIN_TASK_MINUTES, raw);
-  const end = cal.endFromDurationMinutes(start, minutes);
-  return { ...t, startDate: start, endDate: end, durationHours: minutesToHours(minutes), durationDays: touchedWorkingDays(cal, start, end) };
-}
-
-/**
- * HOUR-project date edit: `durationHours` wins, then `durationDays` (× the standard day), then
- * `endDate` (working minutes from the start; a bare date = the end of that day). The end is then
- * always recomputed from the start and the duration.
- */
-export function applyScheduleEditHours<T extends StoredTask>(t: T, edit: ScheduleEdit, cal: WorkCalendar): T {
-  const next: T = { ...t };
-  if (edit.startDate !== undefined) next.startDate = edit.startDate;
-  next.startDate = cal.nextWorkingMinute(coerceStart(next.startDate, 'HOUR', cal));
-  if (edit.durationHours !== undefined) next.durationHours = edit.durationHours;
-  else if (edit.durationDays !== undefined) next.durationHours = minutesToHours(Math.max(0, Math.trunc(edit.durationDays)) * cal.standardMinutesPerDay);
-  else if (edit.endDate !== undefined) next.durationHours = minutesToHours(cal.workingMinutesBetween(next.startDate, coerceEndLocal(edit.endDate, cal)));
-  return normalizeLeafHours(next, cal);
-}
-
-/**
- * Normalises one edited leaf: a milestone has duration 0 and ends on its start; any other
- * task lasts at least one working day and its end is `endFromDuration(start, duration)`.
- * `snapStart` moves a start that falls on a weekend or holiday to the next working day
- * (applied to the tasks the user edited, like `moveTask` does in the browser).
- */
-export function normalizeLeaf<T extends StoredTask>(t: T, cal: WorkCalendar, snapStart = true, unit?: Unit): T {
-  if ((unit ?? (isLocalDateTime(t.startDate) ? 'HOUR' : 'DAY')) === 'HOUR') return normalizeLeafHours(t, cal);
-  const start = snapStart ? cal.addWorkingDays(t.startDate, 0) : t.startDate;
-  if (t.type === 'MILESTONE') return { ...t, startDate: start, endDate: start, durationDays: 0 };
-  const duration = Math.max(1, Math.trunc(t.durationDays));
-  return { ...t, startDate: start, durationDays: duration, endDate: cal.endFromDuration(start, duration) };
-}
-
-/** What a client may ask to change on a task's schedule. */
-export interface ScheduleEdit {
-  startDate?: string;
-  endDate?: string;
-  durationDays?: number;
-  /** HOUR projects. */
-  durationHours?: number;
-}
-
-/**
- * Applies a date edit. `durationDays` wins over `endDate`; an `endDate` alone becomes a
- * duration in working days (both ends included). The end is then always recomputed.
- */
-export function applyScheduleEdit<T extends StoredTask>(t: T, edit: ScheduleEdit, cal: WorkCalendar, unit?: Unit): T {
-  if ((unit ?? (isLocalDateTime(t.startDate) ? 'HOUR' : 'DAY')) === 'HOUR') return applyScheduleEditHours(t, edit, cal);
-  let next: T = { ...t };
-  if (edit.startDate !== undefined) next.startDate = edit.startDate.slice(0, 10);
-  if (edit.endDate !== undefined) edit = { ...edit, endDate: edit.endDate.slice(0, 10) };
-  next = { ...next, startDate: cal.addWorkingDays(next.startDate, 0) };
-  if (edit.durationDays !== undefined) next.durationDays = edit.durationDays;
-  else if (edit.endDate !== undefined) next.durationDays = cal.workingDaysBetween(next.startDate, edit.endDate);
-  return normalizeLeaf(next, cal, false);
 }
 
 /** Ids of `rootId` and every descendant (iterative). */
@@ -312,7 +231,12 @@ export interface RecomputeInput<T extends StoredTask> {
  * loop → `TASK_PARENT_INVALID`.
  */
 export function recompute<T extends StoredTask>(input: RecomputeInput<T>): T[] {
-  const promoted = promoteParents(input.tasks);
+  // Calculations audit H1: leaves obey the status/progress invariant before progress is rolled up.
+  const promoted = promoteParents(input.tasks).map((t) => {
+    if (t.type === 'GROUP') return t;
+    const n = normalizeStatusProgress(t.status, t.progress);
+    return n.status === t.status && n.progress === t.progress ? t : { ...t, ...n };
+  });
   let scheduled: T[];
   try {
     scheduled = schedule({
@@ -327,11 +251,16 @@ export function recompute<T extends StoredTask>(input: RecomputeInput<T>): T[] {
     throw engineError(err);
   }
   const wbs = computeWbs(scheduled);
-  return rollUpCosts(
-    scheduled.map((t) => {
-      const code = wbs.get(t.id) ?? '';
-      return t.wbsCache === code ? t : { ...t, wbsCache: code };
-    }),
+  // H1/H2: groups get their status derived from their children (bottom-up); a GROUP left
+  // without children gets progress 0, costs 0 and NOT_STARTED (dates kept). Runs on every
+  // write, so archive / move / restore always recompute it.
+  return rollUpStatus(
+    rollUpCosts(
+      scheduled.map((t) => {
+        const code = wbs.get(t.id) ?? '';
+        return t.wbsCache === code ? t : { ...t, wbsCache: code };
+      }),
+    ),
   );
 }
 
@@ -427,53 +356,29 @@ export function pick(t: StoredTask, fields: readonly VersionedField[]): Record<s
 }
 
 /**
- * Project progress = the roll-up of the root tasks (duration-weighted, milestones weigh 0,
- * plain average when every weight is 0), rounded to 2 decimals like `rollUp`.
+ * Project progress = the roll-up of the root tasks with the shared `weightedProgress` rule
+ * (duration-weighted, milestones and empty groups weigh 0, plain average when every weight is 0,
+ * 2 decimals). HOUR projects weigh by working minutes (calculations audit M1); the unit is
+ * inferred from `durationHours` when not given (only HOUR tasks carry it).
  */
 export function projectProgress(
-  roots: ReadonlyArray<Pick<StoredTask, 'type' | 'durationDays' | 'progress'>>,
+  roots: ReadonlyArray<Pick<ProgressItem, 'type' | 'durationDays' | 'durationHours' | 'progress' | 'isEmptyGroup'>>,
+  unit?: Unit,
 ): number {
-  if (!roots.length) return 0;
-  let weighted = 0;
-  let weights = 0;
-  let plain = 0;
-  for (const r of roots) {
-    const w = r.type === 'MILESTONE' ? 0 : Math.max(0, r.durationDays);
-    weighted += w * r.progress;
-    weights += w;
-    plain += r.progress;
-  }
-  const value = weights > 0 ? weighted / weights : plain / roots.length;
-  return Math.round(value * 100) / 100;
+  const u = unit ?? (roots.some((r) => r.durationHours != null) ? 'HOUR' : 'DAY');
+  return weightedProgress(roots, u);
+}
+
+/** Roots of a task list, each flagged `isEmptyGroup` when it is a GROUP without children in the list. */
+export function rootsForProgress<T extends Pick<StoredTask, 'id' | 'parentId' | 'type'>>(tasks: readonly T[]): Array<T & { isEmptyGroup: boolean }> {
+  const ids = new Set(tasks.map((t) => t.id));
+  const parents = new Set(tasks.map((t) => t.parentId).filter((p): p is string => !!p));
+  return tasks.filter((t) => !t.parentId || !ids.has(t.parentId)).map((t) => ({ ...t, isEmptyGroup: t.type === 'GROUP' && !parents.has(t.id) }));
 }
 
 /** Today's calendar date in Riyadh. */
 export function riyadhToday(now: Date = new Date()): string {
   return new Date(now.getTime() + RIYADH_OFFSET_MS).toISOString().slice(0, 10);
-}
-
-/** Working days ahead that still count as "due soon" (brief §9, docs/API.md). */
-export const DUE_SOON_WORKING_DAYS = 2;
-
-/**
- * Overdue: ended before today and not DONE. Due soon: not overdue, not DONE, and ends on or
- * before the second working day after today (today itself included).
- */
-export function dueFlags(
-  t: Pick<StoredTask, 'endDate' | 'status'>,
-  today: string,
-  cal: WorkCalendar,
-): { overdue: boolean; dueSoon: boolean } {
-  if (t.status === 'DONE') return { overdue: false, dueSoon: false };
-  // HOUR tasks compare by the day of their end (due notifications are daily).
-  const end = t.endDate.slice(0, 10);
-  if (end < today) return { overdue: true, dueSoon: false };
-  return { overdue: false, dueSoon: end <= cal.addWorkingDays(today, DUE_SOON_WORKING_DAYS) };
-}
-
-/** A9: the deadline is before today (Riyadh) and the task is not DONE. */
-export function deadlinePassed(t: Pick<StoredTask, 'deadline' | 'status'>, today: string): boolean {
-  return !!t.deadline && t.status !== 'DONE' && t.deadline < today;
 }
 
 /** `YYYY-MM-DD` + n calendar days. */

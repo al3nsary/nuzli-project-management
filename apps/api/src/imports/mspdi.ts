@@ -27,6 +27,8 @@ const LINK_CODES: Record<DependencyType, number> = { FF: 0, FS: 1, SF: 2, SS: 3 
 /** DurationFormat / LagFormat codes that mean hours or minutes (elapsed and estimated variants included). */
 const TIME_FORMATS = new Set([3, 4, 5, 6, 35, 36, 37, 38]);
 const PERCENT_FORMATS = new Set([19, 20, 51, 52]);
+/** Elapsed lag formats (em, eh, ed, ew, emo and their estimated forms): calendar time, not working time. */
+const ELAPSED_FORMATS = new Set([4, 6, 8, 10, 12, 36, 38, 40, 42, 44]);
 
 const ARRAYS = new Set([
   'Project.Tasks.Task',
@@ -271,6 +273,12 @@ export function parseMspdi(xml: string): ImportDraft {
       if (PERCENT_FORMATS.has(lagFormat)) {
         if (rawLag) warn(draft, 'DURATION_UNPARSED', `تأخيرٌ بالنسبة المئوية لا يُدعم فاعتُبر صفرًا (UID ${str(t.UID)}).`, { sourceId: str(t.UID) ?? undefined });
       } else lagMinutes = Math.round(rawLag / 10);
+      if (ELAPSED_FORMATS.has(lagFormat)) {
+        // Calculations audit L8: LinkLag of an elapsed format is calendar minutes (×10); it is
+        // converted to working time on the project calendar in buildPreview.
+        draft.deps.push({ predKey: pred, succKey: succ, type, lagElapsedMinutes: lagMinutes });
+        continue;
+      }
       if (TIME_FORMATS.has(lagFormat) && lagMinutes % minutesPerDay !== 0) anyHours = true;
       draft.deps.push({ predKey: pred, succKey: succ, type, lagMinutes });
     }

@@ -116,7 +116,8 @@ describe('A9 people and dashboard', () => {
       loggedByUser: new Map([['sup2', 45]]),
     });
     expect(people.map((p) => [p.assignee?.id ?? null, p.taskCount, p.doneCount, p.overdueCount, p.progress, p.budgetShare, p.loggedMinutes])).toEqual([
-      ['sup1', 1, 1, 0, 0, 66.53, 0],
+      // Calculations audit H1: the DONE task counts 100 % (the leaf invariant), not its stored 0.
+      ['sup1', 1, 1, 0, 100, 66.53, 0],
       ['sup2', 1, 0, 1, 0, 33.33, 45],
       [null, 1, 0, 1, 0, 0.13, 0],
     ]);

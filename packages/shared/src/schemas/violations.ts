@@ -307,7 +307,17 @@ export interface ViolationStats {
   total: number;
   thisWeek: number;
   previousWeek: number;
-  byTeam: { teamId: string; teamName: string; color: string; count: number; members: number; perMember: number }[];
+  /**
+   * Calculations audit: the previous week over the SAME elapsed span as this week so far
+   * (previous Sunday 00:00 Riyadh → now − 7 days). The change % compares `thisWeek` with this
+   * (`weekChangePct`), not with the full `previousWeek`.
+   */
+  previousWeekToDate?: number;
+  /**
+   * `perMember` is kept for older clients (0 when the team had no members at the end of the
+   * period); `perMemberRate` is null then ("n/a").
+   */
+  byTeam: { teamId: string; teamName: string; color: string; count: number; members: number; perMember: number; perMemberRate?: number | null }[];
   topMembers: { memberId: string; fullName: string; teamName: string | null; color: string | null; count: number }[];
   byMonitor: { userId: string; fullName: string; count: number }[];
   byType: { typeId: string; name: string; count: number }[];

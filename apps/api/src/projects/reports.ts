@@ -14,7 +14,10 @@ import type {
   WorkloadDto,
 } from '@nuzli/shared';
 import { compareWbs } from './tasks-export';
-import { addCalendarDaysIso, dateOf, deadlinePassed, dueFlags, fromCents, projectProgress, toCents, type StoredTask } from './task-engine';
+import { addCalendarDaysIso, dateOf, deadlinePassed, dueDayOf, dueFlags, fromCents, projectProgress, toCents, type StoredTask } from './task-engine';
+
+/** Calculations audit L11: shown under the «حسب الوسم» chart when a task carries several labels. */
+export const BY_LABEL_OVERLAP_NOTE = 'المهمة ذات أكثر من وسم تُحسب تحت كلٍّ منها، لذا قد يزيد مجموع الأعمدة على الإجمالي.';
 
 /** Minutes of one working day until the hours engine is integrated (A9: 09:00–13:00 + 14:00–18:00). */
 export const WORKDAY_MINUTES = 480;
@@ -48,7 +51,8 @@ export interface BudgetInput {
 }
 
 export function buildBudgetReport(input: BudgetInput): BudgetReportDto {
-  const leaves = leavesOf(input.tasks);
+  // An empty GROUP (no live children) is not a leaf that carries work (calculations audit H2).
+  const leaves = leavesOf(input.tasks).filter((t) => t.type !== 'GROUP');
   let planned = 0;
   let actual = 0;
   for (const t of leaves) {
@@ -83,8 +87,10 @@ export function buildBudgetReport(input: BudgetInput): BudgetReportDto {
 
   const labelById = new Map(input.labels.map((l) => [l.id, l]));
   const label = new Map<string | null, { p: number; a: number; n: number }>();
+  let overlapping = false;
   for (const t of leaves) {
     const keys = t.labelIds.filter((l) => labelById.has(l));
+    if (keys.length > 1) overlapping = true;
     for (const k of keys.length ? keys : [null]) {
       const cur = label.get(k) ?? { p: 0, a: 0, n: 0 };
       cur.p += toCents(t.plannedCost);
@@ -123,6 +129,8 @@ export function buildBudgetReport(input: BudgetInput): BudgetReportDto {
     byGroup,
     byAssignee,
     byLabel,
+    byLabelOverlapping: overlapping,
+    byLabelNote: overlapping ? BY_LABEL_OVERLAP_NOTE : null,
     overBudgetTasks,
   };
 }
@@ -188,9 +196,10 @@ export function plannedByWeek(tasks: readonly StoredTask[], cal: WorkCalendar): 
     const cents = toCents(t.plannedCost);
     if (!cents) continue;
     const days: string[] = [];
-    // HOUR tasks: by the days of their first and last working minute (date part).
+    // HOUR tasks: by the days of their first and last working minute (an end at 24:00 belongs
+    // to the day before — the shared due-day rule).
     const first = t.startDate.slice(0, 10);
-    const last = t.endDate.slice(0, 10);
+    const last = dueDayOf(t);
     if (t.type === 'MILESTONE' || t.durationDays <= 0) days.push(first);
     else {
       for (let d = first; d <= last && days.length <= 3660; d = addCalendarDaysIso(d, 1)) if (cal.isWorkingDay(d)) days.push(d);
@@ -237,7 +246,7 @@ export function buildDashboard(input: DashboardInput): Omit<ProjectDashboardDto,
   const person = (id: string | null) => (id ? (input.people.get(id) ?? { id, fullName: '' }) : null);
   const overdueTasks = leaves.filter((t) => dueFlags(t, input.today, input.cal).overdue);
   const overdue = overdueTasks
-    .map((t) => ({ taskId: t.id, wbs: t.wbsCache, name: t.name, endDate: t.endDate, daysOverdue: daysBetween(t.endDate.slice(0, 10), input.today), assignee: person(t.assigneeId) }))
+    .map((t) => ({ taskId: t.id, wbs: t.wbsCache, name: t.name, endDate: t.endDate, daysOverdue: daysBetween(dueDayOf(t), input.today), assignee: person(t.assigneeId) }))
     .sort((a, b) => b.daysOverdue - a.daysOverdue || compareWbs(a.wbs, b.wbs))
     .slice(0, 20);
 
@@ -248,7 +257,7 @@ export function buildDashboard(input: DashboardInput): Omit<ProjectDashboardDto,
     if (t.deadline && t.deadline >= input.today && t.deadline <= horizon) {
       upcoming.push({ taskId: t.id, wbs: t.wbsCache, name: t.name, date: t.deadline, kind: 'DEADLINE', assignee: person(t.assigneeId) });
     }
-    const endDay = t.endDate.slice(0, 10);
+    const endDay = dueDayOf(t);
     if (endDay >= input.today && endDay <= horizon) {
       upcoming.push({ taskId: t.id, wbs: t.wbsCache, name: t.name, date: endDay, kind: t.type === 'MILESTONE' ? 'MILESTONE' : 'END', assignee: person(t.assigneeId) });
     }
@@ -372,6 +381,8 @@ export function computeWorkload(input: {
       days: r.days,
       totalAssignedMinutes: r.days.reduce((s, d) => s + d.assignedMinutes, 0),
       totalLoggedMinutes: r.days.reduce((s, d) => s + d.loggedMinutes, 0),
+      // Calculations audit M4: the real capacity of the range (holidays 0, short days their minutes).
+      totalCapacityMinutes: r.days.reduce((s, d) => s + d.capacityMinutes, 0),
     })),
   };
 }

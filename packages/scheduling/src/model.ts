@@ -156,7 +156,12 @@ export function rollUpModel(m: Model, units: Units): void {
   const { order, childStart, childList } = m.tree;
   for (let k = order.length - 1; k >= 0; k--) {
     const g = order[k]!;
-    if (!m.summary[g]) continue;
+    if (!m.summary[g]) {
+      // Calculations audit H2: a GROUP left without children has no work left — progress 0
+      // (its dates and duration are kept; it weighs 0 in its parent, see below).
+      if (m.kind[g] === KIND_GROUP) m.prog[g] = 0;
+      continue;
+    }
     let s = Infinity;
     let e = -Infinity;
     let weighted = 0;
@@ -168,7 +173,7 @@ export function rollUpModel(m: Model, units: Units): void {
       const c = childList[j]!;
       if (m.start[c]! < s) s = m.start[c]!;
       if (m.end[c]! > e) e = m.end[c]!;
-      const w = m.kind[c] === KIND_MILESTONE && !m.summary[c] ? 0 : m.dur[c]!;
+      const w = (m.kind[c] === KIND_MILESTONE || m.kind[c] === KIND_GROUP) && !m.summary[c] ? 0 : m.dur[c]!;
       weighted += w * m.prog[c]!;
       weights += w;
       plain += m.prog[c]!;

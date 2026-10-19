@@ -12,7 +12,7 @@ import {
 } from '@nuzli/shared';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
-import { paginate, parseSort } from '../common/pagination';
+import { paginate, parseSort, withIdTiebreak } from '../common/pagination';
 import { withPrismaErrors } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { CryptoService } from '../crypto/crypto.service';
@@ -83,7 +83,7 @@ export class MembersService {
       this.prisma.teamMember.findMany({
         where,
         select: MEMBER_SELECT,
-        orderBy: parseSort(query.sort, SORTABLE, { fullName: 'asc' }),
+        orderBy: withIdTiebreak(parseSort(query.sort, SORTABLE, { fullName: 'asc' })),
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
       }),

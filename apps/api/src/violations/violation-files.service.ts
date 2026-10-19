@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { File as FileRow, Prisma } from '@prisma/client';
-import { ALLOWED_IMAGE_TYPES, can, type PresignUploadInput } from '@nuzli/shared';
+import { ALLOWED_IMAGE_TYPES, can, isEditWindowOpen, type PresignUploadInput } from '@nuzli/shared';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import type { AuthUser } from '../common/request';
@@ -90,7 +90,7 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
     const limit = await this.limitFor(kind);
     if (can(user, 'violations.manage')) return { limit, afterWindow: false };
     const window = await this.settings.get('VIOLATION_EDIT_WINDOW_MINUTES');
-    if (now < editableUntil(v.receivedAt, window)) return { limit, afterWindow: false };
+    if (isEditWindowOpen(now, editableUntil(v.receivedAt, window))) return { limit, afterWindow: false };
     const expected =
       kind === 'ID_CARD' ? v.expectedIdPhotos : kind === 'PERSON' ? (v.expectedPerson ?? 0) : v.expectedEvidence;
     return { limit: Math.min(limit, expected), afterWindow: true };
@@ -174,7 +174,7 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
       const rows = await this.prisma.file.findMany({
         where,
         select: { id: true, storageKey: true },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: RETENTION_BATCH,
         // Rows that failed stay undeleted; skip past them instead of retrying them forever.
         skip: failed,
