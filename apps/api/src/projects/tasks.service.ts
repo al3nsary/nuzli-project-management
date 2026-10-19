@@ -819,18 +819,19 @@ export class TasksService {
     if (!rows.length) return [];
     const calendarIds = [...new Set(rows.map((r) => r.project.calendarId))];
     const ids = rows.map((r) => r.id);
-    const [counts, calendars, extras] = await Promise.all([
+    const [counts, calendars, extras, unread] = await Promise.all([
       this.store.attachmentCounts(ids),
       this.prisma.calendar.findMany({
         where: { id: { in: calendarIds } },
         select: { id: true, weekendDays: true, workingHours: true, exceptions: { select: { date: true, isWorking: true, workingHours: true } } },
       }),
       this.store.taskExtras(ids, this.prisma, now),
+      this.store.unreadCounts(viewer.id, { taskIds: ids }),
     ]);
     const cals = new Map(calendars.map((c) => [c.id, workCalendarOf(c)]));
     const today = riyadhToday(now);
     return rows.map((r) => {
-      const dto = toTaskDto(r, counts, undefined, extras);
+      const dto = { ...toTaskDto(r, counts, undefined, extras), unreadCount: unread.get(r.id) ?? 0 };
       const cal = cals.get(r.project.calendarId) ?? workCalendarOf({ weekendDays: [5, 6], exceptions: [] });
       return { ...dto, project: { id: r.project.id, name: r.project.name }, ...dueFlags(dto, today, cal) };
     });

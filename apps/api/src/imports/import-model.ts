@@ -12,6 +12,7 @@ import {
   type ImportPreviewDependencyDto,
   type ImportPreviewTaskDto,
   type ImportWarningDto,
+  type Priority,
   type TaskStatus,
   type TaskType,
 } from '@nuzli/shared';
@@ -55,6 +56,10 @@ export interface DraftTask {
   actualCost: number;
   deadline: string | null;
   notes: string | null;
+  /** A10 (GanttPRO): the stated priority (default MEDIUM). */
+  priority?: Priority | null;
+  /** A10 (GanttPRO): `#RRGGBB`. */
+  barColor?: string | null;
 }
 
 export interface DraftDependency {
@@ -84,6 +89,16 @@ export interface ImportDraft {
   tasks: DraftTask[];
   deps: DraftDependency[];
   warnings: ImportWarningDto[];
+  /** A10: the format recognised from the content (`ganttpro` for a GanttPRO export sent as xlsx). */
+  detectedFormat?: string;
+  /** A10: figures the preview reports but does not import (GanttPRO estimates, time log, types). */
+  sourceStats?: SourceStats;
+}
+
+export interface SourceStats {
+  sourceTypes?: Record<string, number>;
+  estimatedHours?: number;
+  timeLogMinutes?: number;
 }
 
 export function emptyDraft(): ImportDraft {
@@ -404,6 +419,9 @@ export interface PreviewPayload {
   tasks: PreviewTask[];
   deps: Array<{ predecessorId: string; successorId: string; type: DependencyType; lagDays: number; lagMinutes: number }>;
   warnings: ImportWarningDto[];
+  /** A10: see ImportDraft. */
+  detectedFormat?: string;
+  sourceStats?: SourceStats;
 }
 
 const workingFloor = (cal: WorkCalendar, d: string): string => cal.addWorkingDays(d.slice(0, 10), 0);
@@ -513,14 +531,14 @@ export function buildPreview(draft: ImportDraft, opts: { format: string; fileId:
       durationDays: 1,
       progress,
       status: statusOf(t.status, progress),
-      priority: 'MEDIUM',
+      priority: t.priority ?? 'MEDIUM',
       assigneeId: null,
       description: t.notes ? t.notes.slice(0, 8000) : null,
       version: 0,
       plannedCost: t.plannedCost,
       actualCost: t.actualCost,
       deadline: t.deadline ? t.deadline.slice(0, 10) : null,
-      barColor: null,
+      barColor: t.barColor ?? null,
       labelIds: [],
       sourceId: t.sourceId,
       assigneeName: t.assigneeName,
@@ -598,6 +616,8 @@ export function buildPreview(draft: ImportDraft, opts: { format: string; fileId:
     tasks: finals,
     deps,
     warnings,
+    ...(draft.detectedFormat ? { detectedFormat: draft.detectedFormat } : {}),
+    ...(draft.sourceStats ? { sourceStats: draft.sourceStats } : {}),
   };
 }
 
@@ -657,6 +677,8 @@ export function previewTasksDto(p: PreviewPayload): ImportPreviewTaskDto[] {
     actualCost: t.actualCost,
     deadline: t.deadline,
     notes: t.description,
+    priority: t.priority,
+    barColor: t.barColor,
   }));
   return out.sort((a, b) => cmpWbs(a.wbs, b.wbs));
 }

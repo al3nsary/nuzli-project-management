@@ -503,3 +503,25 @@ describe('supervisor responses and photo URLs', () => {
     await expectCode(t.svc.fileUrl('v1', 'not-linked', SUP, ctx), 'NOT_FOUND');
   });
 });
+
+describe('roster — A10 worker foreman', () => {
+  it('marks the worker foreman (مشرف عمّال) of the current team; other members are not', async () => {
+    const s = setup();
+    const row = (id: string, role: 'WORKER' | 'FOREMAN') => ({
+      id,
+      fullName: id,
+      nationalIdFirst: '1',
+      nationalIdLast4: '2345',
+      photoFileId: null,
+      memberships: [{ role, team: { id: 't1', name: 'فريق', color: { hex: '#123456' } } }],
+    });
+    s.prisma.teamMember.findMany.mockResolvedValue([row('m-1', 'FOREMAN'), row('m-2', 'WORKER')] as never);
+    const out = await s.svc.roster();
+    expect(out.items.map((i) => [i.memberId, i.isForeman])).toEqual([
+      ['m-1', true],
+      ['m-2', false],
+    ]);
+    const args = s.prisma.teamMember.findMany.mock.calls.at(-1)![0] as { select: { memberships: { select: { role: boolean } } } };
+    expect(args.select.memberships.select.role).toBe(true);
+  });
+});

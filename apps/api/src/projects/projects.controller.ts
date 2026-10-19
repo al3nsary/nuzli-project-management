@@ -157,7 +157,7 @@ export class ProjectsController {
 
   @Get(':id/export')
   @RequireAnyPermission(...READ_ANY)
-  @ApiOperation({ summary: 'تصدير المشروع: xlsx (من اليمين لليسار دون تجميد) أو csv (UTF-8 مع BOM) أو xml (MS Project)' })
+  @ApiOperation({ summary: 'تصدير المشروع: xlsx (من اليمين لليسار دون تجميد) أو csv (UTF-8 مع BOM) أو xml (MS Project) أو ganttpro (Excel بتخطيط GanttPRO)' })
   async exportProject(
     @Param('id', UuidPipe) id: string,
     @ZodQuery(projectExportQuerySchema) q: z.output<typeof projectExportQuerySchema>,

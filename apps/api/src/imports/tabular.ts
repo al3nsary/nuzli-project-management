@@ -7,6 +7,7 @@ import { Worker } from 'node:worker_threads';
 import Papa from 'papaparse';
 import { AppError } from '../common/app-error';
 import { inspectZip } from '../storage/zip-guard';
+import { detectGanttpro, NOZOLY_CALENDAR_SHEET } from './ganttpro';
 import {
   cleanText,
   emptyDraft,
@@ -94,6 +95,8 @@ export interface TableCell {
   indent?: number;
   /** The cell shows a percentage (xlsx number format with %). */
   percent?: boolean;
+  /** A10: solid fill ARGB (`FF50C7D6`) of the first three columns. */
+  fill?: string;
 }
 
 export type TableRow = TableCell[];
@@ -131,6 +134,12 @@ function plain(v) {
   if (v instanceof Date) return { $date: v.getTime() };
   if (typeof v === 'object') {
     if ('result' in v) return plain(v.result);
+    // A10: a hyperlink cell keeps its address as text when the label differs from it.
+    if ('hyperlink' in v && 'text' in v) {
+      const label = plain(v.text);
+      const href = typeof v.hyperlink === 'string' ? v.hyperlink : '';
+      return href && label !== href ? (label ? label + ' (' + href + ')' : href) : label;
+    }
     if ('richText' in v && Array.isArray(v.richText)) return v.richText.map((r) => r.text).join('');
     if ('text' in v) return v.text;
     return null;
@@ -148,7 +157,11 @@ function rowsOf(ws, maxRows) {
       if (c > workerData.maxCols) return;
       while (cells.length < c - 1) cells.push({ v: null, indent: 0, percent: false });
       const fmt = cell.numFmt || '';
-      cells.push({ v: plain(cell.value), indent: (cell.alignment && cell.alignment.indent) || 0, percent: fmt.includes('%') });
+      const out = { v: plain(cell.value), indent: (cell.alignment && cell.alignment.indent) || 0, percent: fmt.includes('%') };
+      // A10: the solid fill of the first columns (GanttPRO keeps the bar colour in column A).
+      const f = c <= 3 ? cell.fill : null;
+      if (f && f.type === 'pattern' && f.pattern === 'solid' && f.fgColor && typeof f.fgColor.argb === 'string') out.fill = f.fgColor.argb;
+      cells.push(out);
     });
     rows.push({ r, cells });
   });
@@ -171,7 +184,10 @@ function rowsOf(ws, maxRows) {
   }
   const ws = sheets[idx] || sheets[0];
   const out = rowsOf(ws, workerData.maxRows);
-  parentPort.postMessage({ type: 'rows', sheet: ws.name, rows: out.rows, truncated: out.truncated });
+  // A10: the calendar sheet our GanttPRO-layout export adds (ignored by GanttPRO).
+  const calWs = sheets.find((s) => s.name === workerData.calendarSheet && s !== ws);
+  const calendarRows = calWs ? rowsOf(calWs, 1100).rows : null;
+  parentPort.postMessage({ type: 'rows', sheet: ws.name, rows: out.rows, truncated: out.truncated, calendarRows });
 })();
 `;
 
@@ -180,7 +196,7 @@ type WorkerMsg =
   | { type: 'invalid' }
   | { type: 'empty' }
   | { type: 'heads'; heads: SparseRow[][] }
-  | { type: 'rows'; sheet: string; rows: SparseRow[]; truncated: boolean };
+  | { type: 'rows'; sheet: string; rows: SparseRow[]; truncated: boolean; calendarRows: SparseRow[] | null };
 
 /** Sparse worker rows → the dense table the mapper expects (index i = spreadsheet row i + 1). */
 export function denseRows(rows: SparseRow[]): TableRow[] {
@@ -201,7 +217,11 @@ export function denseRows(rows: SparseRow[]): TableRow[] {
  * exceljs runs in a `worker_threads` worker with a heap limit and a deadline, so a hostile file
  * kills the worker, never the API process.
  */
-export async function readXlsx(buf: Buffer, sheetName?: string, opts: XlsxReadOptions = {}): Promise<{ rows: TableRow[]; sheet: string }> {
+export async function readXlsx(
+  buf: Buffer,
+  sheetName?: string,
+  opts: XlsxReadOptions = {},
+): Promise<{ rows: TableRow[]; sheet: string; calendarRows: TableRow[] | null }> {
   const verdict = inspectZip(buf);
   if (!verdict.ok) throw new AppError('IMPORT_FILE_INVALID', { reason: 'xlsx-limits', detail: verdict.reason });
   const timeoutMs = opts.timeoutMs ?? 30_000;
@@ -213,6 +233,7 @@ export async function readXlsx(buf: Buffer, sheetName?: string, opts: XlsxReadOp
       exceljsPath: require.resolve('exceljs'),
       bytes,
       sheetName: sheetName ?? null,
+      calendarSheet: NOZOLY_CALENDAR_SHEET,
       maxRows: opts.maxRows ?? MAX_IMPORT_ROWS,
       maxCols: MAX_IMPORT_COLUMNS,
       maxRowNumber: MAX_IMPORT_ROW_NUMBER,
@@ -224,7 +245,7 @@ export async function readXlsx(buf: Buffer, sheetName?: string, opts: XlsxReadOp
   });
   const invalid = (reason: string) => new AppError('IMPORT_FILE_INVALID', { reason });
   try {
-    const result = await new Promise<{ sheet: string; rows: SparseRow[]; truncated: boolean }>((resolve, reject) => {
+    const result = await new Promise<{ sheet: string; rows: SparseRow[]; truncated: boolean; calendarRows: SparseRow[] | null }>((resolve, reject) => {
       let settled = false;
       const timer = setTimeout(() => finish(() => reject(invalid('xlsx-timeout'))), timeoutMs);
       function finish(fn: () => void): void {
@@ -238,7 +259,10 @@ export async function readXlsx(buf: Buffer, sheetName?: string, opts: XlsxReadOp
         else if (m.type === 'empty') finish(() => reject(new AppError('IMPORT_NO_TASKS')));
         else if (m.type === 'heads') {
           // The first sheet with a task-name header in its first 15 rows.
-          const pick = m.heads.findIndex((h) => headerRowIndex(denseRows(h)) >= 0);
+          const pick = m.heads.findIndex((h) => {
+            const dense = denseRows(h);
+            return headerRowIndex(dense) >= 0 || detectGanttpro(dense) !== null;
+          });
           worker.postMessage({ pick: pick < 0 ? 0 : pick });
         } else finish(() => resolve(m));
       });
@@ -247,7 +271,7 @@ export async function readXlsx(buf: Buffer, sheetName?: string, opts: XlsxReadOp
       worker.on('exit', (code) => finish(() => reject(invalid(code === 0 ? 'xlsx' : 'xlsx-limits'))));
     });
     if (result.truncated) throw new AppError('IMPORT_TOO_MANY_TASKS', { max: MAX_IMPORT_TASKS });
-    return { rows: denseRows(result.rows), sheet: result.sheet };
+    return { rows: denseRows(result.rows), sheet: result.sheet, calendarRows: result.calendarRows ? denseRows(result.calendarRows) : null };
   } finally {
     await worker.terminate().catch(() => undefined);
   }

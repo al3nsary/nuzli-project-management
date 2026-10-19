@@ -175,7 +175,7 @@ export class ViolationsService {
         memberships: {
           where: { validTo: null },
           take: 1,
-          select: { team: { select: { id: true, name: true, color: { select: { hex: true } } } } },
+          select: { role: true, team: { select: { id: true, name: true, color: { select: { hex: true } } } } },
         },
       },
       orderBy: { fullName: 'asc' },
@@ -195,6 +195,8 @@ export class ViolationsService {
           // Owner request A8: monitors confirm identity with GET /members/:id/photo-url.
           photoFileId: m.photoFileId,
           hasPhoto: !!m.photoFileId,
+          // A10: the worker foreman (مشرف عمّال) is marked on the monitor's device too.
+          isForeman: m.memberships[0]?.role === 'FOREMAN',
         };
       }),
     };

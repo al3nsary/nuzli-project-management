@@ -38,6 +38,7 @@ import { TemplatesService } from './templates.service';
 import { dateOf, DEFAULT_WORKING_HOURS, isoOf, projectProgress } from './task-engine';
 import { buildTasksCsv, buildTasksWorkbook, compareWbs, type TaskExportRow } from './tasks-export';
 import { writeMspdi } from '../imports/mspdi';
+import { writeGanttpro } from '../imports/ganttpro';
 
 type Viewer = PermissionSubject & { id: string };
 type CreateProject = z.output<typeof createProjectSchema>;
@@ -328,11 +329,16 @@ export class ProjectsService {
     ]);
     if (!calendar) throw new AppError('NOT_FOUND');
     const ids = new Set(rows.map((r) => r.id));
-    const [counts, extras] = await Promise.all([this.store.attachmentCounts([...ids]), this.store.taskExtras([...ids])]);
+    const [counts, extras, unread] = await Promise.all([
+      this.store.attachmentCounts([...ids]),
+      this.store.taskExtras([...ids]),
+      // A10: the chat icon of each row (one grouped query for the project).
+      this.store.unreadCounts(viewer.id, { projectId: id }),
+    ]);
     const stored = rows.map(toStored);
     const wbs = computeWbs(stored);
     const tasks = rows
-      .map((r) => toTaskDto(r, counts, wbs.get(r.id), extras))
+      .map((r) => ({ ...toTaskDto(r, counts, wbs.get(r.id), extras), unreadCount: unread.get(r.id) ?? 0 }))
       .sort((a, b) => compareWbs(a.wbs, b.wbs));
     const roots = stored.filter((t) => !t.parentId || !ids.has(t.parentId));
     // HOUR projects: the project's end date is the day of the last working minute.
@@ -359,9 +365,10 @@ export class ProjectsService {
   }
 
   /**
-   * `GET /projects/:id/export?format=xlsx|csv|xml`: Excel (RTL, no frozen panes, with costs,
+   * `GET /projects/:id/export?format=xlsx|csv|xml|ganttpro`: Excel (RTL, no frozen panes, with costs,
    * deadline, labels and custom fields), CSV (same columns, UTF-8 BOM) or MS Project XML (MSPDI:
-   * calendar, hours, summary tasks, links with lags, assignees as resources). Audited
+   * calendar, hours, summary tasks, links with lags, assignees as resources) or GanttPRO's Excel layout
+   * (A10, ADR-125: `writeGanttpro`, re-imported identically). Audited
    * `project.exported` with the format. PDF/PNG of the Gantt are rendered in the browser.
    */
   async exportProject(
@@ -438,6 +445,47 @@ export class ProjectsService {
         })),
       });
       out = { filename: `${base}.xml`, buffer: Buffer.from(xml, 'utf8'), contentType: 'application/xml; charset=utf-8' };
+    } else if (format === 'ganttpro') {
+      // A10 (ADR-125): GanttPRO's Excel layout; our GanttPRO importer reads it back identically.
+      const buffer = await writeGanttpro({
+        name: g.project.name,
+        unit,
+        generatedAt,
+        calendar: {
+          name: g.calendar.name,
+          weekendDays: g.calendar.weekendDays,
+          workingHours: g.calendar.workingHours ?? DEFAULT_WORKING_HOURS,
+          exceptions: g.calendar.exceptions.map((e) => ({ date: e.date, isWorking: e.isWorking, name: e.name, workingHours: e.workingHours ?? null })),
+        },
+        tasks: g.tasks.map((t) => ({
+          id: t.id,
+          parentId: t.parentId,
+          wbs: t.wbs,
+          name: t.name,
+          type: t.type,
+          startDate: t.startDate,
+          endDate: t.endDate,
+          durationDays: t.durationDays,
+          ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
+          progress: t.progress,
+          status: t.status,
+          priority: t.priority,
+          assigneeName: t.assignee?.fullName ?? null,
+          description: t.description,
+          plannedCost: t.plannedCost ?? 0,
+          actualCost: t.actualCost ?? 0,
+          deadline: t.deadline ?? null,
+          barColor: t.barColor ?? null,
+        })),
+        deps: g.dependencies.map((d) => ({
+          predecessorId: d.predecessorId,
+          successorId: d.successorId,
+          type: d.type,
+          lagDays: d.lagDays,
+          lagMinutes: d.lagHours !== undefined ? Math.round(d.lagHours * 60) : 0,
+        })),
+      });
+      out = { filename: `${base}-ganttpro.xlsx`, buffer, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
     } else {
       const buffer = await buildTasksWorkbook(
         {

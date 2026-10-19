@@ -9,6 +9,9 @@ import {
   importCommitSchema,
   importJiraSchema,
   importProjectSchema,
+  IMPORT_FILE_FORMATS,
+  IMPORT_FORMATS,
+  cardDataSchema,
   MAX_IMPORT_BYTES,
   presignUploadSchema,
   projectExportQuerySchema,
@@ -78,5 +81,19 @@ describe('A9 imports — schemas (ADR-110..112)', () => {
     expect(importCommitSchema.parse({ previewId: U, assigneeMap: { أحمد: U, سعد: null } }).assigneeMap).toEqual({ أحمد: U, سعد: null });
     expect(projectExportQuerySchema.parse({}).format).toBe('xlsx');
     expect(projectExportQuerySchema.safeParse({ format: 'pdf' }).success).toBe(false);
+  });
+});
+
+describe('A10 — GanttPRO import/export, foreman on cards', () => {
+  it('imports accept «ganttpro» (IMPORT_FILE_FORMATS) while IMPORT_FORMATS keeps its members; exports accept «ganttpro»', () => {
+    expect(IMPORT_FILE_FORMATS).toEqual([...IMPORT_FORMATS, 'ganttpro']);
+    expect(importProjectSchema.parse({ fileId: U, format: 'ganttpro' }).format).toBe('ganttpro');
+    expect(importProjectSchema.safeParse({ fileId: U, format: 'gantt' }).success).toBe(false);
+    expect(projectExportQuerySchema.parse({ format: 'ganttpro' }).format).toBe('ganttpro');
+  });
+
+  it('card data carries the optional foreman mark', () => {
+    expect(cardDataSchema.parse({ fullName: 'س', isForeman: true, roleLabel: 'مشرف عمّال' })).toMatchObject({ isForeman: true, roleLabel: 'مشرف عمّال' });
+    expect(cardDataSchema.parse({ fullName: 'س' }).isForeman).toBeUndefined();
   });
 });

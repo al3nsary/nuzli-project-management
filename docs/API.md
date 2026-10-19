@@ -414,3 +414,36 @@ docs/security-review-2026-10-A9.md has the findings and their status. What a cli
 | OCR | ID-card images above 25 megapixels (or not a JPEG/PNG/WebP by header) fail permanently with `error: 'IMAGE_TOO_LARGE' \| 'NOT_AN_IMAGE'` before the engine runs. Retries are audited. |
 
 New error codes: `VIOLATION_TOO_OLD_TO_REGISTER` (409), `VIEW_PREF_LIMIT` (409). New setting: `VIOLATION_REGISTER_MAX_AGE_DAYS` (1–365, default 30). New audit actions: `violation.ocr_retried`, `violation.person_photo_viewed`. New shared constant: `VIEW_PREF_MAX_COUNT = 200`.
+
+## A10 — GanttPRO import/export, MS Project detection, chat counts, foreman (owner request A10, ADR-124..126)
+
+All new DTO fields are optional in `@nuzli/shared` and always sent by the API (apps/web keeps compiling).
+
+### Imports
+| Change | Detail |
+|---|---|
+| `POST /projects/import` `format` | Also `'ganttpro'` (`IMPORT_FILE_FORMATS` = `IMPORT_FORMATS` + `ganttpro`; `ImportFormat` is unchanged). Upload content type: the xlsx one. |
+| Content detection | The bytes decide **within what the upload is**: a ZIP is read as GanttPRO when its layout matches (header row with `WBS Number` + `Task name / Title` + three of Type/Level/Project/Planned start/end/Duration in the first 15 rows, or a GanttPRO/Nozoly banner; English, Arabic, Russian… synonyms, GanttPRO column positions as fallback), else as a plain workbook; an upload that is MS Project XML (`<Project` in `http://schemas.microsoft.com/project`, or `<Project>` with `<Tasks>`) is read as `xml` whatever was chosen. A text file chosen as `xlsx` is still 400 `IMPORT_FORMAT_MISMATCH`. When the detected format differs from the chosen one the preview has warning `FORMAT_DETECTED`. |
+| `ImportPreviewDto` | `detectedFormat?` (`ganttpro`, `xlsx`, `xml`, …; = `format` when nothing else was recognised). `stats` adds `maxLevel`, `coloredCount`, `colorCount`, `deadlineCount`, and for GanttPRO `sourceTypes` (rows per GanttPRO type), `estimatedHours`, `timeLogMinutes` (reported, not imported). `ImportPreviewTaskDto` adds `priority?`, `barColor?` — both are persisted by the commit. |
+| `unmappedAssignees[].suggestedUserId` | Case-insensitive, whitespace-normalised match on an ACTIVE supervisor's full name **or e-mail local part** (`noura.k` ↔ `noura.k@…`; a full e-mail in the file matches its local part). Two supervisors with one key → no suggestion. |
+| Audit | `project.import_previewed` adds `detectedFormat` when it differs from `format`. |
+| New warning codes | `FORMAT_DETECTED`, `STATUS_UNKNOWN`, `PRIORITY_UNKNOWN`, `TYPE_UNKNOWN`, `LEVEL_MISMATCH`, `PROJECT_ROOT_USED`, `ESTIMATES_NOT_IMPORTED`, `DURATION_ROUNDED`, `INACTIVE_SKIPPED` (MSPDI `<Active>0</Active>`). |
+
+**GanttPRO mapping** (docs/imports.md has the admin guide): banner rows, blank rows and the footer («…created with the help of ganttpro.com», or our «Exported from Nozoly») are skipped; name = first non-empty of the merged C..G cells; hierarchy from `WBS Number` (Level cross-checked); `project`/`tasks group` → GROUP (one level-1 `project` row named like the sheet/banner → the project name, not a task), `task` → TASK, `milestone` → MILESTONE; `Planned start/end` are UTC → Asia/Riyadh local; `Duration (hours)` → `durationHours` and an **HOUR** project; `Deadline` keeps its UTC day; `Progress (%)`; `Status` Open → NOT_STARTED, In progress → IN_PROGRESS, Done/Closed → DONE, On hold/Paused → ON_HOLD, unknown → NOT_STARTED + warning; `Priority` Lowest/Low → LOW, Medium → MEDIUM, High → HIGH, Highest → URGENT; `Task description` keeps lines and links; column-A fill ARGB → `barColor #RRGGBB`; `Budget`/`Actual cost` → planned/actual cost; `Predecessor` = WBS numbers separated by `,`/`;` with optional `FS|SS|FF|SF` and lag (`+2d`, `-1h`). The calendar is our hidden «Nozoly calendar» sheet when present (exact round trip), else **inferred** from the task times (earliest frequent start, latest frequent end, the break where it explains the most durations, weekend = weekdays never used; must beat the default calendar, else the default) with warning `CALENDAR_DEFAULTED` naming the hours and the match count.
+
+**MS Project 2010–2021** (`SaveVersion` 12/14): namespaced and un-namespaced files, Arabic names, `OutlineLevel`, summary tasks, milestones, work resources + assignments (material/cost resources and the `-65535` unassigned resource are ignored), the calendar named by `CalendarUID` (WeekDays, WorkingTimes, Exceptions; WorkWeeks and resource calendars ignored), inactive tasks skipped; baselines, extended attributes and timephased data ignored. `.mpp` still goes through the converter.
+
+### Exports
+| Method | Path | Permission | Query | Response |
+|---|---|---|---|---|
+| GET | `/projects/:id/export` | readAll | `format=xlsx \| csv \| xml \| ganttpro` | **ganttpro** (`project-<id8>-<date>-ganttpro.xlsx`): GanttPRO's export layout — banner rows 1–4 (A4 the project name, N4 the export time), the 26 English headers on row 5 (`Color`, `WBS Number`, C–F blank, `Task name / Title`, `Assigned to`, `Planned start date`, `Planned end date`, `Deadline`, `Progress (%)`, `Duration (hours)`, `Estimated hours`, `Time log (minutes)`, `Status`, `Priority`, `Task description`, `Predecessor`, `Budget`, `Actual cost`, `Created`, `Creator`, `Type`, `Project`, `Level`), one row per task in WBS order (bar colour as the A fill, the name merged from its level's column to G, UTC date cells, working hours, GanttPRO statuses `Open/In progress/Done/On hold` and priorities `Low/Medium/High/Highest`, predecessors as WBS numbers with type + lag when not plain FS, `project` for level-1 groups and `tasks group` below, `Project` = the ancestor path), a blank row and the footer «Exported from Nozoly»; a hidden sheet «Nozoly calendar» (weekend, hours, exceptions, unit). RTL view and no frozen panes (rule 5). Re-imports identically (tested for DAY and HOUR, and on the owner's 181-task file). Audited `project.exported { format: 'ganttpro', tasks }`. `xlsx`, `csv`, `xml` unchanged. |
+
+### Chat counts on task rows
+`TaskDto.unreadCount?` — comments on the task by others, newer than the caller's `task_comment_reads.last_read_at` (all of them when never read). Sent by `GET /projects/:id/gantt` (the Gantt and the grid) and `GET /tasks/mine`, computed in **one grouped SQL query** per request (`ProjectStore.unreadCounts`: `task_comments ⋈ tasks ⟕ task_comment_reads … GROUP BY task_id`, live tasks of the project). `commentCount` is unchanged (all comments). Mutation responses do not carry `unreadCount`; `POST /tasks/:id/comments/read` resets it.
+
+### Worker foreman
+| Where | Change |
+|---|---|
+| `POST /cards/preview` | Every member subject has `data.isForeman` (boolean); the foreman's card also `data.roleLabel = 'مشرف عمّال'`. Supervisor cards are unchanged (`roleLabel = 'مشرف الفريق'`). |
+| `POST /cards/batches` (print-run `cards`, stored `rendered_data`, replays, PDF) | The server sets `isForeman`/`roleLabel` from the member's current membership; a client-sent `isForeman` is ignored and a non-foreman loses a client-sent «مشرف عمّال» label. `cardDataSchema` accepts `isForeman?: boolean`. |
+| `GET /violations/roster` | `RosterEntry.isForeman?` (always sent). |

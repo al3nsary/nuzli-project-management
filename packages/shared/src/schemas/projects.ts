@@ -229,6 +229,11 @@ export interface TaskDto {
   description: string | null;
   version: number;
   commentCount: number;
+  /**
+   * A10: comments on this task the caller has not read (not their own, newer than their
+   * `task_comment_reads` mark). Sent by `GET /projects/:id/gantt` and `GET /tasks/mine`.
+   */
+  unreadCount?: number;
   attachmentCount: number;
   // A9 — optional in the type; always sent by the API.
   plannedCost?: number;

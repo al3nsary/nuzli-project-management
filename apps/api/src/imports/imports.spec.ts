@@ -458,7 +458,8 @@ describe('ImportsService — preview and commit', () => {
   it('MSPDI preview → commit: one transaction creates the calendar, HOUR project, hierarchy, links with lags and mapped assignees', async () => {
     const { fake, storage, service } = serviceSetup('mspdi-hours.xml', 'application/xml');
     const pv = await service.previewFile({ fileId: FILE, format: 'xml', options: { dateOrder: 'DMY' } }, ADMIN, ctx);
-    expect(pv.stats).toEqual({ taskCount: 5, groupCount: 1, milestoneCount: 1, dependencyCount: 3 });
+    expect(pv.stats).toMatchObject({ taskCount: 5, groupCount: 1, milestoneCount: 1, dependencyCount: 3, maxLevel: 2 });
+    expect(pv.detectedFormat).toBe('xml');
     expect(pv.unmappedAssignees).toEqual([
       { name: 'أحمد', taskCount: 1, suggestedUserId: null },
       { name: 'علي', taskCount: 1, suggestedUserId: SUP1 },
@@ -538,8 +539,12 @@ describe('ImportsService — preview and commit', () => {
   });
 
   it('format must match the upload; someone else\'s upload is 404; .mpp without a converter is 501', async () => {
+    // A10: content an upload really is wins within its type (MSPDI chosen as Excel → read as XML);
+    // a text file chosen as Excel is still a mismatch.
+    const csv = serviceSetup('tasks-ar.csv', 'text/csv');
+    expect(await codeOf(() => csv.service.previewFile({ fileId: FILE, format: 'xlsx', options: { dateOrder: 'DMY' } }, ADMIN, ctx))).toBe('IMPORT_FORMAT_MISMATCH');
     const { service, fake } = serviceSetup('mspdi-hours.xml', 'application/xml');
-    expect(await codeOf(() => service.previewFile({ fileId: FILE, format: 'xlsx', options: { dateOrder: 'DMY' } }, ADMIN, ctx))).toBe('IMPORT_FORMAT_MISMATCH');
+    expect((await service.previewFile({ fileId: FILE, format: 'xlsx', options: { dateOrder: 'DMY' } }, ADMIN, ctx)).detectedFormat).toBe('xml');
     expect(await codeOf(() => service.previewFile({ fileId: FILE, format: 'xml', options: { dateOrder: 'DMY' } }, { ...ADMIN, id: 'other' }, ctx))).toBe('NOT_FOUND');
     fake.data.files[0]!.mimeType = 'application/vnd.ms-project';
     expect(await codeOf(() => service.previewFile({ fileId: FILE, format: 'mpp', options: { dateOrder: 'DMY' } }, ADMIN, ctx))).toBe('MPP_CONVERTER_NOT_CONFIGURED');

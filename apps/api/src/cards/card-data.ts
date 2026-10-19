@@ -15,6 +15,8 @@ import { memberDepartment, memberJobTitle, type MemberRow } from '../teams/team-
 
 export const DEFAULT_TEAM_COLOR = '#1D5C63';
 export const SUPERVISOR_ROLE_LABEL = 'مشرف الفريق';
+/** A10: the label of the worker foreman (one of the team's workers, ADR-101). */
+export const FOREMAN_ROLE_LABEL = 'مشرف عمّال';
 
 /** Stored configs are re-validated on read; a broken row falls back to the defaults. */
 export function parseConfig(value: Prisma.JsonValue | unknown): CardTemplateConfig {
@@ -114,7 +116,13 @@ export function memberCard(
     qrValue: m.id, // internal UUID — never the national ID (brief §8.2)
     photoFileId: config.fields.photo ? m.photoFileId : null,
     ...(config.fields.validUntil && config.validUntil ? { validUntil: config.validUntil } : {}),
+    ...foremanFields(m.memberships[0]?.role === 'FOREMAN'),
   };
+}
+
+/** A10: `isForeman` on every member card, and the «مشرف عمّال» label on the foreman's. */
+export function foremanFields(isForeman: boolean): { isForeman: boolean; roleLabel?: string } {
+  return isForeman ? { isForeman: true, roleLabel: FOREMAN_ROLE_LABEL } : { isForeman: false };
 }
 
 export interface SupervisorRow {

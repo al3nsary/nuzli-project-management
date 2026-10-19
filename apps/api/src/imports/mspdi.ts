@@ -189,9 +189,14 @@ export function parseMspdi(xml: string): ImportDraft {
     assigned.set(task, arr);
   }
 
-  const rows = list((project.Tasks as X | undefined)?.Task)
+  const all = list((project.Tasks as X | undefined)?.Task)
     .filter((t) => !bool(t.IsNull) && str(t.UID) !== null)
     .sort((a, b) => (num(a.ID) ?? 0) - (num(b.ID) ?? 0));
+  // A10: MS Project 2010+ «inactive» tasks (<Active>0</Active>) are not scheduled there either.
+  const rows = all.filter((t) => str(t.Active) !== '0');
+  if (rows.length < all.length) {
+    warn(draft, 'INACTIVE_SKIPPED', `${all.length - rows.length} مهمة معطّلة (Inactive) في MS Project لم تُستورد.`);
+  }
   const real = rows.filter((t) => (num(t.OutlineLevel) ?? 1) >= 1 && str(t.UID) !== '0');
   const summaryRow = rows.find((t) => str(t.UID) === '0' || num(t.OutlineLevel) === 0);
   if (!draft.projectName && summaryRow) draft.projectName = cleanText(summaryRow.Name, 160);

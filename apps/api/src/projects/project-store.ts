@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { WorkCalendar } from '@nuzli/scheduling';
 import type { DependencyType, PermissionSubject, TaskDto, TaskPrevious, TaskPreviousMap, TaskVersionConflictDetails } from '@nuzli/shared';
 import { AuditAction, AuditService } from '../audit/audit.service';
@@ -151,6 +151,17 @@ export class ProjectStore {
       s.endDate = a._max.endDate ? isoOf(a._max.endDate) : null;
     }
     return out;
+  }
+
+  /**
+   * A10: comments of each task the viewer has not read — not their own and newer than their
+   * `task_comment_reads` mark — in ONE grouped query over the project (or the given tasks).
+   * Tasks without unread comments are absent from the map.
+   */
+  async unreadCounts(viewerId: string, scope: { projectId: string } | { taskIds: string[] }, db: Db = this.prisma): Promise<Map<string, number>> {
+    if ('taskIds' in scope && !scope.taskIds.length) return new Map();
+    const rows = await db.$queryRaw<Array<{ taskId: string; unread: number }>>(unreadCountsSql(viewerId, scope));
+    return new Map((rows ?? []).map((r) => [r.taskId, Number(r.unread)]));
   }
 
   /** READY, non-deleted attachments per task id. */
@@ -545,4 +556,21 @@ export function mapTaskDbError(err: unknown): unknown {
   if (err instanceof AppError) return err;
   if (err instanceof Error && /ASSIGNEE_NOT_SUPERVISOR/.test(err.message)) return new AppError('ASSIGNEE_NOT_SUPERVISOR');
   return err;
+}
+
+/** The SQL of `ProjectStore.unreadCounts` (exported for the text check in the unit tests). */
+export function unreadCountsSql(viewerId: string, scope: { projectId: string } | { taskIds: string[] }): Prisma.Sql {
+  const where =
+    'projectId' in scope
+      ? Prisma.sql`t.project_id = ${scope.projectId}::uuid AND t.archived_at IS NULL`
+      : Prisma.sql`c.task_id = ANY(${scope.taskIds}::uuid[])`;
+  return Prisma.sql`
+    SELECT c.task_id AS "taskId", count(*)::int AS "unread"
+      FROM task_comments c
+      JOIN tasks t ON t.id = c.task_id
+      LEFT JOIN task_comment_reads r ON r.task_id = c.task_id AND r.user_id = ${viewerId}::uuid
+     WHERE ${where}
+       AND c.author_id <> ${viewerId}::uuid
+       AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)
+     GROUP BY c.task_id`;
 }

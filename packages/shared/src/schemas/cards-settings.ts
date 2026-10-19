@@ -79,6 +79,8 @@ export const cardDataSchema = z.object({
   photoFileId: uuid.nullable().optional(),
   validUntil: isoDate.optional(),
   roleLabel: z.string().max(40).optional(),
+  /** A10: the worker foreman (مشرف عمّال); set by the server from the membership, with `roleLabel`. */
+  isForeman: z.boolean().optional(),
 });
 export type CardData = z.input<typeof cardDataSchema>;
 

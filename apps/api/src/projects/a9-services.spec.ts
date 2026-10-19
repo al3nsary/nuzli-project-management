@@ -5,7 +5,7 @@ import { createFakeDb, d, task, type FakeData } from '../../test/unit/fake-proje
 import { attachmentWhereSql, HubService, hubStats, hubStatsSql, likePattern, type HubStat } from './hub.service';
 import { taskScopeWhere } from './project-dto';
 import { ProjectReportsService } from './project-reports.service';
-import { ProjectStore } from './project-store';
+import { ProjectStore, unreadCountsSql } from './project-store';
 import { ProjectsService } from './projects.service';
 import { TemplatesService } from './templates.service';
 import { TasksService } from './tasks.service';
@@ -415,5 +415,39 @@ describe('A9 templates and portfolios', () => {
     expect(removed.projectIds).toEqual([P]);
     await templates.deletePortfolio(pf.id, ctx);
     expect(await templates.listPortfolios()).toEqual([]);
+  });
+});
+
+describe('A10 — chat counts on gantt rows (commentCount + unreadCount)', () => {
+  it('gantt: one grouped SQL query for the project; every row carries unreadCount (0 when absent) next to commentCount', async () => {
+    const s = setup();
+    s.fake.db.$queryRaw.mockResolvedValue([{ taskId: A, unread: 2 }]);
+    const g = await s.projects.gantt(P, ADMIN);
+    expect(g.tasks.find((t) => t.id === A)).toMatchObject({ unreadCount: 2, commentCount: 0 });
+    expect(g.tasks.find((t) => t.id === B)!.unreadCount).toBe(0);
+    expect(s.fake.db.$queryRaw).toHaveBeenCalledTimes(1);
+    const sql = s.fake.db.$queryRaw.mock.calls[0]![0] as { strings: string[]; values: unknown[] };
+    expect(sql.values).toEqual(expect.arrayContaining(['admin', P]));
+  });
+
+  it('mine: the supervisor\'s unread counts for their tasks', async () => {
+    const s = setup();
+    s.fake.db.$queryRaw.mockResolvedValue([{ taskId: C, unread: 1 }]);
+    const mine = await s.tasks.mine(SUP);
+    expect(mine.find((t) => t.id === C)!.unreadCount).toBe(1);
+    expect(mine.find((t) => t.id === A)!.unreadCount).toBe(0);
+  });
+
+  it('the SQL counts only others\' comments newer than the caller\'s read mark, grouped per task, live tasks of the project', () => {
+    const sql = unreadCountsSql('u1', { projectId: P });
+    const text = sql.strings.join('?').replace(/\s+/g, ' ');
+    expect(text).toContain('LEFT JOIN task_comment_reads r ON r.task_id = c.task_id AND r.user_id = ?::uuid');
+    expect(text).toContain('t.project_id = ?::uuid AND t.archived_at IS NULL');
+    expect(text).toContain('c.author_id <> ?::uuid');
+    expect(text).toContain('(r.last_read_at IS NULL OR c.created_at > r.last_read_at)');
+    expect(text).toContain('GROUP BY c.task_id');
+    expect(sql.values).toEqual(['u1', P, 'u1']);
+    const byIds = unreadCountsSql('u1', { taskIds: [A, B] });
+    expect(byIds.strings.join('?')).toContain('c.task_id = ANY(?::uuid[])');
   });
 });

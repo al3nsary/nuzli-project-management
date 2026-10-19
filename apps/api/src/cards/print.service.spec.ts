@@ -404,3 +404,57 @@ describe('card photos (owner request A8)', () => {
     fetchMock.mockRestore();
   });
 });
+
+describe('A10 — worker foreman on cards', () => {
+  const foreman = () =>
+    member({
+      memberships: [{ teamId: TEAM, role: 'FOREMAN', team: { id: TEAM, name: 'فريق أ', status: 'ACTIVE', supervisors: [{ userId: SUP_ID }], color: { id: 'c', name: 'أزرق', hex: '#1D4ED8', isActive: true } } }],
+    });
+
+  it('preview: the foreman card has isForeman and «مشرف عمّال»; a worker card has isForeman=false and no label', async () => {
+    const { svc, tx } = setup();
+    tx.teamMember.findMany.mockResolvedValue([foreman()]);
+    const { subjects } = await svc.preview(previewInput, ADMIN);
+    expect(subjects[1]!.data).toMatchObject({ isForeman: true, roleLabel: 'مشرف عمّال' });
+    expect(subjects[0]!.data).toMatchObject({ roleLabel: 'مشرف الفريق' });
+    expect(subjects[0]!.data.isForeman).toBeUndefined();
+
+    tx.teamMember.findMany.mockResolvedValue([member()]);
+    const plain = await svc.preview(previewInput, ADMIN);
+    expect(plain.subjects[1]!.data.isForeman).toBe(false);
+    expect(plain.subjects[1]!.data.roleLabel).toBeUndefined();
+  });
+
+  it('print run: the server derives the mark from the membership and ignores what the client sent', async () => {
+    const { svc, tx } = setup();
+    tx.teamMember.findMany.mockResolvedValue([{ ...foreman(), memberships: [{ role: 'FOREMAN' }] }]);
+    const res = await svc.createBatch(
+      {
+        idempotencyKey: KEY,
+        templateId: 'tpl-1',
+        items: [
+          { memberId: MEMBER_ID, data: { fullName: 'محمد', isForeman: false }, saveBack: false },
+          { userId: SUP_ID, data: { fullName: 'سعد المشرف', roleLabel: 'مشرف الفريق', isForeman: true }, saveBack: false },
+        ],
+      } as never,
+      ADMIN as never,
+      ctx,
+    );
+    expect(res.batch.cards[0]!.data).toMatchObject({ isForeman: true, roleLabel: 'مشرف عمّال' });
+    expect(res.batch.cards[1]!.data).toMatchObject({ roleLabel: 'مشرف الفريق' });
+    expect(res.batch.cards[1]!.data.isForeman).toBeUndefined();
+    const stored = tx.cardPrintItem.createMany.mock.calls[0]![0].data as Array<{ renderedData: { isForeman?: boolean; roleLabel?: string } }>;
+    expect(stored[0]!.renderedData).toMatchObject({ isForeman: true, roleLabel: 'مشرف عمّال' });
+
+    // A worker whose client data claims the foreman label loses it.
+    const w = setup();
+    w.tx.teamMember.findMany.mockResolvedValue([{ ...member(), memberships: [{ role: 'WORKER' }] }]);
+    const res2 = await w.svc.createBatch(
+      { idempotencyKey: KEY, templateId: 'tpl-1', items: [{ memberId: MEMBER_ID, data: { fullName: 'محمد', roleLabel: 'مشرف عمّال', isForeman: true }, saveBack: false }] } as never,
+      ADMIN as never,
+      ctx,
+    );
+    expect(res2.batch.cards[0]!.data.isForeman).toBe(false);
+    expect(res2.batch.cards[0]!.data.roleLabel).toBeUndefined();
+  });
+});

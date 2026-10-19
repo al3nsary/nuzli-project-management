@@ -51,6 +51,8 @@ export interface FakeUser {
   fullName: string;
   role: 'ADMIN' | 'SUPERVISOR' | 'MONITOR';
   status: 'ACTIVE' | 'SUSPENDED' | 'PENDING';
+  /** A10: import suggestions match the e-mail local part. */
+  email?: string;
 }
 
 export interface FakeProject {

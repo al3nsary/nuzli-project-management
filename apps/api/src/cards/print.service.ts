@@ -28,6 +28,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MEMBER_SELECT, memberDepartment, memberJobTitle, type MemberRow, type Viewer } from '../teams/team-dto';
 import {
   cardNationalId,
+  FOREMAN_ROLE_LABEL,
+  foremanFields,
   memberCard,
   nationalIdPrintedFor,
   parseConfig,
@@ -49,6 +51,8 @@ interface CardSubject {
   first: string;
   last: string;
   photoFileId: string | null;
+  /** A10: a member who is the worker foreman of their current team (undefined for supervisors). */
+  isForeman?: boolean;
 }
 
 type StoredItem = {
@@ -348,7 +352,14 @@ export class PrintService {
       memberIds.length
         ? db.teamMember.findMany({
             where: { id: { in: memberIds } },
-            select: { id: true, nationalIdEnc: true, nationalIdFirst: true, nationalIdLast4: true, photoFileId: true },
+            select: {
+              id: true,
+              nationalIdEnc: true,
+              nationalIdFirst: true,
+              nationalIdLast4: true,
+              photoFileId: true,
+              memberships: { where: { validTo: null }, take: 1, select: { role: true } },
+            },
           })
         : [],
       userIds.length ? db.user.findMany({ where: { id: { in: userIds } }, select: SUPERVISOR_SELECT }) : [],
@@ -358,7 +369,14 @@ export class PrintService {
     }
     const out = new Map<string, CardSubject>();
     for (const m of members) {
-      out.set(`m:${m.id}`, { id: m.id, enc: m.nationalIdEnc, first: m.nationalIdFirst, last: m.nationalIdLast4, photoFileId: m.photoFileId });
+      out.set(`m:${m.id}`, {
+        id: m.id,
+        enc: m.nationalIdEnc,
+        first: m.nationalIdFirst,
+        last: m.nationalIdLast4,
+        photoFileId: m.photoFileId,
+        isForeman: m.memberships[0]?.role === 'FOREMAN',
+      });
     }
     for (const u of users) {
       out.set(`u:${u.id}`, { id: u.id, enc: u.nationalIdEnc, first: u.nationalIdFirst, last: u.nationalIdLast2, photoFileId: u.photoFileId });
@@ -372,8 +390,18 @@ export class PrintService {
    */
   private serverCard(config: ReturnType<typeof parseConfig>, data: CardData, subject: CardSubject): CardData {
     const parsed = cardDataSchema.parse(data);
+    // A10: the foreman mark comes from the membership, never from the client.
+    const { isForeman: _sent, ...rest } = parsed;
+    void _sent;
+    const role =
+      subject.isForeman === undefined
+        ? {}
+        : subject.isForeman
+          ? foremanFields(true)
+          : { isForeman: false, roleLabel: rest.roleLabel === FOREMAN_ROLE_LABEL ? undefined : rest.roleLabel };
     return {
-      ...parsed,
+      ...rest,
+      ...role,
       nationalId: cardNationalId(config, { first: subject.first, last: subject.last }, () => this.crypto.decrypt(subject.enc)),
       qrValue: subject.id, // internal UUID — never a national ID (brief §8.2)
       photoFileId: config.fields.photo ? subject.photoFileId : null,

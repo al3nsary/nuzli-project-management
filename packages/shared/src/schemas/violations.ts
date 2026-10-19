@@ -258,6 +258,8 @@ export interface RosterEntry {
   /** Owner request A8: the member photo (fetch it with `GET /members/:id/photo-url`). */
   photoFileId?: string | null;
   hasPhoto?: boolean;
+  /** A10: the worker foreman (مشرف عمّال) of their current team. Always sent by the API. */
+  isForeman?: boolean;
 }
 
 /** One extracted ID-card field with the OCR confidence (0–100). */

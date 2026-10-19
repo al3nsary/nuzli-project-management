@@ -26,6 +26,7 @@ import { convertMpp } from './converter-client';
 import { buildPreview, previewDepsDto, previewTasksDto, warn, type ImportDraft, type PreviewPayload } from './import-model';
 import { fetchJiraIssues, issuesToDraft, parseJiraCsv } from './jira';
 import { parseMspdi } from './mspdi';
+import { detectGanttpro, ganttproToDraft } from './ganttpro';
 import { decodeText, readCsv, readXlsx, tableToDraft } from './tabular';
 
 type Viewer = PermissionSubject & { id: string };
@@ -42,14 +43,76 @@ export const MAX_PREVIEWS_PER_USER = 5;
 /** Rows deleted per cleanup batch; the cron loops until nothing expired is left. */
 export const CLEANUP_BATCH = 500;
 
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 /** The upload content types each format accepts. */
 const FORMAT_TYPES: Record<ImportFile['format'], string[]> = {
-  xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  xlsx: [XLSX_TYPE],
+  ganttpro: [XLSX_TYPE],
   csv: ['text/csv'],
   'jira-csv': ['text/csv'],
   xml: ['application/xml', 'text/xml'],
   mpp: ['application/vnd.ms-project'],
 };
+
+/** Arabic names of the formats (warnings). */
+const FORMAT_NAMES: Record<string, string> = {
+  xlsx: 'Excel',
+  ganttpro: 'GanttPRO (Excel)',
+  csv: 'CSV',
+  'jira-csv': 'Jira CSV',
+  xml: 'MS Project XML',
+  mpp: 'MS Project (.mpp)',
+};
+
+/** Container family: what the upload physically is (the content type was checked on confirm). */
+function familyOf(format: ImportFile['format']): 'zip' | 'xml' | 'ole' | 'text' {
+  if (format === 'xlsx' || format === 'ganttpro') return 'zip';
+  if (format === 'xml') return 'xml';
+  if (format === 'mpp') return 'ole';
+  return 'text';
+}
+
+/**
+ * A10: the format the bytes are — a ZIP workbook (`xlsx`; GanttPRO is told apart by its layout
+ * later), MS Project XML (`<Project` in the MS Project namespace, or a bare `<Project>` with
+ * `<Tasks>`), an OLE2 file (`mpp`) — or null for text.
+ */
+export function sniffFormat(bytes: Buffer): ImportFile['format'] | null {
+  if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) return 'xlsx';
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))) return 'mpp';
+  const head = decodeText(bytes.subarray(0, 4096)).trimStart();
+  if (head.startsWith('<') && /<(?:\w+:)?Project[\s>]/.test(head) && (/schemas\.microsoft\.com\/project/.test(head) || /<(?:\w+:)?Tasks[\s>]/.test(decodeText(bytes.subarray(0, 65536))))) {
+    return 'xml';
+  }
+  return null;
+}
+
+/** Supervisors by normalised full name and by e-mail local part (A10 suggestions). */
+function suggestionIndex(users: Array<{ id: string; fullName: string; email?: string | null }>): Map<string, string | null> {
+  const byKey = new Map<string, string | null>();
+  const add = (k: string, id: string) => {
+    if (!k) return;
+    const prev = byKey.get(k);
+    byKey.set(k, prev === undefined || prev === id ? id : null); // two people with one key → no suggestion
+  };
+  for (const u of users) {
+    add(normName(u.fullName), u.id);
+    if (u.email) add(normName(u.email.split('@')[0]!), u.id);
+  }
+  return byKey;
+}
+
+const normName = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** A name from the file → a supervisor id: exact (case-insensitive) name, e-mail, or e-mail local part. */
+function suggestFor(index: Map<string, string | null>, name: string): string | null {
+  const n = normName(name);
+  const byName = index.get(n);
+  if (byName !== undefined) return byName;
+  if (n.includes('@')) return index.get(n.split('@')[0]!) ?? null;
+  return null;
+}
 
 /**
  * A9 project imports (ADR-110..112): file → draft (per format) → engine-checked preview kept in
@@ -75,20 +138,36 @@ export class ImportsService {
     if (!file || file.deletedAt || file.status !== 'READY' || file.entityType !== 'import' || file.uploadedById !== viewer.id) {
       throw new AppError('NOT_FOUND');
     }
-    if (!FORMAT_TYPES[input.format].includes(file.mimeType)) {
+    const bytes = Buffer.from(await this.storage.readAll(file.storageKey));
+    // A10 (ADR-124): the content decides within what the upload really is — a GanttPRO workbook
+    // sent as «xlsx», or MS Project XML sent under another choice, is read as what it is.
+    const sniffed = sniffFormat(bytes);
+    const sniffedFits = sniffed !== null && FORMAT_TYPES[sniffed].includes(file.mimeType);
+    if (!FORMAT_TYPES[input.format].includes(file.mimeType) && !sniffedFits) {
       throw new AppError('IMPORT_FORMAT_MISMATCH', { format: input.format, contentType: file.mimeType });
     }
-    const bytes = Buffer.from(await this.storage.readAll(file.storageKey));
-    const draft = await this.draftOf(input.format, bytes, input.options.dateOrder, input.options.sheetName);
+    const format = sniffed && sniffedFits && familyOf(sniffed) !== familyOf(input.format) ? sniffed : input.format;
+    const draft = await this.draftOf(format, bytes, input.options.dateOrder, input.options.sheetName);
+    draft.detectedFormat ??= format;
+    if (draft.detectedFormat !== input.format) {
+      const was = FORMAT_NAMES[input.format] ?? input.format;
+      const is = FORMAT_NAMES[draft.detectedFormat] ?? draft.detectedFormat;
+      warn(draft, 'FORMAT_DETECTED', `الملف بصيغة ${is}، فقُرئ بها بدل «${was}».`);
+    }
     return this.savePreview(draft, { format: input.format, fileId: file.id, options: input.options }, viewer, ctx);
   }
 
   /** Parses one file. Exposed for tests (no storage involved). */
   async draftOf(format: ImportFile['format'], bytes: Buffer, dateOrder: 'DMY' | 'MDY' = 'DMY', sheetName?: string): Promise<ImportDraft> {
     switch (format) {
-      case 'xlsx': {
-        const { rows } = await readXlsx(bytes, sheetName);
-        return tableToDraft(rows, { dateOrder });
+      case 'xlsx':
+      case 'ganttpro': {
+        const { rows, sheet, calendarRows } = await readXlsx(bytes, sheetName);
+        const layout = detectGanttpro(rows);
+        if (layout) return ganttproToDraft(rows, layout, { sheetName: sheet, calendarRows });
+        const draft = tableToDraft(rows, { dateOrder });
+        draft.detectedFormat = 'xlsx';
+        return draft;
       }
       case 'csv':
         return tableToDraft(readCsv(bytes), { dateOrder });
@@ -128,6 +207,7 @@ export class ImportsService {
       projectName: meta.options.projectName,
     });
     (payload as PreviewPayload & { calendarFromFile?: boolean }).calendarFromFile = !!draft.calendar;
+    const detected = payload.detectedFormat ?? meta.format;
     const id = randomUUID();
     const expiresAt = new Date(Date.now() + PREVIEW_TTL_MS);
     await this.evictOldPreviews(viewer.id, meta.fileId);
@@ -138,7 +218,7 @@ export class ImportsService {
       action: AuditAction.PROJECT_IMPORT_PREVIEWED,
       entityType: 'import',
       entityId: id,
-      after: { format: meta.format, tasks: payload.tasks.length, dependencies: payload.deps.length, durationUnit: payload.project.durationUnit, ...(meta.site ? { site: meta.site } : {}) },
+      after: { format: meta.format, ...(detected !== meta.format ? { detectedFormat: detected } : {}), tasks: payload.tasks.length, dependencies: payload.deps.length, durationUnit: payload.project.durationUnit, ...(meta.site ? { site: meta.site } : {}) },
     });
     return this.toDto(id, expiresAt, payload);
   }
@@ -148,28 +228,31 @@ export class ImportsService {
     for (const t of p.tasks) if (t.assigneeName) counts.set(t.assigneeName, (counts.get(t.assigneeName) ?? 0) + 1);
     const names = [...counts.keys()];
     const supervisors = names.length
-      ? await this.prisma.user.findMany({ where: { role: 'SUPERVISOR', status: 'ACTIVE' }, select: { id: true, fullName: true } })
+      ? await this.prisma.user.findMany({ where: { role: 'SUPERVISOR', status: 'ACTIVE' }, select: { id: true, fullName: true, email: true } })
       : [];
-    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    const byName = new Map<string, string | null>();
-    for (const u of supervisors) {
-      const k = norm(u.fullName);
-      byName.set(k, byName.has(k) ? null : u.id); // two supervisors with one name → no suggestion
-    }
+    const byName = suggestionIndex(supervisors);
+    const tasks = previewTasksDto(p);
+    const colors = new Set(p.tasks.map((t) => t.barColor).filter((c): c is string => !!c));
     return {
       previewId,
       expiresAt: expiresAt.toISOString(),
       format: p.format as ImportPreviewDto['format'],
+      detectedFormat: (p.detectedFormat ?? p.format) as ImportPreviewDto['format'],
       project: p.project,
-      tasks: previewTasksDto(p),
+      tasks,
       dependencies: previewDepsDto(p),
       warnings: p.warnings,
-      unmappedAssignees: names.sort().map((name) => ({ name, taskCount: counts.get(name)!, suggestedUserId: byName.get(norm(name)) ?? null })),
+      unmappedAssignees: names.sort().map((name) => ({ name, taskCount: counts.get(name)!, suggestedUserId: suggestFor(byName, name) })),
       stats: {
         taskCount: p.tasks.length,
         groupCount: p.tasks.filter((t) => t.type === 'GROUP').length,
         milestoneCount: p.tasks.filter((t) => t.type === 'MILESTONE').length,
         dependencyCount: p.deps.length,
+        maxLevel: tasks.reduce((m, t) => Math.max(m, t.wbs ? t.wbs.split('.').length : 1), 0),
+        coloredCount: p.tasks.filter((t) => !!t.barColor).length,
+        colorCount: colors.size,
+        deadlineCount: p.tasks.filter((t) => !!t.deadline).length,
+        ...(p.sourceStats ?? {}),
       },
     };
   }
