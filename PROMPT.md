@@ -590,3 +590,68 @@ Effect: **✅ معتمد.** تصميم فيغما البنفسجي `#5030E5` ه�
 - **Logo:** the owner's Nozoly artwork recoloured once to `#5030E5` (`nozoly.png`; `nozoly-light.png` for dark mode). PWA icons regenerated; manifest `theme_color` `#5030E5`. The print-card default logo is «شعار نُزلي».
 - **Superseded:** A9's indigo identity and its decision to keep Muhsen as a secondary mark (the «منظومة مُحسن» foot line and public-page footer).
 - **Honest limits:** the design has only one screen, so the other screens take the language through tokens, shared components and the shell; the design's «Invite» button and calendar icon are not added (no matching feature); Inter is replaced by IBM Plex Sans Arabic (Arabic-first); tag text colours are slightly darkened for contrast.
+
+
+### A12 — workspaces (أقسام) with strict isolation, owners/admins/assistants, user management, mobile & tablet app, then a clean production-ready system (2026-10-20)
+
+Verbatim requests and the agreed design are in `docs/brief/A12-request.md`. The design was discussed over several messages, adapted from GanttPRO's two-layer model (account roles + per-project rights), and the owner replied «نعم كما تقترح» to the final proposal.
+
+**Priority order set by the owner:**
+1. **Isolation between workspaces — correctness first.** Leaking or losing data between workspaces is unacceptable.
+2. Verify everything else.
+3. Mobile/tablet «كالسيف», installable app with an update button.
+4. When everything is verified: **empty the system and make it ready to deploy** to the brief's original requirements (Docker, PostgreSQL 16, OCI Object Storage, HTTPS, backups).
+
+**Model:**
+- **Workspace (قسم)** = a complete, fully isolated copy of today's system: its own projects, teams, workers, violations, cards (sizes, templates, logos), org structure, reports, notifications, audit, settings and reference data (colours, departments/job titles, violation types, calendars and holidays). DB name `workspaces` — the existing `departments` table means «الإدارات» for workers and cards; do not confuse them.
+- **Account layer:**
+  - **Owner (مالك)** — one or more. Sees every workspace and everything; creates workspaces and assigns their admins; adds/removes owners (never zero owners). First owner: username **`mmansary`**, forced password change at first login. The real initial password is set secretly in the server environment, never in the public repo or demo.
+  - **User (مستخدم)** — everyone else; rights come from workspace memberships.
+- **Workspace membership roles:**
+  - **مدير نظام (Admin)** — everything inside that workspace only (today's ADMIN, scoped). A person may be admin of several workspaces.
+  - **مساعد (Assistant)** — permissions chosen by an admin per module (none / view / edit), optionally limited to specific projects or teams.
+  - **مشرف (Supervisor)** — sees own tasks and the team's tasks (tasks assigned to any supervisor of the same team), replies and acts on them, and edits the team's worker data. Adding/removing a worker is a request approved by an admin; moving workers between teams stays admin-only.
+  - **مشرف مراقبة (Monitor)** — belongs to a workspace; sees own violations and that workspace's workers only.
+- **Project participants (intermediate rights, free):** an admin adds a person to a project with a free-text **position (منصب)** and an interaction level with standard names:
+  - **محرّر (Editor)** — edits tasks.
+  - **مساهم (Contributor)** — sees tasks, changes status/progress, writes notes/replies (like a supervisor).
+  - **مطّلع (Viewer)** — read only.
+
+  The «project manager» role is removed for now.
+- **Dual role:** allowed, with a warning when granted and a «صلاحية مزدوجة» badge on the person everywhere.
+- **Approvals:** a workspace's requests go to that workspace's admins and to owners. **Registration:** the applicant chooses the workspace by name, then the role.
+- **Card printing:** owners and admins only (assistants if granted).
+- **Login & switching:** username, email or mobile. A user with several workspaces picks one after login and switches from the menu on their name in the top bar. Switching issues a new session for that workspace and clears the previous workspace's device data.
+- **Single-workspace mode:** while only one workspace exists, the system looks exactly as if there were no workspaces (no picker, no switcher, no registration step). The workspace name is shown under the Nozoly logo in a suitable font. **The first workspace is «إدارة المشاريع»**; all existing data migrates into it with nothing lost.
+- **User management** (owners everywhere; admins within their workspace):
+  - Set and change a user's **username** at any time, and their email, mobile and every other field.
+  - Set a new **password**, with "must change at next login".
+  - Nobody can view an existing password, and every such change is audited.
+- **Isolation design:**
+  - `workspace_id` on every business table (indexed).
+  - Uniqueness per workspace (team colours, names, worker national ID); user identity stays global.
+  - One server-side scoping layer adds the workspace filter to every query.
+  - **PostgreSQL Row Level Security** as a second line of defence (owners bypass).
+  - No cross-workspace cascades; deleting a workspace = archiving.
+- **Isolation verification:**
+  - An automated isolation suite that hits **every** endpoint as a user of workspace A against workspace B's data: read, write, delete, export, print, files, hub, search, and IDs in URLs and bodies. The same suite runs against the demo.
+  - RLS tests.
+  - Migration with a backup and per-table counts before/after.
+  - An independent security review.
+- **Mobile & tablet:** precise and polished at every size, from 360px to tablet portrait and landscape. The mobile layout follows the style of the owner's Figma reference `bBBiLx64ZpfOsh2UpNBNQs` (Mobile Dashboard UI with minimalist icons — 7 screens), **in our own design and identity (violet A11)**, not its icons.
+  - **Bottom bar, 5 tabs per role:**
+    - Admin: الرئيسية · المشاريع · التواصل · الفرق · المزيد
+    - Supervisor: الرئيسية · مهامي · التواصل · فريقي · المزيد
+    - Monitor: الرئيسية · مخالفاتي · [تسجيل مخالفة, raised centre] · بانتظار المزامنة · المزيد
+  - **Home:** greeting header with avatar, bell and workspace name; 2×2 KPI cards; a chart card; a floating «+» (bottom-left in RTL).
+  - **Projects:** large project cards, with an optional **project cover image** upload. Default cover = project colour + subtle pattern + initials.
+  - **Project view:** info grid and collapsible tasks/milestones, with the Gantt opened from a button.
+  - **Hub:** shown as an inbox.
+  - **Forms:** single column with a sticky primary button.
+  - **Tablet:** two-column cards in portrait; collapsed side rail in landscape.
+- **Installable app (iOS & Android):**
+  - PWA install button on Android; a step-by-step «أضف إلى الشاشة الرئيسية» page for iPhone.
+  - Automatic update check on open, on focus and at an interval, with an «تحديث متاح — حدّث الآن» banner.
+  - «البحث عن تحديث» and the app version in settings.
+  - Unsynced violations survive updates.
+- **Final deliverable:** an **empty** production system — no demo data; only the owner bootstrap and the «إدارة المشاريع» workspace with neutral defaults — deployable with `docker compose` per §3, with clear deployment docs. The GitHub Pages demo stays a separate, clearly-labelled demo.
