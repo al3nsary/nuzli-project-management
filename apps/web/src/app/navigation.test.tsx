@@ -192,7 +192,7 @@ describe('i18n keys used by navigation are complete', () => {
       expect((ar as Record<string, string>)[k], k).toBeTruthy();
       expect((ar as Record<string, string>)[k], k).not.toMatch(/[A-Za-z]/);
     }
-    for (const k of ['palette.title', 'palette.placeholder', 'shortcuts.title', 'nav.breadcrumbs', 'brand.developedBy'] as MessageKey[]) {
+    for (const k of ['palette.title', 'palette.placeholder', 'shortcuts.title', 'nav.breadcrumbs', 'brand.developedBy', 'brand.system'] as MessageKey[]) {
       expect(t(k)).toBeTruthy();
     }
   });

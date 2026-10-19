@@ -1,6 +1,6 @@
 /**
  * Owner request A10: the distinctive chat icon on every task row/card of a project (Gantt grid,
- * list, board). Violet speech bubble — outlined when the thread is empty, filled when it has
+ * list, board). Indigo speech bubble — outlined when the thread is empty, filled when it has
  * messages — with the message count and a red unread badge. Clicking opens the same task screen
  * the supervisor has (`?chat=<taskId>`, TaskChatDrawer).
  */

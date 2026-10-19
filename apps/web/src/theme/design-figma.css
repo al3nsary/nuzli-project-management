@@ -1,0 +1,1282 @@
+/*
+ * The Figma design («التصميم الجديد», owner request A11): a second, switchable design. Everything
+ * here is scoped to <html data-design="figma">, so the current design is untouched until the owner
+ * approves it. Generated from the difference between the current stylesheets and the redesign;
+ * edit by hand from now on.
+ */
+
+/* ---- apps/web/src/theme/tokens.css */
+html:root[data-design='figma'] {
+  --void: #ffffff;
+  --deep: #ffffff;
+  --panel: #ffffff;
+  --panel2: #f5f5f5;
+  --raise: #eeeef0;
+  --hover: #f6f5f9;
+  --line: #ebeaf0;
+  --line2: #d9d7e1;
+  --hair: rgba(80, 48, 229, 0.16);
+  --primary: #5030e5;
+  --primary-hover: #4426cc;
+  --primary-press: #371da8;
+  --tint: #f0edfd;
+  --tint2: #d9d1fa;
+  --focus: #7b61f0;
+  --accent: #5030e5;
+  --on-primary: #ffffff;
+  --live: #2f7d32;
+  --amber: #a35c00;
+  --red: #c62828;
+  --blue: #1565c0;
+  --ink: #0d062d;
+  --dim: #6a667a;
+  --dim2: #787486;
+  --faint: #b3b0bf;
+  --link: var(--accent);
+  --sheen: rgba(13, 6, 45, 0.035);
+  --sheen2: rgba(13, 6, 45, 0.065);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.03);
+  --lift: 0 4px 12px -2px rgba(16, 24, 40, 0.08), 0 16px 36px -10px rgba(16, 24, 40, 0.14);
+  --scrim: rgba(17, 22, 34, 0.4);
+  --nav-bg: #ffffff;
+  --nav-ink: #0d062d;
+  --nav-dim: #5c5870;
+  --nav-dim2: #6a667a;
+  --nav-faint: #787486;
+  --nav-line: #ebeaf0;
+  --nav-sheen: #f6f5f9;
+  --nav-sheen2: #efedf6;
+  --nav-on-bg: #f0edfd;
+  --nav-on-ink: #0d062d;
+  --nav-bar: #5030e5;
+  --p-live-b: #e8f4ec;
+  --p-live-t: #2b7a3d;
+  --p-wait-b: #fbeedf;
+  --p-wait-t: #a3601a;
+  --p-no-b: #fbe9eb;
+  --p-no-t: #b9404f;
+  --p-blue-b: #e3f0fc;
+  --p-blue-t: #0b57a4;
+  --p-brand-b: #f0edfd;
+  --p-brand-t: #4426cc;
+  --p-grey-b: #f1f0f5;
+  --p-grey-t: #55516a;
+  --tabs-bg: #ffffff;
+  --tabs-ink: #787486;
+  --tabs-shadow: 0 -1px 0 #ebeaf0, 0 -12px 28px -24px rgba(16, 24, 40, 0.35);
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --r: 16px;
+  --r2: 20px;
+  --r3: 6px;
+  --r4: 4px;
+  --e: cubic-bezier(0.22, 0.7, 0.2, 1);
+  --e2: cubic-bezier(0.34, 1.4, 0.44, 1);
+  --e3: cubic-bezier(0.16, 1, 0.3, 1);
+  --side-w: 250px;
+  --side-mini: 68px;
+  --top-h: 80px;
+  --ds: -1;
+  --font-body: 'IBM Plex Sans Arabic', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Readex Pro Variable', 'IBM Plex Sans Arabic', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+  --fs-3xl: 2.25rem;
+  --g: var(--primary);
+  --g2: var(--primary-press);
+  --g3: var(--primary-hover);
+  --gold: var(--accent);
+  --gold2: var(--focus);
+  --gold3: var(--accent);
+  --on-g: var(--on-primary);
+  --mark-bg: var(--tint);
+  --p-gold-b: var(--p-brand-b);
+  --p-gold-t: var(--p-brand-t);
+  --ground: var(--void);
+  --surface: var(--panel);
+  --field: var(--primary);
+  --signal: var(--amber);
+  --breach: var(--red);
+  --ok: var(--live);
+  --muted: var(--dim);
+  --on-field: var(--on-primary);
+  --sp-1: var(--s1);
+  --sp-2: var(--s2);
+  --sp-3: var(--s3);
+  --sp-4: var(--s4);
+  --sp-5: var(--s5);
+  --sp-6: var(--s6);
+  --sp-7: var(--s7);
+  --radius-card: var(--r);
+  --radius-input: var(--r3);
+  --radius-chip: 999px;
+  --motion: 180ms var(--e);
+  color-scheme: light;
+}
+
+html:root[data-design='figma'][data-mantine-color-scheme='dark'] {
+  --void: #0f1115;
+  --deep: #14171c;
+  --panel: #171a21;
+  --panel2: #1d2129;
+  --raise: #232834;
+  --hover: #1f232c;
+  --line: #2a2f3a;
+  --line2: #383e4b;
+  --hair: rgba(150, 128, 255, 0.24);
+  --primary: #6a4ff0;
+  --primary-hover: #7a62f3;
+  --primary-press: #5030e5;
+  --tint: rgba(150, 128, 255, 0.16);
+  --tint2: rgba(150, 128, 255, 0.3);
+  --focus: #9d88ff;
+  --accent: #a592ff;
+  --live: #81c784;
+  --amber: #ffb74d;
+  --red: #ef6461;
+  --blue: #64b5f6;
+  --ink: #e7e9ee;
+  --dim: #a3a9b6;
+  --dim2: #8a91a0;
+  --faint: #5a6170;
+  --link: #b8a9ff;
+  --sheen: rgba(255, 255, 255, 0.04);
+  --sheen2: rgba(255, 255, 255, 0.075);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -24px rgba(0, 0, 0, 0.9);
+  --lift: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 56px -28px rgba(0, 0, 0, 1);
+  --scrim: rgba(5, 7, 10, 0.7);
+  --nav-bg: #14171c;
+  --nav-ink: #e7e9ee;
+  --nav-dim: #c3c8d2;
+  --nav-dim2: #a3a9b6;
+  --nav-faint: #8a91a0;
+  --nav-line: #2a2f3a;
+  --nav-sheen: rgba(255, 255, 255, 0.05);
+  --nav-sheen2: rgba(255, 255, 255, 0.08);
+  --nav-on-bg: rgba(150, 128, 255, 0.16);
+  --nav-on-ink: #c4b9ff;
+  --nav-bar: #9d88ff;
+  --p-live-b: rgba(76, 175, 80, 0.16);
+  --p-live-t: #81c784;
+  --p-wait-b: rgba(255, 167, 38, 0.16);
+  --p-wait-t: #ffb74d;
+  --p-no-b: rgba(239, 83, 80, 0.16);
+  --p-no-t: #ef9a9a;
+  --p-blue-b: rgba(66, 165, 245, 0.16);
+  --p-blue-t: #90caf9;
+  --p-brand-b: rgba(150, 128, 255, 0.18);
+  --p-brand-t: #c4b9ff;
+  --p-grey-b: rgba(255, 255, 255, 0.07);
+  --p-grey-t: #a3a9b6;
+  --tabs-bg: #171a21;
+  --tabs-ink: #8a91a0;
+  --tabs-shadow: 0 -1px 0 #2a2f3a, 0 -16px 34px -26px rgba(0, 0, 0, 0.9);
+  color-scheme: dark;
+}
+
+/* ---- apps/web/src/theme/global.css */
+html[data-design='figma'] .mantine-Table-th {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+html[data-design='figma'] .mantine-Badge-root {
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+html[data-design='figma'] .pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  border-radius: var(--r4);
+  padding: 3px 10px;
+  white-space: nowrap;
+  flex: none;
+  vertical-align: middle;
+}
+
+/* ---- apps/web/src/theme/shell.css */
+html[data-design='figma'] .nz-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: var(--top-h);
+  padding-inline: 22px 14px;
+  flex: none;
+  border-bottom: 1px solid var(--nav-line);
+}
+
+html[data-design='figma'] .nz-fold {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r3);
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--nav-dim2);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.16s var(--e), background 0.16s var(--e);
+}
+
+html[data-design='figma'] .nz-side-cta {
+  flex: none;
+  padding: 20px 16px 6px;
+}
+
+html[data-design='figma'] .nz-create {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r3);
+  background: var(--primary);
+  color: var(--on-primary);
+  text-decoration: none;
+  font-size: 14.5px;
+  box-shadow: 0 6px 14px -8px rgba(80, 48, 229, 0.7);
+  transition: background 0.16s var(--e), transform 0.12s var(--e), box-shadow 0.16s var(--e);
+}
+
+html[data-design='figma'] .nz-side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 16px 16px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+html[data-design='figma'] .nz-grp {
+  margin: 14px 4px 10px;
+  border-top: 1px solid var(--nav-line);
+}
+
+html[data-design='figma'] .nz-grp:not(.quiet)::before {
+  content: attr(data-label);
+  display: block;
+  padding-top: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--nav-faint);
+  white-space: nowrap;
+}
+
+html[data-design='figma'] .nz-nav {
+  padding: 10px 12px;
+  border-radius: var(--r3);
+  color: var(--nav-dim);
+  min-height: 44px;
+  gap: 14px;
+}
+
+html[data-design='figma'] .nz-nav.on .ic,
+html[data-design='figma'] .nz-kid.on .ic {
+  opacity: 1;
+  color: var(--accent);
+}
+
+html[data-design='figma'] .nz-nav .ic {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  opacity: 0.9;
+}
+
+html[data-design='figma'] .nz-nav b,
+html[data-design='figma'] .nz-kid b {
+  font-size: 15px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-design='figma'] .nz-nav.on b,
+html[data-design='figma'] .nz-kid.on b {
+  font-weight: 600;
+  color: var(--nav-on-ink);
+}
+
+html[data-design='figma'] .nz-kids {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 4px;
+  padding-inline-start: 20px;
+  position: relative;
+  animation: nz-kids-in 0.26s var(--e3) both;
+}
+
+html[data-design='figma'] .nz-kid {
+  padding: 8px 12px;
+  border-radius: var(--r3);
+  color: var(--nav-dim2);
+  min-height: 38px;
+}
+
+html[data-design='figma'] .nz-kid b {
+  font-size: 14px;
+}
+
+html[data-design='figma'] .nz-side-foot {
+  flex: none;
+  padding: 8px 16px 20px;
+}
+
+html[data-design='figma'] .nz-myp {
+  margin-top: 6px;
+  padding-top: 18px;
+  border-top: 1px solid var(--nav-line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+html[data-design='figma'] .nz-myp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 10px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--nav-faint);
+}
+
+html[data-design='figma'] .nz-myp-head a {
+  display: grid;
+  place-items: center;
+  color: var(--nav-faint);
+  border-radius: 6px;
+}
+
+html[data-design='figma'] .nz-myp-head a:hover {
+  color: var(--accent);
+}
+
+html[data-design='figma'] .nz-myp-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: var(--r3);
+  color: var(--nav-dim);
+  text-decoration: none;
+  transition: background 0.14s var(--e), color 0.14s var(--e);
+}
+
+html[data-design='figma'] .nz-myp-row i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+html[data-design='figma'] .nz-myp-row b {
+  font-size: 15px;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-design='figma'] .nz-myp-row:hover {
+  background: var(--nav-sheen);
+  color: var(--nav-ink);
+}
+
+html[data-design='figma'] .nz-myp-row.on {
+  background: var(--nav-on-bg);
+  color: var(--nav-on-ink);
+}
+
+html[data-design='figma'] .nz-myp-row.on b {
+  font-weight: 600;
+}
+
+html[data-design='figma'] .nz-thoughts {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px 14px;
+  border-radius: var(--r2);
+  background: var(--panel2);
+  text-align: center;
+}
+
+html[data-design='figma'] .nz-thoughts-bulb {
+  width: 54px;
+  height: 54px;
+  margin-top: -14px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #b7791f;
+  background: radial-gradient(circle, rgba(255, 200, 69, 0.55) 0%, rgba(255, 200, 69, 0.18) 55%, rgba(255, 200, 69, 0) 72%);
+}
+
+html[data-design='figma'] .nz-thoughts b {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+html[data-design='figma'] .nz-thoughts p {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+
+html[data-design='figma'] .nz-thoughts-btn {
+  display: block;
+  width: 100%;
+  padding: 10px 8px;
+  border-radius: var(--r4);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(13, 6, 45, 0.06);
+  transition: box-shadow 0.16s var(--e), color 0.16s var(--e);
+}
+
+html[data-design='figma'] .nz-thoughts-btn:hover {
+  color: var(--accent);
+  box-shadow: 0 4px 10px -4px rgba(80, 48, 229, 0.3);
+}
+
+html[data-design='figma'] .nz-side.mini .nz-side-head {
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  height: auto;
+  min-height: var(--top-h);
+  padding: 12px 6px 10px;
+}
+
+html[data-design='figma'] .nz-side.mini .nz-side-cta {
+  padding: 14px 12px 6px;
+}
+
+html[data-design='figma'] .nz-top {
+  position: sticky;
+  top: 0;
+  z-index: 110;
+  height: var(--top-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--deep) 94%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: box-shadow 0.3s var(--e), background 0.3s var(--e);
+}
+
+html[data-design='figma'] .nz-top.deep {
+  box-shadow: 0 10px 24px -20px rgba(13, 6, 45, 0.4);
+}
+
+html[data-design='figma'] .nz-crumb {
+  font-size: 13px;
+  color: var(--dim2);
+  line-height: 1.5;
+  min-width: 0;
+  animation: nz-slide-in 0.4s var(--e) 0.05s both;
+}
+
+html[data-design='figma'] .nz-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 99px;
+  background: var(--panel2);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+  text-decoration: none;
+}
+
+html[data-design='figma'] .nz-iconbtn {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r3);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--dim2);
+  background: none;
+  position: relative;
+  font: inherit;
+  transition: color 0.18s var(--e), background 0.18s var(--e), transform 0.18s var(--e);
+}
+
+html[data-design='figma'] .nz-iconbtn:hover {
+  color: var(--ink);
+  background: var(--panel2);
+}
+
+html[data-design='figma'] .nz-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 6px;
+  border-radius: var(--r3);
+  flex: none;
+  max-width: 260px;
+  color: var(--dim);
+  transition: background 0.2s var(--e);
+}
+
+html[data-design='figma'] .nz-who:hover {
+  background: var(--panel2);
+}
+
+html[data-design='figma'] .nz-who-text b {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-design='figma'] .nz-who-text span {
+  display: block;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--dim2);
+  white-space: nowrap;
+}
+
+html[data-design='figma'] .nz-who-chev {
+  flex: none;
+  color: var(--dim2);
+}
+
+html[data-design='figma'] .nz-searchbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 417px;
+  height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r3);
+  background: var(--panel2);
+  color: var(--dim2);
+  font: inherit;
+  font-size: 14px;
+  text-align: start;
+  cursor: text;
+  transition: box-shadow 0.18s var(--e), background 0.18s var(--e);
+}
+
+html[data-design='figma'] .nz-searchbar:hover {
+  background: var(--raise);
+}
+
+html[data-design='figma'] .nz-searchbar:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus);
+}
+
+html[data-design='figma'] .nz-searchbar svg {
+  flex: none;
+  color: var(--dim);
+}
+
+html[data-design='figma'] .nz-searchbar-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-design='figma'] .nz-searchbar .nz-kbd {
+  background: var(--panel);
+  box-shadow: none;
+}
+
+html[data-design='figma'] .nz-crumbbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 48px 0;
+  min-width: 0;
+}
+
+html[data-design='figma'] .nz-crumbbar .nz-iconbtn {
+  width: 32px;
+  height: 32px;
+}
+
+html[data-design='figma'] .nz-main {
+  flex: 1;
+  min-width: 0;
+  padding: 32px 48px 56px;
+  outline: none;
+}
+
+html[data-design='figma'] .nz-page {
+  max-width: 1280px;
+  margin-inline: auto;
+  animation: nz-page-in 180ms var(--e) both;
+}
+
+html[data-design='figma'] .nz-auth-side {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 48px clamp(32px, 4.5vw, 72px);
+  background: radial-gradient(120% 80% at 100% 0%, rgba(80, 48, 229, 0.10), transparent 60%),
+    linear-gradient(180deg, #f7f4ff 0%, #f0edfd 100%);
+  border-inline-start: 1px solid #e6e0fb;
+  overflow: hidden;
+}
+
+html:root[data-design='figma'][data-mantine-color-scheme='dark'] .nz-auth-side {
+  background: radial-gradient(120% 80% at 100% 0%, rgba(150, 128, 255, 0.16), transparent 60%),
+    linear-gradient(180deg, #161a28 0%, #141724 100%);
+  border-inline-start-color: var(--line);
+}
+
+html[data-design='figma'] .nz-auth-vic {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--on-primary);
+  background: var(--primary);
+  box-shadow: 0 6px 14px -8px rgba(55, 29, 168, 0.6);
+}
+@media (max-height: 760px) {
+  html[data-design='figma'] .nz-side-foot {
+    display: none;
+  }
+  }
+@media (max-width: 47.99em) {
+  html[data-design='figma'] .nz-side-head {
+    height: 58px;
+    padding-inline: 16px 10px;
+  }
+  
+  html[data-design='figma'] .nz-chip-label,
+  html[data-design='figma'] .nz-search-kbd,
+  html[data-design='figma'] .nz-who-text,
+  html[data-design='figma'] .nz-who-chev,
+  html[data-design='figma'] .nz-help {
+    display: none;
+  }
+  
+  html[data-design='figma'] .nz-searchbar {
+    height: 40px;
+    padding: 0 12px;
+  }
+  
+  html[data-design='figma'] .nz-crumbbar {
+    padding: 10px 12px 0;
+  }
+  
+  html[data-design='figma'] .nz-who {
+    padding: 2px;
+  }
+  
+  html[data-design='figma'] .nz-tab-hb {
+    width: 42px;
+    height: 42px;
+    margin-top: -14px;
+    border-radius: 50%;
+    color: #fff;
+    background: var(--primary);
+    box-shadow: 0 6px 14px -6px rgba(55, 29, 168, 0.55);
+  }
+  }
+@media (prefers-reduced-motion: reduce) {
+  html[data-design='figma'] .nz-page,
+  html[data-design='figma'] .nz-crumb,
+  html[data-design='figma'] .nz-kids,
+  html[data-design='figma'] .nz-pulse::after,
+  html[data-design='figma'] .nz-spin-soft,
+  html[data-design='figma'] .nz-side.mini .nz-nav.hasn::after {
+    animation: none;
+  }
+  }
+
+/* ---- apps/web/src/components/foreman.css */
+html:root[data-design='figma'] {
+  --foreman: #5030e5;
+  --foreman-ink: #ffffff;
+  --foreman-tint: #f0edfd;
+  --foreman-text: #4426cc;
+}
+
+html:root[data-design='figma'][data-mantine-color-scheme='dark'] {
+  --foreman: #7b61f0;
+  --foreman-ink: #ffffff;
+  --foreman-tint: rgba(150, 128, 255, 0.18);
+  --foreman-text: #d9d1fa;
+}
+
+/* ---- apps/web/src/features/tasks/taskChatButton.css */
+html[data-design='figma'] .nz-chatbtn {
+  --cb: #5030e5;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-inline-size: 30px;
+  block-size: 26px;
+  padding-inline: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cb);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s var(--e, ease), border-color 0.15s var(--e, ease);
+}
+
+html[data-design='figma'] .nz-chatbtn:focus-visible {
+  outline: 2px solid var(--focus, #7b61f0);
+  outline-offset: 2px;
+}
+
+html:root[data-design='figma'][data-mantine-color-scheme='dark'] .nz-chatbtn {
+  --cb: #bdb0f7;
+}
+
+/* ---- apps/web/src/pages/projects/projects.css */
+html[data-design='figma'] .nz-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(284px, 1fr);
+  gap: 24px;
+  overflow-x: auto;
+  padding-block-end: var(--sp-2);
+  scroll-snap-type: x mandatory;
+  height: 100%;
+}
+
+html[data-design='figma'] .nz-board-col {
+  --col: var(--primary);
+  background: var(--panel2);
+  border-radius: var(--r) var(--r) 0 0;
+  padding: 20px 20px 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;
+  scroll-snap-align: start;
+  overflow: hidden;
+  transition: box-shadow 0.18s var(--e);
+}
+
+html[data-design='figma'] .nz-board-col[data-status='IN_PROGRESS'] {
+  --col: #ffa500;
+}
+
+html[data-design='figma'] .nz-board-col[data-status='ON_HOLD'] {
+  --col: #76a5ea;
+}
+
+html[data-design='figma'] .nz-board-col[data-status='DONE'] {
+  --col: #7ac555;
+}
+
+html[data-design='figma'] .nz-board-col[data-over='true'] {
+  box-shadow: inset 0 0 0 2px var(--col);
+}
+
+html[data-design='figma'] .nz-board-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block-end: 14px;
+  border-block-end: 3px solid var(--col);
+  margin-block-end: 20px;
+}
+
+html[data-design='figma'] .nz-board-head i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--col);
+  flex: none;
+}
+
+html[data-design='figma'] .nz-board-head h3 {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+html[data-design='figma'] .nz-board-count {
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 6px;
+  border-radius: 10px;
+  display: inline-grid;
+  place-items: center;
+  background: #e0e0e0;
+  color: #625f6d;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+html:root[data-design='figma'][data-mantine-color-scheme='dark'] .nz-board-count {
+  background: var(--raise);
+  color: var(--dim);
+}
+
+html[data-design='figma'] .nz-board-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 2px 0 20px;
+  scrollbar-width: thin;
+}
+
+html[data-design='figma'] .nz-board-card {
+  background: var(--panel);
+  border-radius: var(--r);
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(13, 6, 45, 0.04);
+  touch-action: none;
+  cursor: grab;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: box-shadow 0.18s var(--e), transform 0.18s var(--e);
+}
+
+html[data-design='figma'] .nz-board-card:hover {
+  box-shadow: 0 8px 20px -10px rgba(13, 6, 45, 0.18);
+}
+
+html[data-design='figma'] .nz-board-card[data-dragging] {
+  box-shadow: 0 24px 40px -16px rgba(13, 6, 45, 0.3);
+  cursor: grabbing;
+}
+
+html[data-design='figma'] .nz-board-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+html[data-design='figma'] .nz-bcard-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+html[data-design='figma'] .nz-bcard-top .pill[data-urgent] {
+  background: var(--red);
+  color: #fff;
+}
+
+html[data-design='figma'] .nz-bcard-wbs {
+  font-size: 11px;
+  color: var(--dim2);
+}
+
+html[data-design='figma'] .nz-bcard-dots {
+  margin-inline-start: auto;
+  color: var(--ink);
+  flex: none;
+}
+
+html[data-design='figma'] .nz-bcard-title {
+  margin: 4px 0 0;
+  font-family: var(--font-body);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+html[data-design='figma'] .nz-bcard-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--dim);
+}
+
+html[data-design='figma'] .nz-bcard-due {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dim2);
+}
+
+html[data-design='figma'] .nz-bcard-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+html[data-design='figma'] .nz-bcard-who {
+  --team: var(--dim2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-inline-start: 12px;
+  border-radius: 4px;
+}
+
+html[data-design='figma'] .nz-bcard-who .nz-avatar {
+  background: var(--tint);
+  color: var(--accent);
+}
+
+html[data-design='figma'] .nz-bcard-who > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+html[data-design='figma'] .nz-bcard-who b {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-design='figma'] .nz-bcard-who i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--dim2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-design='figma'] .nz-bcard-nobody {
+  font-size: 12px;
+  color: var(--dim2);
+}
+
+html[data-design='figma'] .nz-bcard-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  color: var(--dim2);
+  font-size: 12px;
+}
+
+html[data-design='figma'] .nz-bcard-meta .nz-chatbtn {
+  --cb: var(--dim2);
+  border-color: transparent;
+  background: none;
+  padding-inline: 0;
+  min-inline-size: 0;
+  gap: 5px;
+  font-weight: 500;
+}
+
+html[data-design='figma'] .nz-bcard-meta .nz-chatbtn:hover {
+  color: var(--accent);
+}
+
+html[data-design='figma'] .nz-bcard-files {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---- apps/web/src/pages/projects/a9-projects.css */
+html[data-design='figma'] .nz-ps-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-block: 0 20px;
+}
+
+html[data-design='figma'] .nz-ps-name {
+  font-family: var(--font-display);
+  font-size: clamp(24px, 2.4vw, 34px);
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
+  letter-spacing: -0.5px;
+  color: var(--ink);
+  max-width: min(44vw, 560px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--r3);
+}
+
+html[data-design='figma'] .nz-ps-chip {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r4);
+  background: var(--tint);
+  color: var(--primary);
+  cursor: pointer;
+  transition: background 0.16s var(--e);
+}
+
+html[data-design='figma'] .nz-ps-chip:hover {
+  background: var(--tint2);
+}
+
+html[data-design='figma'] .nz-ps-stack {
+  display: inline-flex;
+  align-items: center;
+  padding-inline-start: 10px;
+}
+
+html[data-design='figma'] .nz-ps-stack-i,
+html[data-design='figma'] .nz-ps-stack-more {
+  width: 38px;
+  height: 38px;
+  margin-inline-start: -6px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--panel);
+  display: inline-grid;
+  place-items: center;
+  position: relative;
+}
+
+html[data-design='figma'] .nz-ps-stack-i::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--team);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+html[data-design='figma'] .nz-ps-stack-i .nz-avatar {
+  background: var(--tint);
+  color: var(--accent);
+}
+
+html[data-design='figma'] .nz-ps-stack-more {
+  background: var(--p-no-b);
+  color: var(--p-no-t);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+html[data-design='figma'] .nz-ps-tabs {
+  margin-block-end: 20px;
+}
+
+html[data-design='figma'] .nz-ps-tabs .mantine-Tabs-list {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 8px;
+  border: 0;
+}
+
+html[data-design='figma'] .nz-ps-tabs .mantine-Tabs-list::before {
+  display: none;
+}
+
+html[data-design='figma'] .nz-ps-tabs .mantine-Tabs-tab {
+  height: 40px;
+  padding-inline: 14px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r3);
+  color: var(--dim);
+  font-weight: 500;
+  background: var(--panel);
+  transition: background 0.16s var(--e), color 0.16s var(--e), border-color 0.16s var(--e);
+}
+
+html[data-design='figma'] .nz-ps-tabs .mantine-Tabs-tab:hover {
+  background: var(--panel2);
+  color: var(--ink);
+}
+
+html[data-design='figma'] .nz-ps-tabs .mantine-Tabs-tab[data-active] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+  font-weight: 600;
+}
+
+html[data-design='figma'] .nz-ps-tabs .mantine-Tabs-tab[data-active]::before,
+html[data-design='figma'] .nz-ps-tabs .mantine-Tabs-tab::before {
+  display: none;
+}
+
+/* ---- apps/web/src/pages/teams/teams-a9.css */
+html[data-design='figma'] .nz-col-foreman {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-inline-size: 100%;
+  margin-block-start: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4426cc;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- hand-written additions (Mantine ramp, radii, pieces that have no classic counterpart) */
+html:root[data-design='figma'] {
+  /* Mantine's primary ramp (`field`, plus its aliases) follows the violet. */
+  --mantine-color-field-0: #f0edfd;
+  --mantine-color-field-1: #d9d1fa;
+  --mantine-color-field-2: #bdb0f7;
+  --mantine-color-field-3: #a18ff3;
+  --mantine-color-field-4: #8268ef;
+  --mantine-color-field-5: #6a4ff0;
+  --mantine-color-field-6: #5030e5;
+  --mantine-color-field-7: #4426cc;
+  --mantine-color-field-8: #371da8;
+  --mantine-color-field-9: #261478;
+  --mantine-color-gold-0: #f0edfd;
+  --mantine-color-gold-1: #d9d1fa;
+  --mantine-color-gold-2: #bdb0f7;
+  --mantine-color-gold-3: #a18ff3;
+  --mantine-color-gold-4: #8268ef;
+  --mantine-color-gold-5: #6a4ff0;
+  --mantine-color-gold-6: #5030e5;
+  --mantine-color-gold-7: #4426cc;
+  --mantine-color-gold-8: #371da8;
+  --mantine-color-gold-9: #261478;
+  --mantine-color-indigo-0: #f0edfd;
+  --mantine-color-indigo-1: #d9d1fa;
+  --mantine-color-indigo-2: #bdb0f7;
+  --mantine-color-indigo-3: #a18ff3;
+  --mantine-color-indigo-4: #8268ef;
+  --mantine-color-indigo-5: #6a4ff0;
+  --mantine-color-indigo-6: #5030e5;
+  --mantine-color-indigo-7: #4426cc;
+  --mantine-color-indigo-8: #371da8;
+  --mantine-color-indigo-9: #261478;
+  --mantine-radius-sm: 6px;
+  --mantine-radius-md: 6px;
+  --mantine-radius-lg: 16px;
+  --mantine-radius-xl: 20px;
+  --mantine-h1-font-size: 2rem;
+  --mantine-h1-line-height: 1.25;
+}
+html[data-design='figma'] .mantine-Badge-root {
+  border-radius: 4px;
+  font-weight: 500;
+}
+/* The active item has no bar in this design; the tint says it. */
+html[data-design='figma'] .nz-nav::before,
+html[data-design='figma'] .nz-kid::before {
+  display: none;
+}
+/* Nozoly only: no footer line on the public pages. */
+html[data-design='figma'] .nz-auth-foot {
+  display: none;
+}
+html[data-design='figma'] .nz-design-toggle {
+  background: var(--tint);
+  color: var(--accent);
+  box-shadow: none;
+}
+html[data-design='figma'] .nz-design-toggle:hover {
+  background: var(--tint2);
+}
+
+/* Mantine's derived light/outline variants are literal colours; restate them in the violet. */
+html:root[data-design='figma'][data-mantine-color-scheme='light'] {
+  --mantine-color-field-light: rgba(80, 48, 229, 0.1);
+  --mantine-color-field-light-hover: rgba(80, 48, 229, 0.14);
+  --mantine-color-field-outline-hover: rgba(80, 48, 229, 0.05);
+}
+html:root[data-design='figma'][data-mantine-color-scheme='dark'] {
+  --mantine-color-field-light: rgba(150, 128, 255, 0.16);
+  --mantine-color-field-light-hover: rgba(150, 128, 255, 0.22);
+  --mantine-color-field-outline-hover: rgba(150, 128, 255, 0.06);
+}
+html:root[data-design='figma'][data-mantine-color-scheme='light'] {
+  --mantine-color-gold-light: rgba(80, 48, 229, 0.1);
+  --mantine-color-gold-light-hover: rgba(80, 48, 229, 0.14);
+  --mantine-color-gold-outline-hover: rgba(80, 48, 229, 0.05);
+}
+html:root[data-design='figma'][data-mantine-color-scheme='dark'] {
+  --mantine-color-gold-light: rgba(150, 128, 255, 0.16);
+  --mantine-color-gold-light-hover: rgba(150, 128, 255, 0.22);
+  --mantine-color-gold-outline-hover: rgba(150, 128, 255, 0.06);
+}
+html:root[data-design='figma'][data-mantine-color-scheme='light'] {
+  --mantine-color-indigo-light: rgba(80, 48, 229, 0.1);
+  --mantine-color-indigo-light-hover: rgba(80, 48, 229, 0.14);
+  --mantine-color-indigo-outline-hover: rgba(80, 48, 229, 0.05);
+}
+html:root[data-design='figma'][data-mantine-color-scheme='dark'] {
+  --mantine-color-indigo-light: rgba(150, 128, 255, 0.16);
+  --mantine-color-indigo-light-hover: rgba(150, 128, 255, 0.22);
+  --mantine-color-indigo-outline-hover: rgba(150, 128, 255, 0.06);
+}

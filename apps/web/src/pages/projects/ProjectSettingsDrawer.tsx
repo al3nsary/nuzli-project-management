@@ -45,7 +45,7 @@ import { formatMoney, formatNumber, t } from '../../i18n';
 import { useTabParam } from '../../lib/useUrlState';
 import { PROJECT_STATUSES, projectStatusLabel } from './parts';
 
-const SWATCHES = ['#5030e5', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F9A825', '#EF6C00', '#C62828', '#AD1457', '#6A1B9A', '#5D4037', '#546E7A'];
+const SWATCHES = ['#303F9F', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F9A825', '#EF6C00', '#C62828', '#AD1457', '#6A1B9A', '#5D4037', '#546E7A'];
 
 export function ProjectSettingsDrawer({ opened, onClose, project, data }: { opened: boolean; onClose(): void; project: ProjectView; data: GanttView }) {
   const { dir } = useDirection();

@@ -14,7 +14,7 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import { Button, Group, SegmentedControl, Text } from '@mantine/core';
+import { Badge, Button, Group, SegmentedControl, Text } from '@mantine/core';
 import { IconDots, IconFolder } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { can, type GanttDto, type TaskDto, type TaskStatus } from '@nuzli/shared';
@@ -28,7 +28,8 @@ import { riyadhToday } from '../../features/projects/engine';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk4 } from '../../api/projectQueries';
 import { UserAvatar } from '../../components/UserAvatar';
-import { TASK_STATUSES, priorityLabel, taskStatusLabel } from './parts';
+import { useFigma } from '../../theme/design';
+import { AssigneeChip, TASK_STATUSES, priorityLabel, taskStatusLabel } from './parts';
 import { ConflictAlert } from './TaskDrawer';
 import { TaskChatButton, type ChatCount } from '../../features/tasks/TaskChatButton';
 
@@ -145,13 +146,23 @@ export function BoardView({
 
 function Column({ status, count, children }: { status: TaskStatus; count: number; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
+  const figma = useFigma();
   return (
     <section ref={setNodeRef} className="nz-board-col" data-status={status} data-over={isOver} role="listitem" aria-label={taskStatusLabel(status)}>
-      <header className="nz-board-head">
-        <i aria-hidden />
-        <h3>{taskStatusLabel(status)}</h3>
-        <span className="nz-board-count num">{formatNumber(count)}</span>
-      </header>
+      {figma ? (
+        <header className="nz-board-head">
+          <i aria-hidden />
+          <h3>{taskStatusLabel(status)}</h3>
+          <span className="nz-board-count num">{formatNumber(count)}</span>
+        </header>
+      ) : (
+      <Group justify="space-between" px={4} pb={6}>
+        <Text fw={600}>{taskStatusLabel(status)}</Text>
+        <Badge variant="light" color="gray" radius="xl" className="num">
+          {formatNumber(count)}
+        </Badge>
+      </Group>
+      )}
       <div className="nz-board-list">{children}</div>
     </section>
   );
@@ -184,9 +195,12 @@ function Card({
   onOpenChat?(id: string): void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id, disabled: locked });
+  const figma = useFigma();
   const late = task.status !== 'DONE' && task.endDate < riyadhToday();
   // dnd-kit gives a physical delta; the transform is applied as is (not a logical offset).
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)${isDragging ? ' rotate(3deg)' : ''}`, zIndex: 5 } : undefined;
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)${figma && isDragging ? ' rotate(3deg)' : ''}`, zIndex: 5, opacity: figma ? 1 : isDragging ? 0.9 : 1 }
+    : undefined;
   return (
     <div
       ref={setNodeRef}
@@ -203,37 +217,64 @@ function Card({
       onClick={() => onOpen(task.id)}
       onKeyDown={(e) => (locked ? e.key === 'Enter' && onOpen(task.id) : onKey(e, task))}
     >
-      <div className="nz-bcard-top">
-        <TaskTag task={task} />
-        {late ? <span className="pill no">{t('gantt.overdue')}</span> : null}
-        <span className="nz-bcard-wbs mono">{task.wbs}</span>
-        <IconDots size={20} className="nz-bcard-dots" aria-hidden />
-      </div>
-      <h4 className="nz-bcard-title nz-clamp-2">{task.name}</h4>
-      {task.description ? <p className="nz-bcard-desc nz-clamp-2">{task.description}</p> : null}
-      <p className="nz-bcard-due">
-        {t('board.due', { date: formatDate(task.endDate) })} · {`${formatNumber(Math.round(task.progress))}٪`}
-      </p>
-      <div className="nz-bcard-foot">
-        {task.assignee ? (
-          <span className="nz-bcard-who vest" style={{ '--team': task.assignee.teamColor ?? 'var(--dim2)' } as CSSProperties}>
-            <UserAvatar name={task.assignee.fullName} size={26} ring={false} />
-            <span>
-              <b>{task.assignee.fullName}</b>
-              <i>{task.assignee.teamName ?? t('gantt.noTeam')}</i>
+      {figma ? (
+        <>
+          <div className="nz-bcard-top">
+            <TaskTag task={task} />
+            {late ? <span className="pill no">{t('gantt.overdue')}</span> : null}
+            <span className="nz-bcard-wbs mono">{task.wbs}</span>
+            <IconDots size={20} className="nz-bcard-dots" aria-hidden />
+          </div>
+          <h4 className="nz-bcard-title nz-clamp-2">{task.name}</h4>
+          {task.description ? <p className="nz-bcard-desc nz-clamp-2">{task.description}</p> : null}
+          <p className="nz-bcard-due">
+            {t('board.due', { date: formatDate(task.endDate) })} · {`${formatNumber(Math.round(task.progress))}٪`}
+          </p>
+          <div className="nz-bcard-foot">
+            {task.assignee ? (
+              <span className="nz-bcard-who vest" style={{ '--team': task.assignee.teamColor ?? 'var(--dim2)' } as CSSProperties}>
+                <UserAvatar name={task.assignee.fullName} size={26} ring={false} />
+                <span>
+                  <b>{task.assignee.fullName}</b>
+                  <i>{task.assignee.teamName ?? t('gantt.noTeam')}</i>
+                </span>
+              </span>
+            ) : (
+              <span className="nz-bcard-nobody">{t('task.unassigned')}</span>
+            )}
+            <span className="nz-bcard-meta">
+              {onOpenChat ? <TaskChatButton taskName={task.name} chat={chat} onOpen={() => onOpenChat(task.id)} /> : null}
+              <span className="nz-bcard-files" aria-label={t('board.files', { n: formatNumber(task.attachmentCount) })}>
+                <IconFolder size={16} aria-hidden />
+                <span className="num">{formatNumber(task.attachmentCount)}</span>
+              </span>
             </span>
-          </span>
-        ) : (
-          <span className="nz-bcard-nobody">{t('task.unassigned')}</span>
-        )}
-        <span className="nz-bcard-meta">
-          {onOpenChat ? <TaskChatButton taskName={task.name} chat={chat} onOpen={() => onOpenChat(task.id)} /> : null}
-          <span className="nz-bcard-files" aria-label={t('board.files', { n: formatNumber(task.attachmentCount) })}>
-            <IconFolder size={16} aria-hidden />
-            <span className="num">{formatNumber(task.attachmentCount)}</span>
-          </span>
-        </span>
-      </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <Group justify="space-between" gap={4} wrap="nowrap">
+            <Text size="xs" c="dimmed" className="mono">
+              {task.wbs}
+            </Text>
+            {late ? (
+              <Badge size="xs" color="breach" variant="light">
+                {t('gantt.overdue')}
+              </Badge>
+            ) : null}
+          </Group>
+          <Text fw={600} size="sm" lh={1.4} className="nz-clamp-2">
+            {task.name}
+          </Text>
+          <Text size="xs" c="dimmed" mt={2}>
+            {t('board.due', { date: formatDate(task.endDate) })} · {`${formatNumber(Math.round(task.progress))}٪`}
+          </Text>
+          <Group justify="space-between" gap={6} wrap="nowrap" mt={6}>
+            <AssigneeChip assignee={task.assignee} size="sm" />
+            {onOpenChat ? <TaskChatButton taskName={task.name} chat={chat} onOpen={() => onOpenChat(task.id)} /> : null}
+          </Group>
+        </>
+      )}
     </div>
   );
 }

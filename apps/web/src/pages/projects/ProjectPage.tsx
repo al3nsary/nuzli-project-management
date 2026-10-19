@@ -53,6 +53,7 @@ import {
   IconFileTypeXml,
   IconFileTypePdf,
   IconFilter,
+  IconFolder,
   IconLayoutKanban,
   IconListTree,
   IconPalette,
@@ -84,6 +85,7 @@ import { useSupervisors } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
 import { ErrorBlock, LoadingBlock } from '../../components/ui';
 import { UserAvatar } from '../../components/UserAvatar';
+import { useFigma } from '../../theme/design';
 import { formatNumber, getDisplayPrefs, t } from '../../i18n';
 import { Gantt, linkMessage, type AddTaskInput, type ReorderChange } from '../../features/gantt/Gantt';
 import { DEFAULT_COLUMNS, normalizeColumns, type ColumnPref } from '../../features/gantt/columns';
@@ -141,7 +143,7 @@ interface SavedView {
   columns?: ColumnPref[];
 }
 
-const BAR_SWATCHES = ['#5030e5', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F9A825', '#EF6C00', '#C62828', '#AD1457', '#6A1B9A', '#5D4037', '#546E7A'];
+const BAR_SWATCHES = ['#303F9F', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F9A825', '#EF6C00', '#C62828', '#AD1457', '#6A1B9A', '#5D4037', '#546E7A'];
 
 export function ProjectPage() {
   const { id = '' } = useParams();
@@ -247,6 +249,7 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
   const api = useApi();
   const qc = useQueryClient();
   const p = data.project;
+  const figma = useFigma();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(p.name);
   const [favourites, setFavourites] = useViewPref<string[]>('projects.favourites', null, []);
@@ -283,6 +286,11 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
   };
   return (
     <header className="nz-ps-head">
+      {figma ? null : (
+        <span className="nz-pl-folder nz-ps-folder" aria-hidden>
+          <IconFolder size={20} />
+        </span>
+      )}
       {editing ? (
         <TextInput
           autoFocus
@@ -304,7 +312,7 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
           {p.name}
         </h1>
       )}
-      {admin && !editing ? (
+      {figma && admin && !editing ? (
         <Tooltip label={t('project.rename')} withinPortal>
           <button type="button" className="nz-ps-chip" aria-label={t('project.rename')} onClick={() => setEditing(true)}>
             <IconPencil size={16} aria-hidden />
@@ -337,9 +345,9 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
       ) : null}
       {unitOf(p) === 'HOUR' ? <span className="pill brand">{t('projects.hourBadge')}</span> : null}
       <span className="nz-ps-spacer" />
-      <TeamStack tasks={data.tasks} />
+      {figma ? <TeamStack tasks={data.tasks} /> : null}
       {admin ? (
-        <Group gap={8} wrap="nowrap">
+        <Group gap={4} wrap="nowrap">
           <Button variant="default" size="xs" leftSection={<IconSettings size={16} />} onClick={onSettings}>
             {t('project.menu.settings')}
           </Button>

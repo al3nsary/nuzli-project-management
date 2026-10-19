@@ -55,7 +55,7 @@ type Writes = ProjectWrites;
 const TABS = ['details', 'checklist', 'meta', 'comments', 'files', 'time', 'activity'] as const;
 
 /** Bar colour swatches (task data colours, not chrome): indigo, blue, teal, green, amber, orange, red, purple, grey. */
-const BAR_SWATCHES = ['#5030e5', '#1565C0', '#00838F', '#2E7D32', '#A35C00', '#E65100', '#C62828', '#6A1B9A', '#546E7A'];
+const BAR_SWATCHES = ['#303F9F', '#1565C0', '#00838F', '#2E7D32', '#A35C00', '#E65100', '#C62828', '#6A1B9A', '#546E7A'];
 
 export function TaskDrawer({ data, taskId, writes, onClose }: { data: GanttView; taskId: string | null; writes: Writes; onClose(): void }) {
   const task = data.tasks.find((x) => x.id === taskId) ?? null;

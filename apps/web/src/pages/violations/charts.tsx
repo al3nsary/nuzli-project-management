@@ -39,7 +39,7 @@ function readPalette(): Palette {
     line: v('--line', '#E6E8EC'),
     surface: v('--surface', '#FFFFFF'),
     ground: v('--ground', '#F7F8FA'),
-    field: v('--field', '#5030e5'),
+    field: v('--field', '#303F9F'),
     signal: v('--signal', '#A35C00'),
     breach: v('--breach', '#C62828'),
     ok: v('--ok', '#2E7D32'),

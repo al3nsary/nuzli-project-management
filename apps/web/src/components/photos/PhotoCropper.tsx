@@ -48,7 +48,7 @@ function draw(canvas: HTMLCanvasElement | null, image: LoadedImage, state: CropS
     ctx.fill('evenodd');
     ctx.beginPath();
     ctx.arc(W / 2, H / 2, W / 2 - 1.5 * (W / 300), 0, Math.PI * 2);
-    ctx.strokeStyle = '#7b61f0';
+    ctx.strokeStyle = '#5C6BC0';
     ctx.lineWidth = 2 * (W / 300);
     ctx.stroke();
     ctx.restore();

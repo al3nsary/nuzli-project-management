@@ -59,9 +59,8 @@
   justify-content: space-between;
   gap: 8px;
   height: var(--top-h);
-  padding-inline: 22px 14px;
+  padding-inline: 18px 10px;
   flex: none;
-  border-bottom: 1px solid var(--nav-line);
 }
 .nz-logo-link {
   display: flex;
@@ -96,9 +95,9 @@
   display: block !important;
 }
 .nz-fold {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--r3);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   flex: none;
   display: grid;
   place-items: center;
@@ -116,7 +115,7 @@
 /* «+ إنشاء مشروع جديد»: the one prominent action, full width (GanttPRO). */
 .nz-side-cta {
   flex: none;
-  padding: 20px 16px 6px;
+  padding: 4px 12px 12px;
 }
 .nz-create {
   display: flex;
@@ -124,15 +123,15 @@
   justify-content: center;
   gap: 8px;
   width: 100%;
-  min-height: 44px;
+  min-height: 40px;
   padding: 0 14px;
   border-radius: var(--r3);
   background: var(--primary);
   color: var(--on-primary);
   text-decoration: none;
-  font-size: 14.5px;
-  box-shadow: 0 6px 14px -8px rgba(80, 48, 229, 0.7);
-  transition: background 0.16s var(--e), transform 0.12s var(--e), box-shadow 0.16s var(--e);
+  font-size: 13.5px;
+  box-shadow: 0 1px 2px rgba(26, 35, 126, 0.25);
+  transition: background 0.16s var(--e), transform 0.12s var(--e);
 }
 .nz-create b {
   font-weight: 600;
@@ -151,7 +150,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px 16px 16px;
+  padding: 2px 10px 16px;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line2) transparent;
@@ -166,15 +165,15 @@
 
 /* Group separators: a hairline; labelled groups add a quiet heading under it. */
 .nz-grp {
-  margin: 14px 4px 10px;
+  margin: 10px 8px 6px;
   border-top: 1px solid var(--nav-line);
 }
 .nz-grp:not(.quiet)::before {
   content: attr(data-label);
   display: block;
-  padding-top: 16px;
-  font-size: 12px;
-  font-weight: 700;
+  padding-top: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
   line-height: 1.4;
   color: var(--nav-faint);
   white-space: nowrap;
@@ -199,11 +198,27 @@
   transition: color 0.14s var(--e), background 0.14s var(--e);
 }
 .nz-nav {
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: var(--r3);
   color: var(--nav-dim);
-  min-height: 44px;
-  gap: 14px;
+  min-height: 38px;
+}
+/* The active bar (3px, inline-start edge). */
+.nz-nav::before,
+.nz-kid::before {
+  content: '';
+  position: absolute;
+  inset-block: 7px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--nav-bar);
+  opacity: 0;
+  transition: opacity 0.16s var(--e);
+}
+[dir='rtl'] .nz-nav::before,
+[dir='rtl'] .nz-kid::before {
+  border-radius: 3px 0 0 3px;
 }
 .nz-nav:hover,
 .nz-kid:hover {
@@ -219,23 +234,26 @@
   color: var(--nav-on-ink);
   background: var(--nav-on-bg);
 }
+.nz-nav.on::before,
+.nz-kid.on::before {
+  opacity: 1;
+}
 .nz-nav.on .ic,
 .nz-kid.on .ic {
   opacity: 1;
-  color: var(--accent);
 }
 .nz-nav.on-parent {
   color: var(--nav-ink);
 }
 .nz-nav .ic {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   flex: none;
-  opacity: 0.9;
+  opacity: 0.85;
 }
 .nz-nav b,
 .nz-kid b {
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 500;
   flex: 1;
   min-width: 0;
@@ -246,7 +264,6 @@
 .nz-nav.on b,
 .nz-kid.on b {
   font-weight: 600;
-  color: var(--nav-on-ink);
 }
 .nz-nav .chev {
   flex: none;
@@ -279,7 +296,7 @@
   flex-direction: column;
   gap: 1px;
   margin: 1px 0 4px;
-  padding-inline-start: 20px;
+  padding-inline-start: 18px;
   position: relative;
   animation: nz-kids-in 0.26s var(--e3) both;
 }
@@ -297,13 +314,13 @@
   }
 }
 .nz-kid {
-  padding: 8px 12px;
+  padding: 7px 12px;
   border-radius: var(--r3);
   color: var(--nav-dim2);
-  min-height: 38px;
+  min-height: 34px;
 }
 .nz-kid b {
-  font-size: 14px;
+  font-size: 13px;
 }
 .nz-kid .ic {
   flex: none;
@@ -312,126 +329,30 @@
 
 .nz-side-foot {
   flex: none;
-  padding: 8px 16px 20px;
-}
-@media (max-height: 760px) {
-  .nz-side-foot {
-    display: none;
-  }
-}
-
-/* «مشاريعي»: the live projects with a colour dot; the open one sits on the tint. */
-.nz-myp {
-  margin-top: 6px;
-  padding-top: 18px;
+  padding: 10px 14px 12px;
   border-top: 1px solid var(--nav-line);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
 }
-.nz-myp-head {
+/* «منظومة مُحسن» with the small Muhsen mark (secondary since A9). */
+.nz-system {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 4px 10px 8px;
-  font-size: 12px;
-  font-weight: 700;
+  justify-content: center;
+  gap: 7px;
+  font-size: 11.5px;
+  line-height: 1.4;
   color: var(--nav-faint);
-}
-.nz-myp-head a {
-  display: grid;
-  place-items: center;
-  color: var(--nav-faint);
-  border-radius: 6px;
-}
-.nz-myp-head a:hover {
-  color: var(--accent);
-}
-.nz-myp-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-height: 40px;
-  padding: 8px 12px;
-  border-radius: var(--r3);
-  color: var(--nav-dim);
-  text-decoration: none;
-  transition: background 0.14s var(--e), color 0.14s var(--e);
-}
-.nz-myp-row i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-.nz-myp-row b {
-  font-size: 15px;
-  font-weight: 500;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.nz-myp-row:hover {
-  background: var(--nav-sheen);
-  color: var(--nav-ink);
-}
-.nz-myp-row.on {
-  background: var(--nav-on-bg);
-  color: var(--nav-on-ink);
-}
-.nz-myp-row.on b {
-  font-weight: 600;
-}
-
-/* «وقت الأفكار»: the quiet card at the foot of the side. */
-.nz-thoughts {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 0 14px 14px;
-  border-radius: var(--r2);
-  background: var(--panel2);
-  text-align: center;
-}
-.nz-thoughts-bulb {
-  width: 54px;
-  height: 54px;
-  margin-top: -14px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: #b7791f;
-  background: radial-gradient(circle, rgba(255, 200, 69, 0.55) 0%, rgba(255, 200, 69, 0.18) 55%, rgba(255, 200, 69, 0) 72%);
-}
-.nz-thoughts b {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink);
-}
-.nz-thoughts p {
-  margin: 0 0 6px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--dim);
-}
-.nz-thoughts-btn {
+.nz-system img {
+  width: 18px;
+  height: auto;
   display: block;
-  width: 100%;
-  padding: 10px 8px;
-  border-radius: var(--r4);
-  background: var(--panel);
-  color: var(--ink);
-  font-size: 13.5px;
-  font-weight: 600;
-  text-decoration: none;
-  box-shadow: 0 1px 2px rgba(13, 6, 45, 0.06);
-  transition: box-shadow 0.16s var(--e), color 0.16s var(--e);
-}
-.nz-thoughts-btn:hover {
-  color: var(--accent);
-  box-shadow: 0 4px 10px -4px rgba(80, 48, 229, 0.3);
+  opacity: 0.9;
+  user-select: none;
 }
 
 /* The rail: icons only, names in tooltips, a red dot instead of the count. */
@@ -445,11 +366,10 @@
   justify-content: center;
   gap: 6px;
   height: auto;
-  min-height: var(--top-h);
   padding: 12px 6px 10px;
 }
 .nz-side.mini .nz-side-cta {
-  padding: 14px 12px 6px;
+  padding: 2px 12px 10px;
 }
 .nz-side.mini .nz-create {
   padding: 0;
@@ -548,19 +468,37 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 32px;
+  gap: 12px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--deep) 94%, transparent);
+  background: color-mix(in srgb, var(--deep) 92%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   transition: box-shadow 0.3s var(--e), background 0.3s var(--e);
 }
 .nz-top.deep {
-  box-shadow: 0 10px 24px -20px rgba(13, 6, 45, 0.4);
+  box-shadow: 0 8px 20px -18px rgba(16, 24, 40, 0.35);
+}
+.nz-top-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  animation: nz-slide-in 0.4s var(--e) both;
+}
+.nz-top h2 {
+  font-family: var(--font-display);
+  font-size: 16.5px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  line-height: 1.35;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nz-crumb {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--dim2);
   line-height: 1.5;
   min-width: 0;
@@ -624,10 +562,11 @@
   gap: 8px;
   height: 34px;
   padding: 0 12px;
-  border-radius: 99px;
-  background: var(--panel2);
+  border-radius: 12px;
+  background: var(--sheen);
+  box-shadow: inset 0 0 0 1px var(--line);
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--dim);
   text-decoration: none;
@@ -683,23 +622,24 @@ a.nz-chip--wait:hover {
 }
 
 .nz-iconbtn {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r3);
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
   display: inline-grid;
   place-items: center;
   flex: none;
   border: 0;
   cursor: pointer;
-  color: var(--dim2);
-  background: none;
+  color: var(--dim);
+  background: var(--sheen);
   position: relative;
   font: inherit;
   transition: color 0.18s var(--e), background 0.18s var(--e), transform 0.18s var(--e);
 }
 .nz-iconbtn:hover {
   color: var(--ink);
-  background: var(--panel2);
+  background: var(--sheen2);
+  transform: translateY(-1px);
 }
 .nz-iconbtn:active {
   transform: scale(0.93);
@@ -721,6 +661,17 @@ a.nz-chip--wait:hover {
   border: 2px solid var(--deep);
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+.nz-search {
+  width: auto;
+  display: inline-flex;
+  gap: 8px;
+  padding-inline: 12px 8px;
+  min-width: 38px;
+}
+.nz-search-label {
+  font-size: 12px;
+  font-weight: 600;
 }
 .nz-kbd {
   display: inline-block;
@@ -746,16 +697,22 @@ a.nz-chip--wait:hover {
 .nz-who {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 4px 6px;
-  border-radius: var(--r3);
+  gap: 9px;
+  padding: 4px;
+  padding-inline-start: 4px;
+  padding-inline-end: 11px;
+  border-radius: 99px;
   flex: none;
-  max-width: 260px;
+  max-width: 230px;
   color: var(--dim);
-  transition: background 0.2s var(--e);
+  background: var(--sheen);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: all 0.22s var(--e);
 }
 .nz-who:hover {
-  background: var(--panel2);
+  color: var(--ink);
+  background: var(--sheen2);
+  box-shadow: inset 0 0 0 1px var(--line2);
 }
 .nz-who-text {
   min-width: 0;
@@ -763,8 +720,7 @@ a.nz-chip--wait:hover {
 }
 .nz-who-text b {
   display: block;
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--ink);
   overflow: hidden;
@@ -773,69 +729,14 @@ a.nz-chip--wait:hover {
 }
 .nz-who-text span {
   display: block;
-  font-size: 13px;
+  font-size: 10px;
   line-height: 1.4;
   color: var(--dim2);
   white-space: nowrap;
 }
 .nz-who-chev {
   flex: none;
-  color: var(--dim2);
-}
-
-/* The search field of the design: grey, 44px, the palette opens on click (Ctrl+K). */
-.nz-searchbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 417px;
-  height: 44px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: var(--r3);
-  background: var(--panel2);
-  color: var(--dim2);
-  font: inherit;
-  font-size: 14px;
-  text-align: start;
-  cursor: text;
-  transition: box-shadow 0.18s var(--e), background 0.18s var(--e);
-}
-.nz-searchbar:hover {
-  background: var(--raise);
-}
-.nz-searchbar:focus-visible {
-  box-shadow: 0 0 0 2px var(--focus);
-}
-.nz-searchbar svg {
-  flex: none;
-  color: var(--dim);
-}
-.nz-searchbar-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nz-searchbar .nz-kbd {
-  background: var(--panel);
-  box-shadow: none;
-}
-
-/* Back and breadcrumbs: a quiet strip under the bar on pages below the top level. */
-.nz-crumbbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 48px 0;
-  min-width: 0;
-}
-.nz-crumbbar .nz-iconbtn {
-  width: 32px;
-  height: 32px;
+  opacity: 0.6;
 }
 .nz-who-head {
   display: flex;
@@ -844,7 +745,7 @@ a.nz-chip--wait:hover {
   padding: 8px 10px 6px;
 }
 
-/* Avatar: violet initials; a hairline ring. */
+/* Avatar: indigo initials; a hairline ring. */
 .nz-avatar {
   display: inline-grid;
   place-items: center;
@@ -894,11 +795,11 @@ a.nz-chip--wait:hover {
 .nz-main {
   flex: 1;
   min-width: 0;
-  padding: 32px 48px 56px;
+  padding: 22px 24px 48px;
   outline: none;
 }
 .nz-page {
-  max-width: 1280px;
+  max-width: 1200px;
   margin-inline: auto;
   animation: nz-page-in 180ms var(--e) both;
 }
@@ -1148,7 +1049,6 @@ a.nz-chip--wait:hover {
   }
   .nz-side-head {
     height: 58px;
-    padding-inline: 16px 10px;
   }
   .nz-scrim {
     display: block;
@@ -1167,6 +1067,9 @@ a.nz-chip--wait:hover {
   .nz-offline {
     top: 58px;
   }
+  .nz-top h2 {
+    font-size: 15px;
+  }
   .nz-top-chips {
     gap: 6px;
   }
@@ -1179,21 +1082,21 @@ a.nz-chip--wait:hover {
     display: none;
   }
   .nz-chip-label,
+  .nz-search-label,
   .nz-search-kbd,
   .nz-who-text,
-  .nz-who-chev,
-  .nz-help {
+  .nz-who-chev {
     display: none;
   }
-  .nz-searchbar {
-    height: 40px;
-    padding: 0 12px;
-  }
-  .nz-crumbbar {
-    padding: 10px 12px 0;
+  .nz-search {
+    padding: 0;
+    width: 38px;
+    justify-content: center;
   }
   .nz-who {
     padding: 2px;
+    background: none;
+    box-shadow: none;
   }
   .nz-main {
     padding: 16px 12px 32px;
@@ -1255,7 +1158,7 @@ a.nz-chip--wait:hover {
     border-radius: 50%;
     color: #fff;
     background: var(--primary);
-    box-shadow: 0 6px 14px -6px rgba(55, 29, 168, 0.55);
+    box-shadow: 0 6px 14px -6px rgba(26, 35, 126, 0.55);
   }
   .nz-tab.primary {
     color: var(--accent);
@@ -1302,6 +1205,7 @@ a.nz-chip--wait:hover {
 /* ------------------------------------------------------------------ reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .nz-page,
+  .nz-top-title,
   .nz-crumb,
   .nz-kids,
   .nz-pulse::after,
@@ -1441,6 +1345,18 @@ a.nz-chip--wait:hover {
   margin-bottom: 6px;
   color: var(--ink);
 }
+.nz-auth-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim2);
+  font-size: 12px;
+}
+.nz-auth-foot .nz-system {
+  color: var(--dim2);
+  font-size: 12px;
+}
 
 /* The value panel (desktop): indigo-tinted, no illustration. */
 .nz-auth-side {
@@ -1449,14 +1365,14 @@ a.nz-chip--wait:hover {
   align-items: center;
   padding: 48px clamp(32px, 4.5vw, 72px);
   background:
-    radial-gradient(120% 80% at 100% 0%, rgba(80, 48, 229, 0.10), transparent 60%),
-    linear-gradient(180deg, #f7f4ff 0%, #f0edfd 100%);
-  border-inline-start: 1px solid #e6e0fb;
+    radial-gradient(120% 80% at 100% 0%, rgba(92, 107, 192, 0.12), transparent 60%),
+    linear-gradient(180deg, #eef0fa 0%, #e8eaf6 100%);
+  border-inline-start: 1px solid #dfe2f2;
   overflow: hidden;
 }
 :root[data-mantine-color-scheme='dark'] .nz-auth-side {
   background:
-    radial-gradient(120% 80% at 100% 0%, rgba(150, 128, 255, 0.16), transparent 60%),
+    radial-gradient(120% 80% at 100% 0%, rgba(121, 134, 203, 0.16), transparent 60%),
     linear-gradient(180deg, #161a28 0%, #141724 100%);
   border-inline-start-color: var(--line);
 }
@@ -1510,7 +1426,7 @@ a.nz-chip--wait:hover {
   place-items: center;
   color: var(--on-primary);
   background: var(--primary);
-  box-shadow: 0 6px 14px -8px rgba(55, 29, 168, 0.6);
+  box-shadow: 0 6px 14px -8px rgba(26, 35, 126, 0.6);
 }
 :root[data-mantine-color-scheme='dark'] .nz-auth-vic {
   box-shadow: none;
@@ -1678,4 +1594,33 @@ a.nz-chip--wait:hover {
   padding: 8px;
   border-radius: var(--r3);
   background: var(--panel2);
+}
+
+/* ------------------------------------------------------------------ design switch (A11) */
+.nz-design-toggle {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--tint);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.nz-design-toggle:hover {
+  background: var(--tint2);
+}
+.nz-auth-design {
+  position: fixed;
+  inset-block-start: 40px;
+  inset-inline-end: 16px;
+  z-index: 50;
+}
+@media (max-width: 47.99em) {
+  .nz-design-toggle-label {
+    display: none;
+  }
+  .nz-design-toggle {
+    padding: 0 10px;
+  }
 }

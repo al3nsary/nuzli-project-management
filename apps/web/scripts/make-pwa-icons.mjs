@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Generates the PWA icons and the favicons in apps/web/public in the Nozoly identity (owner
- * request A9): the Nozoly logo (recoloured to the identity violet) (public/brand/nozoly.png) — placed as a file,
- * never stretched or redrawn — on white, plus a maskable icon on Nozoly violet
- * (#5030E5) with the logo on a white rounded tile inside the 80 % safe circle.
+ * request A9): the real green Nozoly logo (public/brand/nozoly-green.png) — placed as a file,
+ * never recoloured, stretched or redrawn — on white, plus a maskable icon on Nozoly indigo
+ * (#303F9F) with the logo on a white rounded tile inside the 80 % safe circle.
  * The artwork occupies x 14–415, y 44–141 of the 540×156 file (transparent margins); the mark
  * alone is x 14–169. Favicons (32/64 px) show the mark part of the same file, because the
  * wordmark is illegible at that size.
@@ -21,13 +21,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = process.argv[2] ? resolve(process.argv[2]) : join(root, 'public');
-const logo = pathToFileURL(join(root, 'public', 'brand', 'nozoly.png')).href;
+const logo = pathToFileURL(join(root, 'public', 'brand', 'nozoly-green.png')).href;
 const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 
 const FILE = { w: 540, h: 156 };
 const ART = { x: 14, y: 44, w: 402, h: 98 };
 const MARK_W = 156;
-const INDIGO = '#5030E5';
+const INDIGO = '#303F9F';
 
 /** The logo file inside a box that shows only the artwork (or the mark), `width` px wide. */
 function logoBox(width, mark = false) {
@@ -60,7 +60,7 @@ function html(size, { maskable = false, favicon = false } = {}) {
   return `<!doctype html><html><head><style>
 html, body { margin: 0; background: transparent; }
 .icon { width: ${size}px; height: ${size}px; overflow: hidden; border-radius: ${radius}px; background: ${bg};
-  display: grid; place-items: center; ${favicon ? 'box-shadow: inset 0 0 0 1px #ebeaf0;' : ''} }
+  display: grid; place-items: center; ${favicon ? 'box-shadow: inset 0 0 0 1px #e6e8ec;' : ''} }
 </style></head><body><div class="icon">${inner}</div></body></html>`;
 }
 
@@ -77,7 +77,7 @@ const dir = mkdtempSync(join(tmpdir(), 'nuzli-icons-'));
 const port = 9341;
 const chrome = spawn(
   CHROME,
-  ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${join(dir, 'profile')}`, '--no-first-run', '--disable-gpu', '--allow-file-access-from-files', ...(process.getuid?.() === 0 ? ['--no-sandbox'] : []), 'about:blank'],
+  ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${join(dir, 'profile')}`, '--no-first-run', '--disable-gpu', '--allow-file-access-from-files', 'about:blank'],
   { stdio: 'ignore' },
 );
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

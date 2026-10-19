@@ -3,7 +3,8 @@ import { IconCloudOff, IconTimelineEvent, IconUsersGroup } from '@tabler/icons-r
 import { IS_DEMO } from '../../api';
 import { documentTitle } from '../../app/nav';
 import { t } from '../../i18n';
-import { NozolyLogo } from '../../components/Brand';
+import { MuhsenSystemLine, NozolyLogo } from '../../components/Brand';
+import { DesignToggle } from '../../components/DesignToggle';
 
 const VALUES = [
   { icon: IconTimelineEvent, title: 'auth.value1', sub: 'auth.value1Sub' },
@@ -15,7 +16,7 @@ const VALUES = [
  * Public pages (login, register, pending, forgot/reset/change password) — owner request A9.
  * A clean white page: the form card with the Nozoly logo large at its top (220px desktop,
  * 164px on phones), the page title and a sub-line; on desktop an indigo-tinted panel on the
- * inline end with three short value lines
+ * inline end with three short value lines; «منظومة مُحسن» with the small Muhsen mark in the
  * footer. Phones (360px): one column, the card flat on white.
  */
 export function AuthLayout({
@@ -40,6 +41,9 @@ export function AuthLayout({
           {t('shell.demoStrip')}
         </div>
       ) : null}
+      <div className="nz-auth-design">
+        <DesignToggle />
+      </div>
       <div className="nz-auth-grid">
         <main className="nz-auth-main" id="main">
           <div className="nz-auth-card" style={{ maxWidth: width }}>
@@ -53,6 +57,9 @@ export function AuthLayout({
             </div>
             <div className="nz-auth-body">{children}</div>
           </div>
+          <footer className="nz-auth-foot">
+            <MuhsenSystemLine />
+          </footer>
         </main>
 
         <aside className="nz-auth-side" aria-label={t('auth.valueTitle')}>

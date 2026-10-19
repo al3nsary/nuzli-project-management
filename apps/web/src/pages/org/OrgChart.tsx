@@ -11,9 +11,9 @@ import { kindLabel } from './dialogs';
 import { isForemanHolder } from './OrgTree';
 
 const KIND_COLOR: Record<string, string> = {
-  DEPARTMENT: '#5030e5',
-  SECTION: '#5030e5',
-  UNIT: '#7b61f0',
+  DEPARTMENT: '#303F9F',
+  SECTION: '#3949AB',
+  UNIT: '#5C6BC0',
   TEAM_GROUP: '#00838F',
 };
 const FONT = `'IBM Plex Sans Arabic', Tahoma, 'Segoe UI', Arial, sans-serif`;
@@ -54,7 +54,7 @@ function Box({ box, rtl }: { box: ChartBox; rtl: boolean }) {
   const anchor = 'start';
   const shown = u.positions.slice(0, CHART.maxLines);
   const more = u.positions.length - shown.length;
-  const color = KIND_COLOR[u.kind] ?? '#5030e5';
+  const color = KIND_COLOR[u.kind] ?? '#303F9F';
   const title = `${kindLabel(u.kind)} — ${u.name}`;
   return (
     <g className="ogc-box" tabIndex={0} role="listitem" aria-label={title}>
@@ -75,7 +75,7 @@ function Box({ box, rtl }: { box: ChartBox; rtl: boolean }) {
         const foreman = p.holder ? isForemanHolder(p.holder) : false;
         const line = fit(`${p.title}: ${holder}${foreman ? ` · ${t('teams.foreman.label')}` : ''}`, inner, `${foreman ? 600 : 400} 12.5px ${FONT}`);
         return (
-          <text key={p.id} x={tx} y={y} textAnchor={anchor} fontSize={12.5} fill={foreman ? 'var(--foreman, #5030e5)' : p.holder ? 'var(--ogc-dim, #3D4452)' : '#A35C00'} fontWeight={foreman || !p.holder ? 600 : 400} data-foreman={foreman || undefined}>
+          <text key={p.id} x={tx} y={y} textAnchor={anchor} fontSize={12.5} fill={foreman ? 'var(--foreman, #3949AB)' : p.holder ? 'var(--ogc-dim, #3D4452)' : '#A35C00'} fontWeight={foreman || !p.holder ? 600 : 400} data-foreman={foreman || undefined}>
             {line}
           </text>
         );
@@ -263,7 +263,7 @@ export function OrgChart({ units }: { units: OrgUnitDto[] }) {
       >
         <svg ref={svgRef} width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" direction={rtl ? 'rtl' : 'ltr'} fontFamily={FONT}>
           <g data-pan transform={`translate(${view.tx} ${view.ty}) scale(${view.scale})`}>
-            <g fill="none" stroke="var(--ogc-edge, #d9d1fa)" strokeWidth={1.6}>
+            <g fill="none" stroke="var(--ogc-edge, #C5CAE9)" strokeWidth={1.6}>
               {layout.edges.map((e) => (
                 <path key={`${e.from}-${e.to}`} d={e.path} />
               ))}

@@ -1,4 +1,4 @@
-/* Loaded after Mantine's styles. Logical properties only. Tokens: tokens.css (Nozoly white + violet, A9/A11). */
+/* Loaded after Mantine's styles. Logical properties only. Tokens: tokens.css (Nozoly white + indigo, A9). */
 html,
 body {
   background: var(--void);
@@ -27,7 +27,7 @@ a {
   background: color-mix(in srgb, var(--focus) 28%, transparent);
 }
 
-/* Focus ring: violet --focus (design skill). */
+/* Focus ring: indigo --focus (design skill). */
 :focus-visible {
   outline: 2px solid var(--focus) !important;
   outline-offset: 3px;
@@ -104,7 +104,7 @@ a {
   line-height: 1.5;
 }
 
-/* Mantine surfaces: white cards with a hairline border and a whisper of shadow. */
+/* Mantine surfaces, GanttPRO-clean: white cards with a hairline border and a whisper of shadow. */
 .mantine-Card-root,
 .mantine-Paper-root[data-with-border] {
   border-color: var(--line);
@@ -120,7 +120,7 @@ a {
 }
 .mantine-Table-th {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
 }
 .mantine-Table-tr[data-hover]:hover,
 .mantine-Table-tbody .mantine-Table-tr:hover {
@@ -131,7 +131,7 @@ a {
 }
 .mantine-Badge-root {
   text-transform: none;
-  font-weight: 500;
+  font-weight: 700;
   letter-spacing: 0;
 }
 
@@ -141,11 +141,11 @@ a {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 700;
   line-height: 1.5;
-  border-radius: var(--r4);
-  padding: 3px 10px;
+  border-radius: 99px;
+  padding: 4px 11px;
   white-space: nowrap;
   flex: none;
   vertical-align: middle;
@@ -176,7 +176,7 @@ a {
   color: var(--p-grey-t);
 }
 
-/* Section mark: a thin violet bar before a card title. */
+/* Section mark: a thin indigo bar before a card title. */
 .nz-hm {
   width: 3px;
   height: 17px;

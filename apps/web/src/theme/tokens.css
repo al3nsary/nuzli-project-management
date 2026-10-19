@@ -1,6 +1,6 @@
 /*
  * Nuzli design tokens — owner request A9 (2026-10-19): a white, GanttPRO-clean interface with
- * Nozoly violet #5030E5 as the one brand colour (owner request A11: the Figma project-management dashboard); team colours carry identity while browsing.
+ * Nozoly indigo (أزرق نيلي) as the one brand colour; team colours carry identity while browsing.
  * Source of truth: .claude/skills/nuzli-design-system/SKILL.md (ADR in docs/DECISIONS.md).
  *
  * New code uses the semantic names (--primary, --accent, --tint, --focus, --live, --amber, --red,
@@ -10,77 +10,77 @@
  */
 :root {
   /* Surfaces — white like GanttPRO. */
-  --void: #ffffff; /* page */
+  --void: #f7f8fa; /* page */
   --deep: #ffffff; /* top bar */
   --panel: #ffffff; /* cards, tables, dialogs */
-  --panel2: #f5f5f5; /* zebra rows, inputs, quiet fills */
-  --raise: #eeeef0;
-  --hover: #f6f5f9;
-  --line: #ebeaf0;
-  --line2: #d9d7e1;
-  --hair: rgba(80, 48, 229, 0.16);
+  --panel2: #f5f6f9; /* zebra rows, inputs, quiet fills */
+  --raise: #eef0f4;
+  --hover: #f1f3f7;
+  --line: #e6e8ec;
+  --line2: #d5d9e0;
+  --hair: rgba(48, 63, 159, 0.16);
 
-  /* Nozoly violet. */
-  --primary: #5030e5;
-  --primary-hover: #4426cc;
-  --primary-press: #371da8;
-  --tint: #f0edfd;
-  --tint2: #d9d1fa;
-  --focus: #7b61f0;
+  /* Nozoly indigo. */
+  --primary: #303f9f;
+  --primary-hover: #283593;
+  --primary-press: #1a237e;
+  --tint: #e8eaf6;
+  --tint2: #c5cae9;
+  --focus: #5c6bc0;
   /* Indigo as text and icons on surfaces (same as --primary by day, lighter by night). */
-  --accent: #5030e5;
+  --accent: #303f9f;
   --on-primary: #ffffff;
 
   /* Status (text contrast ≥ 4.5:1 on white). */
-  --live: #2f7d32;
+  --live: #2e7d32;
   --amber: #a35c00;
   --red: #c62828;
   --blue: #1565c0;
 
   /* Text */
-  --ink: #0d062d;
-  --dim: #6a667a;
-  --dim2: #787486;
-  --faint: #b3b0bf;
+  --ink: #1f2430;
+  --dim: #5e6676;
+  --dim2: #6f7787;
+  --faint: #a3a9b5;
   --link: var(--accent);
 
-  --sheen: rgba(13, 6, 45, 0.035);
-  --sheen2: rgba(13, 6, 45, 0.065);
+  --sheen: rgba(31, 36, 48, 0.035);
+  --sheen2: rgba(31, 36, 48, 0.065);
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.03);
   --lift: 0 4px 12px -2px rgba(16, 24, 40, 0.08), 0 16px 36px -10px rgba(16, 24, 40, 0.14);
   --scrim: rgba(17, 22, 34, 0.4);
 
-  /* Side navigation: white. */
+  /* Side navigation: white, like GanttPRO's left nav. */
   --nav-bg: #ffffff;
-  --nav-ink: #0d062d;
-  --nav-dim: #5c5870;
-  --nav-dim2: #6a667a;
-  --nav-faint: #787486;
-  --nav-line: #ebeaf0;
-  --nav-sheen: #f6f5f9;
-  --nav-sheen2: #efedf6;
-  --nav-on-bg: #f0edfd;
-  --nav-on-ink: #0d062d;
-  --nav-bar: #5030e5;
+  --nav-ink: #1f2430;
+  --nav-dim: #3d4452;
+  --nav-dim2: #5e6676;
+  --nav-faint: #6f7787;
+  --nav-line: #e6e8ec;
+  --nav-sheen: #f1f3f7;
+  --nav-sheen2: #eceef3;
+  --nav-on-bg: #e8eaf6;
+  --nav-on-ink: #303f9f;
+  --nav-bar: #303f9f;
 
   /* Status pills (background / text). `brand` replaces the Muhsen-era `gold` pill. */
-  --p-live-b: #e8f4ec;
-  --p-live-t: #2b7a3d;
-  --p-wait-b: #fbeedf;
-  --p-wait-t: #a3601a;
-  --p-no-b: #fbe9eb;
-  --p-no-t: #b9404f;
+  --p-live-b: #e7f4ea;
+  --p-live-t: #1b6e3a;
+  --p-wait-b: #fff3e0;
+  --p-wait-t: #8a4b00;
+  --p-no-b: #fdecea;
+  --p-no-t: #b3261e;
   --p-blue-b: #e3f0fc;
   --p-blue-t: #0b57a4;
-  --p-brand-b: #f0edfd;
-  --p-brand-t: #4426cc;
-  --p-grey-b: #f1f0f5;
-  --p-grey-t: #55516a;
+  --p-brand-b: #e8eaf6;
+  --p-brand-t: #283593;
+  --p-grey-b: #f1f3f6;
+  --p-grey-t: #4a5262;
 
   /* Bottom tab bar (phones). */
   --tabs-bg: #ffffff;
-  --tabs-ink: #787486;
-  --tabs-shadow: 0 -1px 0 #ebeaf0, 0 -12px 28px -24px rgba(16, 24, 40, 0.35);
+  --tabs-ink: #6f7787;
+  --tabs-shadow: 0 -1px 0 #e6e8ec, 0 -12px 28px -24px rgba(16, 24, 40, 0.35);
 
   /* Scale */
   --s1: 4px;
@@ -90,16 +90,16 @@
   --s5: 24px;
   --s6: 32px;
   --s7: 48px;
-  --r: 16px; /* cards */
-  --r2: 20px; /* dialogs */
-  --r3: 6px; /* inputs, buttons */
-  --r4: 4px; /* chips */
+  --r: 12px; /* cards */
+  --r2: 16px; /* dialogs */
+  --r3: 8px; /* inputs, buttons */
+  --r4: 6px; /* chips */
   --e: cubic-bezier(0.22, 0.7, 0.2, 1);
   --e2: cubic-bezier(0.34, 1.4, 0.44, 1);
   --e3: cubic-bezier(0.16, 1, 0.3, 1);
-  --side-w: 250px;
+  --side-w: 256px;
   --side-mini: 68px;
-  --top-h: 80px;
+  --top-h: 60px;
   /* Physical offsets are multiplied by this (skill nuzli-arabic-rtl): -1 in RTL. */
   --ds: -1;
 
@@ -156,8 +156,8 @@
 }
 
 /*
- * Dark: neutral near-black surfaces, violet #A592FF accents. Filled buttons stay a deeper
- * violet (#6A4FF0) so white text keeps ≥ 4.5:1. Owner request A10 (ADR-127): applied ONLY when
+ * Dark: neutral near-black surfaces, indigo #7986CB accents. Filled buttons stay a deeper
+ * indigo (#3F51B5) so white text keeps ≥ 4.5:1. Owner request A10 (ADR-127): applied ONLY when
  * the user chooses «داكن» — there is no `prefers-color-scheme` block, so a device in dark mode
  * still opens the white identity.
  */
@@ -170,14 +170,14 @@
   --hover: #1f232c;
   --line: #2a2f3a;
   --line2: #383e4b;
-  --hair: rgba(150, 128, 255, 0.24);
-  --primary: #6a4ff0;
-  --primary-hover: #7a62f3;
-  --primary-press: #5030e5;
-  --tint: rgba(150, 128, 255, 0.16);
-  --tint2: rgba(150, 128, 255, 0.3);
-  --focus: #9d88ff;
-  --accent: #a592ff;
+  --hair: rgba(121, 134, 203, 0.22);
+  --primary: #3f51b5;
+  --primary-hover: #4a5cc4;
+  --primary-press: #303f9f;
+  --tint: rgba(121, 134, 203, 0.16);
+  --tint2: rgba(121, 134, 203, 0.28);
+  --focus: #7986cb;
+  --accent: #7986cb;
   --live: #81c784;
   --amber: #ffb74d;
   --red: #ef6461;
@@ -186,7 +186,7 @@
   --dim: #a3a9b6;
   --dim2: #8a91a0;
   --faint: #5a6170;
-  --link: #b8a9ff;
+  --link: #9fa8da;
   --sheen: rgba(255, 255, 255, 0.04);
   --sheen2: rgba(255, 255, 255, 0.075);
   --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -24px rgba(0, 0, 0, 0.9);
@@ -200,9 +200,9 @@
   --nav-line: #2a2f3a;
   --nav-sheen: rgba(255, 255, 255, 0.05);
   --nav-sheen2: rgba(255, 255, 255, 0.08);
-  --nav-on-bg: rgba(150, 128, 255, 0.16);
-  --nav-on-ink: #c4b9ff;
-  --nav-bar: #9d88ff;
+  --nav-on-bg: rgba(121, 134, 203, 0.16);
+  --nav-on-ink: #aab3e3;
+  --nav-bar: #7986cb;
   --p-live-b: rgba(76, 175, 80, 0.16);
   --p-live-t: #81c784;
   --p-wait-b: rgba(255, 167, 38, 0.16);
@@ -211,8 +211,8 @@
   --p-no-t: #ef9a9a;
   --p-blue-b: rgba(66, 165, 245, 0.16);
   --p-blue-t: #90caf9;
-  --p-brand-b: rgba(150, 128, 255, 0.18);
-  --p-brand-t: #c4b9ff;
+  --p-brand-b: rgba(121, 134, 203, 0.18);
+  --p-brand-t: #aab3e3;
   --p-grey-b: rgba(255, 255, 255, 0.07);
   --p-grey-t: #a3a9b6;
   --tabs-bg: #171a21;

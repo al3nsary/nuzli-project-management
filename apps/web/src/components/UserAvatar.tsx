@@ -14,7 +14,7 @@ export function initials(name: string): string {
 }
 
 /**
- * The person avatar used across the app: initials on the Nozoly violet with a hairline ring, or the
+ * The person avatar used across the app: initials on the Muhsen green with a gold ring, or the
  * personal photo (owner request A8) when `photoUrl` is given — if it fails to load (expired
  * signed URL, offline) the initials come back. Photos are fetched with no referrer.
  */
