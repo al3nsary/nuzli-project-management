@@ -45,6 +45,7 @@ import { buildRows } from '../../features/gantt/geometry';
 import { riyadhToday } from '../../features/projects/engine';
 import { PRIORITIES, TASK_STATUSES, priorityLabel, taskStatusLabel } from './parts';
 import { ConflictAlert } from './TaskDrawer';
+import { TaskChatButton, type ChatCount } from '../../features/tasks/TaskChatButton';
 
 type Writes = ReturnType<typeof useProjectWrites>;
 const ROW = 44;
@@ -56,6 +57,8 @@ export function ListView({
   data,
   writes,
   onOpenTask,
+  chatCounts,
+  onOpenChat,
   selecting = false,
   selected,
   onSelectionChange,
@@ -63,6 +66,9 @@ export function ListView({
   data: GanttDto;
   writes: Writes;
   onOpenTask(id: string): void;
+  /** A10: the «المحادثة» column (chat icon with count and unread). */
+  chatCounts?: ReadonlyMap<string, ChatCount>;
+  onOpenChat?(id: string): void;
   selecting?: boolean;
   selected?: ReadonlySet<string>;
   onSelectionChange?(next: Set<string>): void;
@@ -329,6 +335,12 @@ export function ListView({
               const editStatus = admin || mine;
               const cellOf = (id: ColumnId): ReactNode => {
                 switch (id) {
+                  case 'chat':
+                    return onOpenChat ? (
+                      <TaskChatButton taskName={task.name} chat={chatCounts?.get(task.id)} onOpen={() => onOpenChat(task.id)} />
+                    ) : (
+                      <span className="num">{formatNumber(chatCounts?.get(task.id)?.count ?? task.commentCount ?? 0)}</span>
+                    );
                   case 'wbs':
                     return <span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{task.wbs}</span>;
                   case 'name':

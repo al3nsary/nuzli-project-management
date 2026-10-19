@@ -71,10 +71,13 @@ export function TaskChat({ taskId, taskName, projectId, assignee, className }: T
     try {
       await api.tasks.markRead(taskId);
       void qc.invalidateQueries({ queryKey: ['hub'] });
+      // A10: the project's chat icons carry the unread count too.
+      if (projectId) void qc.invalidateQueries({ queryKey: qk4.gantt(projectId) });
+      void qc.invalidateQueries({ queryKey: qk4.myTasks });
     } catch {
       // Reading is best effort; the thread stays usable.
     }
-  }, [api, qc, taskId]);
+  }, [api, qc, taskId, projectId]);
 
   useEffect(() => {
     let alive = true;

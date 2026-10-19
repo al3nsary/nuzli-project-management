@@ -29,6 +29,8 @@ import { formatDateTime, formatNumber, t, tKey, tCount } from '../i18n';
 import { MonitorHome } from './violations/MonitorHome';
 import { MyTasksSummary, ProjectsKpi } from './projects/DashboardWidgets';
 import { PageHeader, roleLabel } from '../components/ui';
+import { ForemanLine, useTeamForeman, type ForemanPerson } from '../components/Foreman';
+import type { TeamDto } from '@nuzli/shared';
 
 function Kpi({
   label,
@@ -116,6 +118,12 @@ function UnassignedViolationsKpi() {
   );
 }
 
+/** A10: the team's worker foreman on the dashboard team widget. */
+function DashTeamForeman({ team }: { team: TeamDto }) {
+  const foreman = useTeamForeman(team as TeamDto & { foreman?: ForemanPerson | null });
+  return foreman ? <ForemanLine person={foreman} dense /> : null;
+}
+
 /** Supervisor: the teams they lead with member counts. */
 function MyTeams() {
   const navigate = useNavigate();
@@ -143,6 +151,7 @@ function MyTeams() {
               style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
               onClick={() => navigate(`/teams/${tm.id}`)}
             >
+              <Stack gap={4} style={{ minWidth: 0 }}>
               <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
                 <TeamBadge name={tm.name} color={tm.color.hex} />
                 {tm.status === 'PENDING_APPROVAL' ? (
@@ -151,6 +160,8 @@ function MyTeams() {
                   </Text>
                 ) : null}
               </Group>
+                <DashTeamForeman team={tm} />
+              </Stack>
               <Text size="sm" className="num" style={{ flex: 'none' }}>
                 {tCount('teams.memberCount', tm.memberCount)}
               </Text>

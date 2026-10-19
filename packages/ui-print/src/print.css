@@ -13,6 +13,10 @@
 .nz-ellipsis { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nz-row--team { display: flex; align-items: center; gap: 0.8mm; min-width: 0; white-space: nowrap; }
 .nz-swatch { display: inline-block; flex: none; }
+.nz-row--role { display: flex; align-items: center; min-width: 0; white-space: nowrap; }
+.nz-role { display: inline-flex; align-items: center; flex: none; max-inline-size: 100%; font-weight: 700; line-height: 1; white-space: nowrap; overflow: hidden; }
+.nz-role-text { overflow: hidden; text-overflow: ellipsis; }
+.nz-helmet { display: block; flex: none; }
 .nz-label { font-weight: 500; opacity: 0.72; }
 .nz-job { font-weight: 500; }
 .nz-mono { font-family: "IBM Plex Mono", "IBM Plex Sans Arabic", ui-monospace, monospace; font-variant-numeric: tabular-nums; unicode-bidi: isolate; }

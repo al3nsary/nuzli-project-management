@@ -5,7 +5,7 @@ import { clamp } from './units';
 export const NAME_LINE_HEIGHT = 1.15;
 export const BODY_LINE_HEIGHT = 1.3;
 
-export type RowKind = 'jobTitle' | 'nationalId' | 'department' | 'team' | 'validUntil';
+export type RowKind = 'role' | 'jobTitle' | 'nationalId' | 'department' | 'team' | 'validUntil';
 
 export interface RowSpec {
   kind: RowKind;
@@ -61,6 +61,8 @@ export function computeFrame(model: CardModel): Frame {
 export function rowSpecs(model: CardModel, swatchMm: number, opts: { labels?: boolean } = {}): RowSpec[] {
   const labels = opts.labels ?? true;
   const rows: RowSpec[] = [];
+  // A10: the foreman ribbon is never dropped and sits right under the name.
+  if (model.role) rows.push({ kind: 'role', label: null, value: model.role.label, priority: 0, keep: true, extraMm: swatchMm * 2.6 });
   if (model.team) rows.push({ kind: 'team', label: null, value: model.team.name, priority: 1, keep: true, extraMm: swatchMm * 1.6 });
   if (model.jobTitle) rows.push({ kind: 'jobTitle', label: null, value: model.jobTitle, priority: 2 });
   if (model.nationalId)

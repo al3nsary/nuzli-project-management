@@ -1,0 +1,60 @@
+/* A10: the task chat icon (indigo speech bubble + count + red unread badge). Logical properties only. */
+.nz-chatbtn {
+  --cb: #3949ab;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-inline-size: 30px;
+  block-size: 26px;
+  padding-inline: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cb);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s var(--e, ease), border-color 0.15s var(--e, ease);
+}
+.nz-chatbtn[data-size='md'] {
+  min-inline-size: 36px;
+  block-size: 32px;
+  font-size: 13px;
+}
+.nz-chatbtn:not([data-has]) {
+  color: color-mix(in srgb, var(--cb) 62%, var(--dim2));
+}
+.nz-chatbtn[data-has] {
+  background: color-mix(in srgb, var(--cb) 9%, transparent);
+  border-color: color-mix(in srgb, var(--cb) 22%, transparent);
+}
+.nz-chatbtn:hover {
+  background: color-mix(in srgb, var(--cb) 16%, transparent);
+  border-color: color-mix(in srgb, var(--cb) 34%, transparent);
+  color: var(--cb);
+}
+.nz-chatbtn:focus-visible {
+  outline: 2px solid var(--focus, #3949ab);
+  outline-offset: 2px;
+}
+/* The unread count sits inside the pill (never clipped by the grid row). */
+.nz-chatbtn-unread {
+  margin-inline-start: 2px;
+  min-inline-size: 17px;
+  block-size: 17px;
+  padding-inline: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+:root[data-mantine-color-scheme='dark'] .nz-chatbtn {
+  --cb: #9fa8da;
+}

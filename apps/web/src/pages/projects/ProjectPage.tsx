@@ -112,6 +112,8 @@ import { ProjectWorkloadTab } from './tabs/WorkloadTab';
 import { ProjectPeopleTab } from './tabs/PeopleTab';
 import { ProjectDashboardTab } from './tabs/DashboardTab';
 import { useOverlayParam, useTabParam } from '../../lib/useUrlState';
+import { TaskChatDrawer } from './TaskWorkspace';
+import { useTaskChatCounts } from '../../features/tasks/TaskChatButton';
 import './projects.css';
 import './a9-projects.css';
 
@@ -149,6 +151,8 @@ export function ProjectPage() {
   // Drawers live in the URL (?task=, ?panel=settings): deep links work and back closes them.
   const task = useOverlayParam('task', { drop: ['ttab'] });
   const panel = useOverlayParam('panel', { drop: ['stab'] });
+  // A10: the task screen of the supervisor, opened from a row's chat icon (?chat=<taskId>).
+  const chat = useOverlayParam('chat');
   const setOpenTask = useCallback((taskId: string | null) => (taskId ? task.open(taskId) : task.close()), [task]);
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -212,6 +216,7 @@ export function ProjectPage() {
         data={data}
         writes={writes}
         onOpenTask={setOpenTask}
+        onOpenChat={can(user, 'tasks.comment') ? chat.open : undefined}
         filter={filter}
         setFilter={setFilterPref}
         groupBy={groupBy}
@@ -229,6 +234,7 @@ export function ProjectPage() {
         }}
       />
       <TaskDrawer data={data} taskId={task.value} writes={writes} onClose={task.close} />
+      <TaskChatDrawer taskId={chat.value && data.tasks.some((x) => x.id === chat.value) ? chat.value : null} projectName={data.project.name} onClose={chat.close} />
       {admin ? <ProjectSettingsDrawer opened={panel.value === 'settings'} onClose={panel.close} project={data.project} data={data} /> : null}
     </div>
   );
@@ -401,6 +407,8 @@ interface BodyProps {
   data: GanttView;
   writes: ProjectWrites;
   onOpenTask(id: string): void;
+  /** A10: opens the task chat screen; undefined when the viewer cannot write in task chats. */
+  onOpenChat?(id: string): void;
   filter: TaskFilter;
   setFilter(f: TaskFilter): void;
   groupBy: GroupBy;
@@ -456,7 +464,8 @@ function ProjectBody(p: BodyProps) {
   const [colsRaw, setColsPref] = useViewPref<ColumnPref[] | null>('gantt.columns', data.project.id, null);
   const [showLabels, setShowLabels] = useViewPref<boolean>('gantt.showLabels', data.project.id, false);
   const columns = useMemo(() => normalizeColumns(colsRaw ?? DEFAULT_COLUMNS, data.customFields ?? []), [colsRaw, data.customFields]);
-  const phoneColumns = useMemo(() => [{ id: 'name' as const, width: 170 }], []);
+  const phoneColumns = useMemo(() => [{ id: 'name' as const, width: 170 }, { id: 'chat' as const, width: 62 }], []);
+  const chatCounts = useTaskChatCounts(data.project.id, data.tasks, Boolean(p.onOpenChat));
   const showHijri = user?.preferences.showHijri ?? false;
   const digits = getDisplayPrefs().digits;
   const viewRef = useRef({ fromDay: 0, toDay: 0, firstRow: 0, lastRow: 0 });
@@ -655,7 +664,7 @@ function ProjectBody(p: BodyProps) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `project-${riyadhToday()}.${format}`;
+      a.download = `project-${riyadhToday()}.${format === 'ganttpro' ? 'xlsx' : format}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
       notifications.show({ color: 'ok', message: t('gantt.exported', { format: t(`gantt.exportFormat.${format}`) }) });
@@ -822,6 +831,8 @@ function ProjectBody(p: BodyProps) {
                 showLabels={showLabels}
                 photos={photos}
                 onOpenTask={p.onOpenTask}
+                chatCounts={chatCounts}
+                onOpenChat={p.onOpenChat}
                 onCommit={(c) => void commit(c)}
                 onLink={(a, b) => void link(a, b)}
                 onLinkRefused={(msg) => notifications.show({ color: 'breach', message: msg })}
@@ -837,9 +848,9 @@ function ProjectBody(p: BodyProps) {
             <EmptyGantt editable={editable} onAdd={() => void addTask({ parentId: null, type: 'TASK', name: t('list.newTask') })} />
           )
         ) : view === 'list' ? (
-          <ListView data={filteredData} writes={writes} onOpenTask={p.onOpenTask} selecting={p.selecting} selected={p.selected} onSelectionChange={p.setSelected} />
+          <ListView data={filteredData} writes={writes} onOpenTask={p.onOpenTask} chatCounts={chatCounts} onOpenChat={p.onOpenChat} selecting={p.selecting} selected={p.selected} onSelectionChange={p.setSelected} />
         ) : view === 'board' ? (
-          <BoardView data={filteredData} writes={writes} onOpenTask={p.onOpenTask} />
+          <BoardView data={filteredData} writes={writes} onOpenTask={p.onOpenTask} chatCounts={chatCounts} onOpenChat={p.onOpenChat} />
         ) : view === 'calendar' ? (
           <ProjectCalendarTab {...tabProps} data={data} />
         ) : view === 'workload' ? (

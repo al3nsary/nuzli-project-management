@@ -715,3 +715,9 @@
 .deadlinePassed .deadlineFlag {
   fill: var(--red);
 }
+
+/* A10: the «المحادثة» column — the chat icon centred in its cell. */
+.chatCell {
+  justify-content: center;
+  overflow: visible;
+}

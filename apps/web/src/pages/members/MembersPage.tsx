@@ -21,6 +21,7 @@ import { localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from './MemberDrawer';
 import { useOverlayParam } from '../../lib/useUrlState';
 import { MemberAvatar } from '../../components/UserAvatar';
+import { ForemanAvatar, ForemanBadge } from '../../components/Foreman';
 
 const PAGE_SIZE = 25;
 
@@ -107,17 +108,22 @@ export function MembersPage() {
                 </Table.Thead>
                 <Table.Tbody>
                   {members.data.items.map((m) => (
-                    <Table.Tr key={m.id}>
+                    <Table.Tr key={m.id} className={m.isForeman ? 'nz-foreman-row' : undefined} data-foreman={m.isForeman || undefined}>
                       <Table.Td>
-                        <UnstyledButton
-                          onClick={() => member.open(m.id)}
-                          fw={600}
-                          c="var(--field)"
-                          style={{ minHeight: 32, display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                        >
-                          <MemberAvatar member={m} size={28} />
-                          {m.fullName}
-                        </UnstyledButton>
+                        <Group gap={8} wrap="nowrap">
+                          <UnstyledButton
+                            onClick={() => member.open(m.id)}
+                            fw={600}
+                            c="var(--field)"
+                            style={{ minHeight: 32, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                          >
+                            <ForemanAvatar foreman={m.isForeman} size={28}>
+                              <MemberAvatar member={m} size={28} />
+                            </ForemanAvatar>
+                            {m.fullName}
+                          </UnstyledButton>
+                          {m.isForeman ? <ForemanBadge size="xs" /> : null}
+                        </Group>
                       </Table.Td>
                       <Table.Td>
                         <Ltr mono>{localizeDigits(m.nationalIdMasked)}</Ltr>

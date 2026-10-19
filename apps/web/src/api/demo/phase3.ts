@@ -703,6 +703,8 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
           teamColor: w.colors.get(team.colorId)?.hex ?? null,
           photoFileId: m.photoFileId,
           hasPhoto: Boolean(m.photoFileId),
+          // A10: the roster marks the worker foreman (optional in RosterEntry).
+          ...(ms?.role === 'FOREMAN' ? { isForeman: true } : {}),
         });
       }
       items.sort((a, b) => a.fullName.localeCompare(b.fullName, 'ar'));

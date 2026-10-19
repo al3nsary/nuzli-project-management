@@ -8,6 +8,7 @@ import { buildForest, CHART, fitScale, layoutChart, type ChartBox } from '../../
 import { dirSign } from '../../lib/direction';
 import { formatNumber, t } from '../../i18n';
 import { kindLabel } from './dialogs';
+import { isForemanHolder } from './OrgTree';
 
 const KIND_COLOR: Record<string, string> = {
   DEPARTMENT: '#303F9F',
@@ -70,9 +71,11 @@ function Box({ box, rtl }: { box: ChartBox; rtl: boolean }) {
       {shown.map((p, i) => {
         const y = box.y + CHART.headerHeight + i * CHART.lineHeight + 14;
         const holder = p.holder ? p.holder.fullName : t('org.pos.vacant');
-        const line = fit(`${p.title}: ${holder}`, inner, `400 12.5px ${FONT}`);
+        // A10: the worker foreman is named with the title, in indigo (text, not colour alone).
+        const foreman = p.holder ? isForemanHolder(p.holder) : false;
+        const line = fit(`${p.title}: ${holder}${foreman ? ` · ${t('teams.foreman.label')}` : ''}`, inner, `${foreman ? 600 : 400} 12.5px ${FONT}`);
         return (
-          <text key={p.id} x={tx} y={y} textAnchor={anchor} fontSize={12.5} fill={p.holder ? 'var(--ogc-dim, #3D4452)' : '#A35C00'} fontWeight={p.holder ? 400 : 600}>
+          <text key={p.id} x={tx} y={y} textAnchor={anchor} fontSize={12.5} fill={foreman ? 'var(--foreman, #3949AB)' : p.holder ? 'var(--ogc-dim, #3D4452)' : '#A35C00'} fontWeight={foreman || !p.holder ? 600 : 400} data-foreman={foreman || undefined}>
             {line}
           </text>
         );

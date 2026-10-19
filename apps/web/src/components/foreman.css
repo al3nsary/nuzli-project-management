@@ -1,0 +1,131 @@
+/* A10 (ADR-129): the worker foreman everywhere — indigo, helmet and the words «مشرف عمّال».
+   Logical properties only; the bar sits on the inline start (right in RTL). */
+:root {
+  --foreman: #3949ab;
+  --foreman-ink: #ffffff;
+  --foreman-tint: #e8eaf6;
+  --foreman-text: #283593;
+}
+:root[data-mantine-color-scheme='dark'] {
+  --foreman: #5c6bc0;
+  --foreman-ink: #ffffff;
+  --foreman-tint: rgba(121, 134, 203, 0.18);
+  --foreman-text: #c5cae9;
+}
+
+.nz-foreman-badge {
+  flex: 0 0 auto;
+  cursor: help;
+  text-transform: none !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+}
+.nz-foreman-badge[data-variant='filled'] {
+  background: var(--foreman) !important;
+  color: var(--foreman-ink) !important;
+  border: 1px solid var(--foreman) !important;
+}
+.nz-foreman-badge[data-variant='light'] {
+  background: var(--foreman-tint) !important;
+  color: var(--foreman-text) !important;
+  border: 1px solid color-mix(in srgb, var(--foreman) 35%, transparent) !important;
+}
+.nz-foreman-badge:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The indigo bar on the inline start of a row / card / list item. */
+.nz-foreman-bar {
+  position: relative;
+  background: color-mix(in srgb, var(--foreman-tint) 55%, var(--panel));
+}
+.nz-foreman-bar::before {
+  content: '';
+  position: absolute;
+  inset-block: 4px;
+  inset-inline-start: 0;
+  inline-size: 4px;
+  border-radius: 3px;
+  background: var(--foreman);
+  pointer-events: none;
+}
+
+/* Avatar + helmet corner mark. */
+.nz-foreman-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--foreman);
+}
+.nz-foreman-mark {
+  position: absolute;
+  inset-block-end: -4px;
+  inset-inline-end: -5px;
+  inline-size: var(--fm, 14px);
+  block-size: var(--fm, 14px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--foreman);
+  color: var(--foreman-ink);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+/* «مشرف عمّال: الاسم» */
+.nz-foreman-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  padding: 2px 8px 2px 6px;
+  border-radius: 8px;
+  background: var(--foreman-tint);
+  color: var(--foreman-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.nz-foreman-line[data-dense] {
+  font-size: 12px;
+  padding: 1px 6px 1px 5px;
+}
+.nz-foreman-line-icon {
+  flex: none;
+  color: var(--foreman);
+}
+:root[data-mantine-color-scheme='dark'] .nz-foreman-line-icon {
+  color: var(--foreman-text);
+}
+.nz-foreman-line-label {
+  flex: none;
+  font-weight: 700;
+}
+.nz-foreman-line-name {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Team detail: the «مشرف العمّال» / «العمّال» separators inside the members table. */
+.nz-members-sep > td {
+  padding-block: 6px !important;
+  background: var(--panel2);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--dim);
+}
+.nz-members-sep[data-kind='foreman'] > td {
+  color: var(--foreman-text);
+  background: var(--foreman-tint);
+}
+.nz-members-sep-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

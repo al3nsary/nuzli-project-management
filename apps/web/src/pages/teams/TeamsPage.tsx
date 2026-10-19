@@ -27,6 +27,7 @@ import { formatDate, formatNumber, t, tCount } from '../../i18n';
 import { SupervisorAvatars, TeamStatusBadge, supervisorsOf } from './shared';
 import { CreateTeamDialog } from './CreateTeamDialog';
 import { useOverlayParam } from '../../lib/useUrlState';
+import { ForemanLine, useTeamForeman, type ForemanPerson } from '../../components/Foreman';
 
 type Filter = 'ALL' | TeamStatus;
 const FILTERS: Filter[] = ['ALL', 'ACTIVE', 'PENDING_APPROVAL', 'ARCHIVED'];
@@ -68,11 +69,23 @@ export function TeamCard({ team }: { team: TeamDto }) {
             <IconChevronRight size={16} className="mirror-rtl" aria-hidden />
           </Group>
         </Group>
+        <TeamForeman team={team} />
         <Text size="xs" c="dimmed" mt={4}>
           {t('teams.createdAt', { date: formatDate(team.createdAt) })}
         </Text>
       </VestBand>
     </UnstyledButton>
+  );
+}
+
+/** A10: the team's worker foreman under the supervisors («مشرف عمّال: الاسم»). */
+function TeamForeman({ team }: { team: TeamDto }) {
+  const foreman = useTeamForeman(team as TeamDto & { foreman?: ForemanPerson | null });
+  if (!foreman) return null;
+  return (
+    <div style={{ marginBlockStart: 6 }}>
+      <ForemanLine person={foreman} dense />
+    </div>
   );
 }
 

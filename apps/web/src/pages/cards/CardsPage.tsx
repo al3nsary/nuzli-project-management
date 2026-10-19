@@ -41,6 +41,7 @@ import { CardEditor, type EditableCard } from './CardEditor';
 import { CardStyles, FitCard, SAMPLE_CARD, logoFor, toTemplateLike } from './cardUtils';
 import { putPrintRun } from '../../features/cards/printRun';
 import { canChangeMemberPhoto, canChangeUserPhoto } from '../../features/photos/access';
+import { withForemanRole } from './cardUtils';
 
 function TemplateChoice({
   template,
@@ -125,17 +126,23 @@ export function CardsPage() {
     setLoading(true);
     try {
       const res = await api.cards.preview({ templateId, teamIds, memberIds, includeSupervisors });
+      // A10: the worker foreman's card prints «مشرف عمّال». The API sends `isForeman`/`roleLabel`;
+      // when it does not, the member list (MemberDto.isForeman) decides.
+      const foremanIds = new Set((members.data ?? []).filter((m) => m.isForeman).map((m) => m.id));
       setCards(
-        res.subjects.map((s, i) => ({
+        res.subjects.map((s, i) => {
+          const d = withForemanRole(s.data, Boolean(s.memberId && foremanIds.has(s.memberId)));
+          return {
           key: s.memberId ? `m:${s.memberId}` : s.userId ? `u:${s.userId}` : `x:${i}`,
           memberId: s.memberId,
           userId: s.userId,
-          original: { ...s.data },
-          data: { ...s.data },
+          original: { ...d },
+          data: { ...d },
           selected: true,
           saveBack: false,
           photoUrl: s.photoUrl ?? null,
-        })),
+          };
+        }),
       );
       setActiveKey(null);
       setStep(2);

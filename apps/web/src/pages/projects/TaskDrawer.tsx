@@ -600,7 +600,7 @@ function Dependencies({ data, task, writes, editable }: { data: GanttView; task:
 
 const SHOWN_FIELDS = ['startDate', 'endDate', 'progress', 'status', 'durationDays', 'durationHours', 'name', 'assigneeId', 'priority', 'deadline', 'barColor', 'plannedCost', 'actualCost', 'labelIds'];
 
-function TaskActivity({ task }: { task: TaskView }) {
+export function TaskActivity({ task }: { task: TaskView }) {
   const activity = useTaskActivity(task.id);
   if (activity.isLoading) return <Text c="dimmed">{t('app.loading')}</Text>;
   if (!activity.data?.length) return <Text c="dimmed">{t('task.noActivity')}</Text>;

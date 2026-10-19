@@ -41,6 +41,7 @@ import { buildForest, canMoveUnit, visibleRows, type OrgNode } from '../../featu
 import { dirSign } from '../../lib/direction';
 import { formatNumber, t, type MessageKey } from '../../i18n';
 import { kindLabel, useOrgAction } from './dialogs';
+import { ForemanAvatar, ForemanBadge } from '../../components/Foreman';
 
 export type TreeIntent =
   | { kind: 'addUnit'; parentId: string | null }
@@ -56,6 +57,9 @@ const KIND_ICON: Record<OrgUnitKind, typeof IconBuilding> = {
   UNIT: IconBriefcase,
   TEAM_GROUP: IconUsersGroup,
 };
+
+/** A10: a member holder who is their team's worker foreman (`isForeman`, optional on the wire). */
+export const isForemanHolder = (h: NonNullable<OrgPositionDto['holder']>) => h.type === 'MEMBER' && (h as { isForeman?: boolean }).isForeman === true;
 
 export function Holder({ position, size = 28 }: { position: OrgPositionDto; size?: number }) {
   const h = position.holder;
@@ -73,8 +77,11 @@ export function Holder({ position, size = 28 }: { position: OrgPositionDto; size
   }
   return (
     <span className="og-holder">
-      <PhotoAvatar target={{ kind: h.type === 'USER' ? 'user' : 'member', id: h.id }} name={h.fullName} hasPhoto={h.hasPhoto} size={size} ring={false} />
+      <ForemanAvatar foreman={isForemanHolder(h)} size={size}>
+        <PhotoAvatar target={{ kind: h.type === 'USER' ? 'user' : 'member', id: h.id }} name={h.fullName} hasPhoto={h.hasPhoto} size={size} ring={false} />
+      </ForemanAvatar>
       <span className="og-holder-name">{h.fullName}</span>
+      {isForemanHolder(h) ? <ForemanBadge size="xs" /> : null}
       {h.type === 'USER' && h.role ? <span className="og-holder-role">{t(`role.${h.role}` as MessageKey)}</span> : null}
       {h.type === 'MEMBER' && h.team ? <TeamBadge name={h.team.name} color={h.team.color.hex} size="sm" /> : null}
     </span>

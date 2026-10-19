@@ -192,10 +192,13 @@ export function createImports(
         file.createdById !== viewer.id
       )
         fail('NOT_FOUND');
+      // A10: `ganttpro` (shared IMPORT_FILE_FORMATS) is an .xlsx in the GanttPRO layout; the demo
+      // reads it with the Excel reader.
+      const fileFormat = data.format === 'ganttpro' ? 'xlsx' : data.format;
       const accepted =
-        data.format === 'xml'
+        fileFormat === 'xml'
           ? ['application/xml', 'text/xml']
-          : [FORMAT_FILE[data.format].contentType];
+          : [FORMAT_FILE[fileFormat].contentType];
       if (!accepted.includes(file.mimeType))
         throw importError('IMPORT_FORMAT_MISMATCH', {
           format: data.format,
@@ -204,7 +207,7 @@ export function createImports(
       const obj = await db.objects.get(file.id);
       if (!obj) fail('NOT_FOUND');
       const draft = await draftOf(
-        data.format,
+        fileFormat,
         new Uint8Array(obj.data),
         data.options.dateOrder,
         data.options.sheetName,

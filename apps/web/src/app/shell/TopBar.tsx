@@ -17,7 +17,7 @@ import {
   IconWifiOff,
 } from '@tabler/icons-react';
 import { can } from '@nuzli/shared';
-import { useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
+import { useThemeToggle } from '../../theme/colorScheme';
 import { useAuthStore } from '../../stores/auth';
 import { useApi } from '../../api/context';
 import { useOnline } from '../../lib/useOnline';
@@ -127,8 +127,7 @@ function UserMenu() {
   const api = useApi();
   const { logout } = useSessionActions();
   const setSheet = useShellStore((s) => s.setSheet);
-  const { setColorScheme } = useMantineColorScheme();
-  const scheme = useComputedColorScheme('light');
+  const { scheme, toggle: toggleScheme } = useThemeToggle();
   const [unsynced, setUnsynced] = useState(0);
   const [busy, setBusy] = useState(false);
   const [demoReset, setDemoReset] = useState(false);
@@ -199,7 +198,7 @@ function UserMenu() {
           </Menu.Item>
           <Menu.Item
             leftSection={scheme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
-            onClick={() => setColorScheme(scheme === 'dark' ? 'light' : 'dark')}
+            onClick={toggleScheme}
           >
             {scheme === 'dark' ? t('shell.lightMode') : t('shell.darkMode')}
           </Menu.Item>

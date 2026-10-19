@@ -96,30 +96,15 @@
   flex-wrap: wrap;
 }
 
-/* The worker foreman: a subtle indigo bar on the inline start of the member row or card. */
-.nz-foreman-row > td:first-child,
-.nz-foreman-row > .mantine-Table-td:first-child {
-  box-shadow: inset 3px 0 0 var(--primary);
+/* The worker foreman row: an indigo bar on the inline start (A10: components/foreman.css). */
+.nz-foreman-row > td {
+  background: color-mix(in srgb, var(--foreman-tint) 55%, var(--panel));
 }
-
-[dir='rtl'] .nz-foreman-row > td:first-child,
-[dir='rtl'] .nz-foreman-row > .mantine-Table-td:first-child {
-  box-shadow: inset -3px 0 0 var(--primary);
+.nz-foreman-row > td:first-child {
+  box-shadow: inset 4px 0 0 var(--foreman);
 }
-
-.nz-foreman-badge {
-  flex: 0 0 auto;
-  border-color: var(--primary) !important;
-  color: var(--accent) !important;
-  background: var(--panel) !important;
-  cursor: help;
-  text-transform: none;
-  font-weight: 600;
-}
-
-.nz-foreman-badge:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
+[dir='rtl'] .nz-foreman-row > td:first-child {
+  box-shadow: inset -4px 0 0 var(--foreman);
 }
 
 /* Formation board: every supervisor in the column header, the foreman card marked. */
@@ -140,7 +125,8 @@
 }
 
 .nz-member-card[data-foreman] {
-  background: color-mix(in srgb, var(--tint) 40%, var(--panel));
+  background: color-mix(in srgb, var(--foreman-tint) 60%, var(--panel));
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--foreman) 55%, transparent);
 }
 
 .nz-member-card[data-foreman]::after {
@@ -148,12 +134,30 @@
   position: absolute;
   inset-block: 6px;
   inset-inline-start: 8px;
-  width: 3px;
+  width: 4px;
   border-radius: 2px;
-  background: var(--primary);
+  background: var(--foreman);
 }
 
 .nz-member-foreman {
   display: inline-flex;
   margin-block: 2px;
+}
+
+/* A10: the foreman named in the formation column header (white pill on the team colour). */
+.nz-col-foreman {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-inline-size: 100%;
+  margin-block-start: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #283593;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

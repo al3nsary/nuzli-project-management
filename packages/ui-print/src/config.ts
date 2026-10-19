@@ -81,6 +81,11 @@ export interface CardModel {
   /** Placeholder text: first letters of the first and last name (`cardInitials`). */
   initials: string;
   qrDataUrl: string | null;
+  /**
+   * Owner request A10: the worker foreman (مشرف عمّال) marker — a labelled indigo ribbon with a
+   * helmet under the name. Null for everyone else. The text label is always printed (not colour only).
+   */
+  role: { label: string; foreman: boolean } | null;
 }
 
 export interface CardAssets {
@@ -117,7 +122,23 @@ export function buildCardModel(template: CardTemplateLike, data: CardData, asset
     showPhoto: f.photo,
     initials: cardInitials(text(data.fullName)),
     qrDataUrl: f.qr && assets.qrDataUrl ? assets.qrDataUrl : null,
+    role: cardRole(data),
   };
+}
+
+/** The foreman title printed on cards (ADR-101, owner request A10). */
+export const FOREMAN_LABEL = 'مشرف عمّال';
+
+/**
+ * The card role marker: `isForeman: true` or `roleLabel: «مشرف عمّال»` (A10 card data) → the
+ * foreman ribbon. Anything else → null.
+ */
+export function cardRole(data: CardData): CardModel['role'] {
+  const d = data as CardData & { isForeman?: boolean | null; roleLabel?: string | null };
+  const label = (d.roleLabel ?? '').trim().slice(0, 40);
+  const foreman = d.isForeman === true || label === FOREMAN_LABEL;
+  // Other role labels (e.g. «مشرف» on supervisor cards) keep printing nothing, as before A10.
+  return foreman ? { label: FOREMAN_LABEL, foreman: true } : null;
 }
 
 /** Arabic name particles that never give an initial. */

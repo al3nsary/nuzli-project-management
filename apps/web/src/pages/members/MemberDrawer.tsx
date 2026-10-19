@@ -33,6 +33,7 @@ import { formatDateTime, localizeDigits, t } from '../../i18n';
 import { ReferenceInput, refFields } from '../teams/shared';
 import { PhotoUploader } from '../../components/photos/PhotoUploader';
 import { useCanChangeMemberPhoto } from '../../features/photos/access';
+import { ForemanBadge } from '../../components/Foreman';
 
 /** Membership history (brief §5.3): newest first; the open row is the current team. */
 export function MembershipTimeline({ memberId }: { memberId: string }) {
@@ -213,6 +214,7 @@ export function MemberDrawer({ memberId, onClose }: { memberId: string | null; o
           <Box>
             <Title order={3}>{m.fullName}</Title>
             <Group gap="xs" mt={6}>
+              {m.isForeman ? <ForemanBadge size="md" /> : null}
               {m.team ? (
                 <TeamBadge name={m.team.name} color={m.team.color.hex} />
               ) : (

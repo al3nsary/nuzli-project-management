@@ -2943,4 +2943,20 @@ export const en: Record<MessageKey, string> = {
   'import.err.evicted': '',
   'violations.register.tooOld': '',
   // ---- A9 imports end
+  // ---- A10 web
+  'demo.upgraded.title': '',
+  'demo.upgraded.body': '',
+  'a10.chat.close': '',
+  'a10.chat.column': '',
+  'a10.chat.open': '',
+  'a10.chat.aria': '',
+  'a10.chat.ariaNone': '',
+  'a10.chat.unreadBadge': '',
+  'a10.chat.tooltip': '',
+  'a10.chat.tooltipNone': '',
+  'gantt.exportFormat.ganttpro': '',
+  'a10.foreman.section': '',
+  'a10.foreman.workers': '',
+  'a10.foreman.none': '',
+  // ---- A10 web end
 };

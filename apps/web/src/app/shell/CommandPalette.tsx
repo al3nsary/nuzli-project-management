@@ -13,7 +13,7 @@ import {
   IconUsersGroup,
   type Icon,
 } from '@tabler/icons-react';
-import { useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
+import { useThemeToggle } from '../../theme/colorScheme';
 import { can, canAny, type UserDto } from '@nuzli/shared';
 import { NAV_GROUPS, navLeaves, type NavNode } from '../nav';
 import { t } from '../../i18n';
@@ -120,8 +120,7 @@ export function CommandPalette({ user, tree }: { user: UserDto | null; tree: Nav
   const setSheet = useShellStore((s) => s.setSheet);
   const recent = useShellStore((s) => s.recent);
   const navigate = useNavigate();
-  const { setColorScheme } = useMantineColorScheme();
-  const scheme = useComputedColorScheme('light');
+  const { scheme, toggle: toggleScheme } = useThemeToggle();
   const [query, setQuery] = useState('');
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -129,11 +128,11 @@ export function CommandPalette({ user, tree }: { user: UserDto | null; tree: Nav
   const all = useMemo(
     () =>
       paletteItems(user, tree, recent, {
-        toggleTheme: () => setColorScheme(scheme === 'dark' ? 'light' : 'dark'),
+        toggleTheme: toggleScheme,
         themeLabel: scheme === 'dark' ? t('shell.lightMode') : t('shell.darkMode'),
         openSheet: () => setSheet(true),
       }),
-    [user, tree, recent, scheme, setColorScheme, setSheet],
+    [user, tree, recent, scheme, toggleScheme, setSheet],
   );
   const results = useMemo(() => filterPalette(all, query), [all, query]);
   const ordered = useMemo(

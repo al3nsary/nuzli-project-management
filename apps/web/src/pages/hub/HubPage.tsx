@@ -191,7 +191,8 @@ export function HubPage() {
       : null;
   const taskLink = chatTask
     ? isAdmin
-      ? `/projects/${encodeURIComponent(chatTask.projectId)}?task=${encodeURIComponent(chatTask.id)}`
+      ? // A10: admins open the same task screen the supervisor has, over the project.
+        `/projects/${encodeURIComponent(chatTask.projectId)}?chat=${encodeURIComponent(chatTask.id)}`
       : `/my-tasks/${encodeURIComponent(chatTask.id)}`
     : null;
 

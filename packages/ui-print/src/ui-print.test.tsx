@@ -385,3 +385,39 @@ describe('waitForCardImages', () => {
     await expect(waitForCardImages(document.createElement('div'))).resolves.toEqual({ total: 0, loaded: 0, failed: 0, timedOut: false });
   });
 });
+
+describe('worker foreman marker (owner request A10)', () => {
+  const foreman = { ...data, isForeman: true } as CardData;
+  for (const layoutKey of LAYOUT_KEYS) {
+    for (const size of BUILTIN_CARD_SIZES) {
+      for (const orientation of ORIENTATIONS) {
+        it(`${layoutKey} ${size.key} ${orientation}: «مشرف عمّال» ribbon with a helmet, in mm, never dropped`, () => {
+          const html = render(<WorkCard template={template(layoutKey, {}, size, orientation)} data={foreman} />);
+          expect(html).toContain('data-foreman="true"');
+          expect(html).toContain('مشرف عمّال');
+          expect(html).toContain('class="nz-helmet"');
+          expect(html).toContain('#303F9F');
+          expect(html).not.toMatch(/\d(px)\b/);
+          // The ribbon comes right after the name.
+          expect(html.indexOf('data-field="role"')).toBeGreaterThan(html.indexOf('class="nz-name"'));
+          expect(html).not.toMatch(/data-dropped="[^"]*role/);
+        });
+      }
+    }
+  }
+
+  it('reads `roleLabel: «مشرف عمّال»` too, and prints nothing for other members or other labels', () => {
+    expect(buildCardModel(template(), { ...data, roleLabel: 'مشرف عمّال' }).role).toEqual({ label: 'مشرف عمّال', foreman: true });
+    expect(buildCardModel(template(), data).role).toBeNull();
+    expect(buildCardModel(template(), { ...data, roleLabel: 'مشرف' }).role).toBeNull();
+    const plain = render(<WorkCard template={template()} data={data} />);
+    expect(plain).not.toContain('data-foreman');
+    expect(plain).not.toContain('مشرف عمّال');
+  });
+
+  it('frames a foreman photo in indigo; the text label is always there (not colour only)', () => {
+    const html = render(<WorkCard template={template()} data={{ ...data, isForeman: true } as CardData} />);
+    expect(html).toMatch(/nz-photo-frame[^>]*border:0\.5mm solid #303F9F/);
+    expect(html).toMatch(/nz-role-text">مشرف عمّال</);
+  });
+});

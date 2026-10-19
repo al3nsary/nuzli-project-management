@@ -55,10 +55,12 @@ export function createOrg(api: OrgInternals): ApiClient['org'] {
     const teamById = new Map(teams.map((tm) => [tm.id, tm]));
     const leaders = groupOpenLeaders(leaderRows);
     const openTeam = new Map<string, string>();
+    const foremen = new Set<string>();
     const counts = new Map<string, number>();
     for (const m of memberships) {
       if (m.validTo !== null) continue;
       openTeam.set(m.memberId, m.teamId);
+      if (m.role === 'FOREMAN') foremen.add(m.memberId);
       counts.set(m.teamId, (counts.get(m.teamId) ?? 0) + 1);
     }
     const colorOf = (id: string) => {
@@ -79,6 +81,8 @@ export function createOrg(api: OrgInternals): ApiClient['org'] {
           fullName: m.fullName,
           hasPhoto: Boolean(m.photoFileId),
           team: tm ? { id: tm.id, name: tm.name, color: colorOf(tm.colorId) } : null,
+          // A10: the worker foreman is marked in the org tree/chart too (optional on the wire).
+          ...(foremen.has(m.id) ? { isForeman: true } : {}),
         };
       }
       return { id: p.id, unitId: p.unitId, title: p.title, holder, reportsToPositionId: p.reportsToPositionId, sort: p.sort };

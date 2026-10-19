@@ -341,6 +341,9 @@ export function ocrReason(code: string | null | undefined): string {
   return tKey(key, 'ocr.err.generic');
 }
 
+/** A10: «… · مشرف عمّال» in pickers, so the foreman is found and recognised in plain text. */
+const withForemanTitle = (label: string, foreman: boolean | undefined) => (foreman ? `${label} · ${t('teams.foreman.label')}` : label);
+
 /** Manual pick: admins from every member, the recorder from the roster cached on the device. */
 function ManualAssign({ v, onAssign, busy }: { v: ViolationDto; onAssign: (id: string, name: string) => void; busy: string | null }) {
   const user = useAuthStore((s) => s.user);
@@ -351,8 +354,11 @@ function ManualAssign({ v, onAssign, busy }: { v: ViolationDto; onAssign: (id: s
   const options = useMemo(
     () =>
       isAdmin
-        ? (members.data ?? []).filter((m) => m.status === 'ACTIVE').map((m) => ({ value: m.id, label: m.team ? `${m.fullName} — ${m.team.name}` : m.fullName }))
-        : (roster ?? []).map((r) => ({ value: r.memberId, label: r.teamName ? `${r.fullName} — ${r.teamName}` : r.fullName })),
+        ? (members.data ?? []).filter((m) => m.status === 'ACTIVE').map((m) => ({ value: m.id, label: withForemanTitle(m.team ? `${m.fullName} — ${m.team.name}` : m.fullName, m.isForeman) }))
+        : (roster ?? []).map((r) => ({
+            value: r.memberId,
+            label: withForemanTitle(r.teamName ? `${r.fullName} — ${r.teamName}` : r.fullName, (r as RosterRow & { isForeman?: boolean }).isForeman),
+          })),
     [isAdmin, members.data, roster],
   );
   const name = options.find((o) => o.value === pick)?.label.split(' — ')[0] ?? '';

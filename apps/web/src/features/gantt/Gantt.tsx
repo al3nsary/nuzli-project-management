@@ -107,6 +107,7 @@ import {
   type ColumnPref,
 } from './columns';
 import classes from './Gantt.module.css';
+import { TaskChatButton, type ChatCount } from '../tasks/TaskChatButton';
 
 export type GridMode = 'full' | 'compact' | 'narrow';
 
@@ -150,6 +151,9 @@ export interface GanttProps {
   /** Assignee photo URLs by user id (initials otherwise). */
   photos?: ReadonlyMap<string, string>;
   onOpenTask(id: string): void;
+  /** A10: message/unread counts per task and the chat opener (the «المحادثة» column). */
+  chatCounts?: ReadonlyMap<string, ChatCount>;
+  onOpenChat?(id: string): void;
   /** Drag-end / keyboard: every task the engine changed. */
   onCommit(changes: TaskDto[]): void;
   onLink(predecessorId: string, successorId: string): void;
@@ -836,6 +840,8 @@ export function Gantt(props: GanttProps) {
                   canReorder={Boolean(props.onReorder) && !grouped}
                   onToggle={toggle}
                   onOpen={props.onOpenTask}
+                  chat={props.chatCounts?.get(r.task.id)}
+                  onOpenChat={props.onOpenChat}
                   onFocusRow={setFocus}
                   onSelect={selectRow}
                   onDelete={props.onDeleteTask}
@@ -1057,6 +1063,8 @@ const GridRow = memo(function GridRow(p: {
   canReorder: boolean;
   onToggle(id: string): void;
   onOpen(id: string): void;
+  chat?: ChatCount;
+  onOpenChat?(id: string): void;
   onFocusRow(index: number): void;
   onSelect(row: GanttRow, e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null, forceToggle?: boolean): boolean;
   onDelete?(id: string): void;
@@ -1234,6 +1242,16 @@ const GridRow = memo(function GridRow(p: {
                   </span>
                 ) : null}
               </div>
+            );
+          case 'chat':
+            return cell(
+              c,
+              p.onOpenChat ? (
+                <TaskChatButton taskName={task.name} chat={p.chat} onOpen={() => p.onOpenChat?.(task.id)} />
+              ) : (
+                <span className="num">{formatNumber(p.chat?.count ?? task.commentCount ?? 0)}</span>
+              ),
+              classes.chatCell,
             );
           case 'assignee':
             return cell(c, task.assignee ? <Assignee a={task.assignee} /> : <span className={classes.muted}>{t('common.none')}</span>);

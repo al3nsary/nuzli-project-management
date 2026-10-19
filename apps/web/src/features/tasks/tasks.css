@@ -598,3 +598,33 @@
   border-block-start: 1px solid var(--line);
   z-index: 2;
 }
+
+/* ---------------------------------------------------------------- A10: the same screen over a project */
+
+.nz-chat-drawer {
+  display: flex;
+  flex-direction: column;
+  background: var(--void);
+}
+.nz-chat-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+.nz-mt-page[data-panel],
+.nz-mt-page[data-panel][data-wide] {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+.nz-mt-page[data-panel][data-view='details'] {
+  overflow-y: auto;
+}
+@media (max-width: 767px) {
+  .nz-chat-drawer-body {
+    padding: 8px;
+    padding-block-end: max(8px, env(safe-area-inset-bottom));
+  }
+}

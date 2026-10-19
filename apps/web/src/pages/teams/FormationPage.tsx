@@ -45,7 +45,6 @@ import {
   IconChevronRight,
   IconDots,
   IconGripVertical,
-  IconHelmet,
   IconHelmetOff,
   IconHistory,
   IconSearch,
@@ -65,6 +64,8 @@ import { scrollInline } from '../../lib/direction';
 import { formatNumber, localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
 import { useOverlayParam } from '../../lib/useUrlState';
+import { ForemanAvatar, foremanFirst } from '../../components/Foreman';
+import { HardHat } from '../../components/HardHat';
 
 /** Column id of people without an open membership. Moves into it are not part of the API. */
 export const UNASSIGNED = 'unassigned';
@@ -174,7 +175,9 @@ const MemberCard = memo(function MemberCard({
         aria-label={t('formation.dragLabel', { name: member.fullName })}
       >
         <IconGripVertical size={16} aria-hidden />
-        <MemberAvatar member={member} size={28} />
+        <ForemanAvatar foreman={member.isForeman} size={28}>
+          <MemberAvatar member={member} size={28} />
+        </ForemanAvatar>
         <span className="nz-member-text">
           <span className="nz-member-name">{member.fullName}</span>
           {member.isForeman ? (
@@ -210,7 +213,7 @@ const MemberCard = memo(function MemberCard({
                 {t('teams.foreman.clear')}
               </Menu.Item>
             ) : (
-              <Menu.Item leftSection={<IconHelmet size={16} />} onClick={() => onForeman(member, true)}>
+              <Menu.Item leftSection={<HardHat size={16} />} onClick={() => onForeman(member, true)}>
                 {t('teams.foreman.setShort')}
               </Menu.Item>
             )}
@@ -287,7 +290,14 @@ function BoardColumn({
                 .join('، ') || t('teams.noSupervisor')}
             </Text>
           </div>
-        ) : (
+        ) : null}
+        {column.team && members.some((m) => m.isForeman) ? (
+          <span className="nz-col-foreman">
+            <HardHat size={13} />
+            {t('teams.foreman.label')}: {members.find((m) => m.isForeman)?.fullName}
+          </span>
+        ) : null}
+        {column.team ? null : (
           <Text size="xs" c="inherit" opacity={0.9} truncate>
             {t('formation.unassignedHint')}
           </Text>
@@ -393,6 +403,8 @@ export function FormationPage() {
         continue;
       map.get(colOf(m))?.push(m);
     }
+    // A10: the worker foreman is pinned at the top of their team column.
+    for (const [k, list] of map) map.set(k, foremanFirst(list));
     return map;
   }, [members, columns, q]);
 

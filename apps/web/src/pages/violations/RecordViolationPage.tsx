@@ -75,6 +75,7 @@ import { useOnline } from '../../lib/useOnline';
 import { SeverityBadge, metres, useObjectUrl } from './parts';
 import { useStepParam } from '../../lib/useUrlState';
 import { MemberAvatar } from '../../components/UserAvatar';
+import { ForemanAvatar, ForemanBadge } from '../../components/Foreman';
 
 // ---------------------------------------------------------------- hooks
 
@@ -307,6 +308,9 @@ const rosterPerson = (r: RosterRow) => ({
   photoFileId: r.photoFileId ?? null,
 });
 
+/** A10: the roster marks the worker foreman (RosterEntry.isForeman, optional on the wire). */
+const isForemanRow = (r: RosterRow) => (r as RosterRow & { isForeman?: boolean }).isForeman === true;
+
 function MemberStep({
   selected,
   onSelect,
@@ -354,11 +358,14 @@ function MemberStep({
         <Card padding="md" className="nz-member-picked">
           <Group wrap="nowrap" align="flex-start" gap="md">
             {/* A8: the photo helps confirm the person before recording (online only). */}
-            <MemberAvatar member={rosterPerson(selected)} size={72} ring />
+            <ForemanAvatar foreman={isForemanRow(selected)} size={72}>
+              <MemberAvatar member={rosterPerson(selected)} size={72} ring />
+            </ForemanAvatar>
             <Stack gap={4} style={{ minWidth: 0, flex: 1 }} align="flex-start">
               <Text fw={600} size="lg">
                 {selected.fullName}
               </Text>
+              {isForemanRow(selected) ? <ForemanBadge size="sm" /> : null}
               <Text className="mono ltr" size="sm" c="dimmed">
                 {selected.nationalIdMasked}
               </Text>
@@ -426,15 +433,19 @@ function MemberStep({
           <UnstyledButton
             key={m.memberId}
             role="listitem"
-            className="nz-roster-row"
+            className={isForemanRow(m) ? 'nz-roster-row nz-foreman-bar' : 'nz-roster-row'}
+            data-foreman={isForemanRow(m) || undefined}
             onClick={() => onSelect(m)}
           >
             <Group justify="space-between" wrap="nowrap" gap="sm">
-              <MemberAvatar member={rosterPerson(m)} size={40} />
+              <ForemanAvatar foreman={isForemanRow(m)} size={40}>
+                <MemberAvatar member={rosterPerson(m)} size={40} />
+              </ForemanAvatar>
               <Box style={{ minWidth: 0, flex: 1 }}>
                 <Text fw={600} truncate>
                   {m.fullName}
                 </Text>
+                {isForemanRow(m) ? <ForemanBadge size="xs" /> : null}
                 <Text className="mono ltr" size="sm" c="dimmed">
                   {m.nationalIdMasked}
                 </Text>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   ActionIcon,
@@ -32,7 +32,6 @@ import {
   IconCrown,
   IconDots,
   IconFileImport,
-  IconHelmet,
   IconHelmetOff,
   IconHistory,
   IconSitemap,
@@ -80,6 +79,8 @@ import {
 } from './shared';
 import { MembersImporter } from './MembersImporter';
 import { useOverlayParam } from '../../lib/useUrlState';
+import { ForemanAvatar, ForemanLine, foremanFirst, foremanOf } from '../../components/Foreman';
+import { HardHat } from '../../components/HardHat';
 
 type Dialog =
   | 'rename'
@@ -760,7 +761,7 @@ function ForemanAction({
     <Button
       variant="subtle"
       size="compact-sm"
-      leftSection={<IconHelmet size={16} />}
+      leftSection={<HardHat size={16} />}
       onClick={() => void run(() => api.teams.setForeman(team.id, member.id), t('teams.foreman.set', { name: member.fullName }))}
       aria-label={t('teams.foreman.setOf', { name: member.fullName })}
     >
@@ -809,6 +810,7 @@ export function TeamDetailPage() {
                 </Text>
                 <SupervisorAvatars supervisors={supervisorsOf(tm)} size={30} withNames selfId={user?.id} />
               </Group>
+              <ForemanLine person={foremanOf(tm)} />
               {tm.orgUnit ? (
                 <Group gap={4} wrap="nowrap">
                   <IconSitemap size={16} aria-hidden color="var(--accent)" />
@@ -966,15 +968,39 @@ export function TeamDetailPage() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {tm.members.map((m) => (
-                  <Table.Tr key={m.id} className={m.isForeman ? 'nz-foreman-row' : undefined}>
+                {/* A10: the foreman first, right under the supervisors, then the workers. */}
+                {foremanFirst(tm.members).map((m, i, list) => (
+                  <Fragment key={m.id}>
+                  {i === 0 && m.isForeman ? (
+                    <Table.Tr className="nz-members-sep" data-kind="foreman">
+                      <Table.Td colSpan={5}>
+                        <span className="nz-members-sep-label">
+                          <HardHat size={15} />
+                          {t('a10.foreman.section')}
+                        </span>
+                      </Table.Td>
+                    </Table.Tr>
+                  ) : null}
+                  {!m.isForeman && (i === 0 || list[i - 1]?.isForeman) && list.some((x) => x.isForeman) ? (
+                    <Table.Tr className="nz-members-sep" data-kind="workers">
+                      <Table.Td colSpan={5}>
+                        <span className="nz-members-sep-label">
+                          <IconUsersGroup size={15} aria-hidden />
+                          {t('a10.foreman.workers', { n: formatNumber(list.filter((x) => !x.isForeman).length) })}
+                        </span>
+                      </Table.Td>
+                    </Table.Tr>
+                  ) : null}
+                  <Table.Tr className={m.isForeman ? 'nz-foreman-row' : undefined} data-foreman={m.isForeman || undefined}>
                     <Table.Td fw={500}>
                       <Group gap={8} wrap="nowrap">
                         <UnstyledButton
                           onClick={() => member.open(m.id)}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}
                         >
-                          <MemberAvatar member={m} size={28} />
+                          <ForemanAvatar foreman={m.isForeman} size={28}>
+                            <MemberAvatar member={m} size={28} />
+                          </ForemanAvatar>
                           {m.fullName}
                         </UnstyledButton>
                         {m.isForeman ? <ForemanBadge /> : null}
@@ -1000,6 +1026,7 @@ export function TeamDetailPage() {
                       </Group>
                     </Table.Td>
                   </Table.Tr>
+                  </Fragment>
                 ))}
               </Table.Tbody>
             </Table>

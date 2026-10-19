@@ -11,7 +11,7 @@ import {
   Tooltip,
   UnstyledButton,
 } from '@mantine/core';
-import { IconCheck, IconHelmet, IconPalette } from '@tabler/icons-react';
+import { IconCheck, IconPalette } from '@tabler/icons-react';
 import { PhotoAvatar } from '../../components/UserAvatar';
 import type { ReferenceItemDto, TeamColorDto, TeamStatus } from '@nuzli/shared';
 import { useReference } from '../../api/queries';
@@ -238,25 +238,5 @@ export function SupervisorAvatars({
   );
 }
 
-/**
- * The worker foreman (مشرف عمّال, ADR-101): a record only, no account and no permission — an
- * indigo outline badge with a helmet, explained by its tooltip.
- */
-export function ForemanBadge({ size = 'sm' }: { size?: 'xs' | 'sm' }) {
-  return (
-    <Tooltip label={t('teams.foreman.tooltip')} withArrow multiline maw={240}>
-      <Badge
-        variant="outline"
-        color="field"
-        size={size}
-        radius="sm"
-        className="nz-foreman-badge"
-        leftSection={<IconHelmet size={size === 'xs' ? 11 : 13} stroke={2} aria-hidden />}
-        tabIndex={0}
-        aria-label={`${t('teams.foreman.label')} — ${t('teams.foreman.tooltip')}`}
-      >
-        {t('teams.foreman.label')}
-      </Badge>
-    </Tooltip>
-  );
-}
+/** The worker foreman badge lives in components/Foreman (A10: the same look everywhere). */
+export { ForemanBadge } from '../../components/Foreman';

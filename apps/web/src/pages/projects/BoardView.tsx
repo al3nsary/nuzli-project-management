@@ -28,11 +28,25 @@ import { useQueryClient } from '@tanstack/react-query';
 import { qk4 } from '../../api/projectQueries';
 import { AssigneeChip, TASK_STATUSES, taskStatusLabel } from './parts';
 import { ConflictAlert } from './TaskDrawer';
+import { TaskChatButton, type ChatCount } from '../../features/tasks/TaskChatButton';
 
 type Writes = ReturnType<typeof useProjectWrites>;
 const PAGE = 60;
 
-export function BoardView({ data, writes, onOpenTask }: { data: GanttDto; writes: Writes; onOpenTask(id: string): void }) {
+export function BoardView({
+  data,
+  writes,
+  onOpenTask,
+  chatCounts,
+  onOpenChat,
+}: {
+  data: GanttDto;
+  writes: Writes;
+  onOpenTask(id: string): void;
+  /** A10: the chat icon on every card. */
+  chatCounts?: ReadonlyMap<string, ChatCount>;
+  onOpenChat?(id: string): void;
+}) {
   const api = useApi();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -111,7 +125,7 @@ export function BoardView({ data, writes, onOpenTask }: { data: GanttDto; writes
             return (
               <Column key={status} status={status} count={items.length}>
                 {shown.map((task) => (
-                  <Card key={task.id} task={task} locked={!canMove(task)} onOpen={onOpenTask} onKey={onCardKey} />
+                  <Card key={task.id} task={task} locked={!canMove(task)} onOpen={onOpenTask} onKey={onCardKey} chat={chatCounts?.get(task.id)} onOpenChat={onOpenChat} />
                 ))}
                 {items.length > shown.length ? (
                   <Button variant="subtle" size="xs" onClick={() => setLimit((l) => ({ ...l, [status]: (l[status] ?? PAGE) + PAGE }))}>
@@ -142,7 +156,21 @@ function Column({ status, count, children }: { status: TaskStatus; count: number
   );
 }
 
-function Card({ task, locked, onOpen, onKey }: { task: TaskDto; locked: boolean; onOpen(id: string): void; onKey(e: KeyboardEvent<HTMLDivElement>, t: TaskDto): void }) {
+function Card({
+  task,
+  locked,
+  onOpen,
+  onKey,
+  chat,
+  onOpenChat,
+}: {
+  task: TaskDto;
+  locked: boolean;
+  onOpen(id: string): void;
+  onKey(e: KeyboardEvent<HTMLDivElement>, t: TaskDto): void;
+  chat?: ChatCount;
+  onOpenChat?(id: string): void;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id, disabled: locked });
   const late = task.status !== 'DONE' && task.endDate < riyadhToday();
   // dnd-kit gives a physical delta; the transform is applied as is (not a logical offset).
@@ -178,9 +206,10 @@ function Card({ task, locked, onOpen, onKey }: { task: TaskDto; locked: boolean;
       <Text size="xs" c="dimmed" mt={2}>
         {t('board.due', { date: formatDate(task.endDate) })} · {`${formatNumber(Math.round(task.progress))}٪`}
       </Text>
-      <div style={{ marginBlockStart: 6 }}>
+      <Group justify="space-between" gap={6} wrap="nowrap" mt={6}>
         <AssigneeChip assignee={task.assignee} size="sm" />
-      </div>
+        {onOpenChat ? <TaskChatButton taskName={task.name} chat={chat} onOpen={() => onOpenChat(task.id)} /> : null}
+      </Group>
     </div>
   );
 }

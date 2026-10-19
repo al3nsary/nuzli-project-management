@@ -63,6 +63,28 @@ import {
 } from './parts';
 import { LocationMap } from './maps';
 import { AssignSection, UnassignButton, UnassignedBadge, canAssign } from './assign';
+import { ForemanBadge } from '../../components/Foreman';
+import { useMember } from '../../api/queries';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { offlineDb } from '../../features/violations/offline/db';
+
+/**
+ * A10: the person of a violation who is (now) their team's worker foreman gets the badge. The flag
+ * comes with the member when the API sends it, else from the member record (admins, leading
+ * supervisors) or the roster cached on the recorder's device.
+ */
+function MemberForemanBadge({ member }: { member: { id: string; isForeman?: boolean } | null | undefined }) {
+  const user = useAuthStore((s) => s.user);
+  const reads = can(user, 'members.manage') || can(user, 'members.manageOwn');
+  const known = typeof member?.isForeman === 'boolean';
+  const detail = useMember(member && !known && reads ? member.id : null);
+  const rosterRow = useLiveQuery(
+    () => (member && !known && !reads ? offlineDb().roster.get(member.id) : undefined),
+    [member?.id, known, reads],
+  );
+  const foreman = known ? member?.isForeman : (detail.data?.isForeman ?? (rosterRow as { isForeman?: boolean } | undefined)?.isForeman);
+  return foreman ? <ForemanBadge size="sm" /> : null;
+}
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -449,6 +471,7 @@ export function ViolationDrawer({ id, onClose }: { id: string | null; onClose: (
                     {v.member?.fullName ?? t('vdetail.personUnknown')}
                   </Text>
                   {unassigned ? <UnassignedBadge /> : null}
+                  <MemberForemanBadge member={v.member} />
                 </Group>
                 {v.member ? (
                   <Text className="mono ltr" size="sm" c="dimmed">

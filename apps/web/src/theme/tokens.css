@@ -157,71 +157,10 @@
 
 /*
  * Dark: neutral near-black surfaces, indigo #7986CB accents. Filled buttons stay a deeper
- * indigo (#3F51B5) so white text keeps ≥ 4.5:1. Applied for the dark scheme, and for "auto"
- * on a dark system (the two blocks must stay identical).
+ * indigo (#3F51B5) so white text keeps ≥ 4.5:1. Owner request A10 (ADR-127): applied ONLY when
+ * the user chooses «داكن» — there is no `prefers-color-scheme` block, so a device in dark mode
+ * still opens the white identity.
  */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-mantine-color-scheme='light']) {
-    --void: #0f1115;
-    --deep: #14171c;
-    --panel: #171a21;
-    --panel2: #1d2129;
-    --raise: #232834;
-    --hover: #1f232c;
-    --line: #2a2f3a;
-    --line2: #383e4b;
-    --hair: rgba(121, 134, 203, 0.22);
-    --primary: #3f51b5;
-    --primary-hover: #4a5cc4;
-    --primary-press: #303f9f;
-    --tint: rgba(121, 134, 203, 0.16);
-    --tint2: rgba(121, 134, 203, 0.28);
-    --focus: #7986cb;
-    --accent: #7986cb;
-    --live: #81c784;
-    --amber: #ffb74d;
-    --red: #ef6461;
-    --blue: #64b5f6;
-    --ink: #e7e9ee;
-    --dim: #a3a9b6;
-    --dim2: #8a91a0;
-    --faint: #5a6170;
-    --link: #9fa8da;
-    --sheen: rgba(255, 255, 255, 0.04);
-    --sheen2: rgba(255, 255, 255, 0.075);
-    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -24px rgba(0, 0, 0, 0.9);
-    --lift: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 56px -28px rgba(0, 0, 0, 1);
-    --scrim: rgba(5, 7, 10, 0.7);
-    --nav-bg: #14171c;
-    --nav-ink: #e7e9ee;
-    --nav-dim: #c3c8d2;
-    --nav-dim2: #a3a9b6;
-    --nav-faint: #8a91a0;
-    --nav-line: #2a2f3a;
-    --nav-sheen: rgba(255, 255, 255, 0.05);
-    --nav-sheen2: rgba(255, 255, 255, 0.08);
-    --nav-on-bg: rgba(121, 134, 203, 0.16);
-    --nav-on-ink: #aab3e3;
-    --nav-bar: #7986cb;
-    --p-live-b: rgba(76, 175, 80, 0.16);
-    --p-live-t: #81c784;
-    --p-wait-b: rgba(255, 167, 38, 0.16);
-    --p-wait-t: #ffb74d;
-    --p-no-b: rgba(239, 83, 80, 0.16);
-    --p-no-t: #ef9a9a;
-    --p-blue-b: rgba(66, 165, 245, 0.16);
-    --p-blue-t: #90caf9;
-    --p-brand-b: rgba(121, 134, 203, 0.18);
-    --p-brand-t: #aab3e3;
-    --p-grey-b: rgba(255, 255, 255, 0.07);
-    --p-grey-t: #a3a9b6;
-    --tabs-bg: #171a21;
-    --tabs-ink: #8a91a0;
-    --tabs-shadow: 0 -1px 0 #2a2f3a, 0 -16px 34px -26px rgba(0, 0, 0, 0.9);
-    color-scheme: dark;
-  }
-}
-
 :root[data-mantine-color-scheme='dark'] {
   --void: #0f1115;
   --deep: #14171c;

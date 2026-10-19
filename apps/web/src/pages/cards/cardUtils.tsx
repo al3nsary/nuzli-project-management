@@ -13,6 +13,7 @@ import type {
   CardTemplateDto,
   LogoDto,
 } from '@nuzli/shared';
+import { t } from '../../i18n';
 
 /** Base card CSS once per screen page (the print view injects it through `<PrintSheet>`). */
 export function CardStyles() {
@@ -138,4 +139,15 @@ export async function waitForPrintAssets(root: ParentNode = document) {
     await document.fonts.ready;
   }
   return waitForCardImages(root);
+}
+
+/**
+ * A10: marks a worker foreman's card data — `isForeman` and the printed title «مشرف عمّال»
+ * (`roleLabel`, kept by the batch schema). Data that already says so is returned as is.
+ */
+export function withForemanRole<T extends object>(data: T, memberIsForeman: boolean): T {
+  const d = data as T & { isForeman?: boolean; roleLabel?: string };
+  if (d.isForeman === true || d.roleLabel === t('teams.foreman.label')) return { ...d, isForeman: true, roleLabel: t('teams.foreman.label') };
+  if (!memberIsForeman) return data;
+  return { ...d, isForeman: true, roleLabel: t('teams.foreman.label') };
 }

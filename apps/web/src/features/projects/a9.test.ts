@@ -163,13 +163,15 @@ describe('column preferences (gantt.columns, list.columns)', () => {
 
   it('add, hide, move and resize; name cannot move or hide', () => {
     let cols = addColumn(DEFAULT_COLUMNS, 'deadline');
-    expect(cols.map((c) => c.id)).toEqual(['name', 'assignee', 'status', 'deadline']);
-    cols = moveColumn(cols, 3, 1);
-    expect(cols.map((c) => c.id)).toEqual(['name', 'deadline', 'assignee', 'status']);
+    // A10: «المحادثة» is on by default, right after the name.
+    expect(cols.map((c) => c.id)).toEqual(['name', 'chat', 'assignee', 'status', 'deadline']);
+    cols = moveColumn(cols, 4, 1);
+    expect(cols.map((c) => c.id)).toEqual(['name', 'deadline', 'chat', 'assignee', 'status']);
     expect(moveColumn(cols, 0, 2)).toEqual(cols);
     expect(removeColumn(cols, 'name')).toEqual(cols);
-    cols = resizeColumn(removeColumn(cols, 'assignee'), 'deadline', 150);
+    cols = resizeColumn(removeColumn(removeColumn(cols, 'assignee'), 'chat'), 'deadline', 150);
     expect(cols).toEqual([{ id: 'name', width: 280 }, { id: 'deadline', width: 150 }, { id: 'status', width: 128 }]);
+    expect(availableColumns(cols, [])).toContain('chat');
     expect(availableColumns(cols, [{ id: 'f', projectId: 'p', name: 'حقل', type: 'TEXT', options: [], sort: 1 }])).toContain('cf:f');
   });
 

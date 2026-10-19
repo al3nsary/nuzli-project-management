@@ -4,7 +4,7 @@ import { BODY_LINE_HEIGHT, computeFrame, NAME_LINE_HEIGHT, planText, rowSpecs, t
 import { lineBoxMm } from '../fit';
 import { clamp, mm } from '../units';
 
-const BADGE_ORDER: RowKind[] = ['jobTitle', 'team', 'nationalId', 'department', 'validUntil'];
+const BADGE_ORDER: RowKind[] = ['role', 'jobTitle', 'team', 'nationalId', 'department', 'validUntil'];
 
 /** Photo height at CR80 portrait: about 26×34 mm when the text leaves room; scales with the short side. */
 export const BADGE_PHOTO_H_MM = 34;

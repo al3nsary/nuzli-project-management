@@ -1,6 +1,6 @@
 /**
  * Grid columns of the Gantt and the list view (owner request A9, GanttPRO): «اسم المهمة» ·
- * «المسؤول» · «الحالة» by default, a «+» header button to add more (dates, duration, deadline,
+ * «المحادثة» (A10) · «المسؤول» · «الحالة» by default, a «+» header button to add more (dates, duration, deadline,
  * priority, progress, costs, labels, WBS and every custom field), hide, drag-reorder and resize.
  * The layout is stored per user per project in `/me/view-prefs` (`gantt.columns`, `list.columns`,
  * ADR-097). Pure functions: the screens keep the array, these keep it valid.
@@ -21,7 +21,9 @@ export type BaseColumnId =
   | 'plannedCost'
   | 'actualCost'
   | 'labels'
-  | 'wbs';
+  | 'wbs'
+  /** A10: the task chat icon (message count + unread), on by default. */
+  | 'chat';
 
 /** A base column or a custom field (`cf:<fieldId>`). */
 export type ColumnId = BaseColumnId | `cf:${string}`;
@@ -51,11 +53,13 @@ export const COLUMN_DEFS: Record<BaseColumnId, ColumnDef> = {
   actualCost: { label: 'col.actualCost', width: 124, min: 80 },
   labels: { label: 'col.labels', width: 150, min: 80 },
   wbs: { label: 'col.wbs', width: 64, min: 44 },
+  chat: { label: 'a10.chat.column', width: 84, min: 60 },
 };
 
 export const BASE_COLUMNS = Object.keys(COLUMN_DEFS) as BaseColumnId[];
 export const DEFAULT_COLUMNS: ColumnPref[] = [
   { id: 'name', width: COLUMN_DEFS.name.width },
+  { id: 'chat', width: COLUMN_DEFS.chat.width },
   { id: 'assignee', width: COLUMN_DEFS.assignee.width },
   { id: 'status', width: COLUMN_DEFS.status.width },
 ];
@@ -63,6 +67,7 @@ export const DEFAULT_COLUMNS: ColumnPref[] = [
 export const DEFAULT_LIST_COLUMNS: ColumnPref[] = [
   { id: 'wbs', width: 64 },
   { id: 'name', width: 300 },
+  { id: 'chat', width: 84 },
   { id: 'assignee', width: 160 },
   { id: 'status', width: 128 },
   { id: 'start', width: 104 },

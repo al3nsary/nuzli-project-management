@@ -42,6 +42,15 @@ import { seedPhotos } from './seedPhotos';
 import { buildProjectSeed } from './seedProjects';
 import { seedViolations } from './seedViolations';
 import { seedA9Teams } from './seedA9Teams';
+import demoVersion from '../../../../../seed/demo/version.json';
+
+/**
+ * Owner request A10 (ADR-128): the bundled demo-data version (seed/demo/version.json). A browser that
+ * stored an older version (or none, from before A10) is reset to the new seed on first use, so a
+ * returning visitor sees every new feature; the shell then shows «حُدِّثت بيانات العرض…».
+ */
+export const DEMO_DATA_VERSION: number = demoVersion.version;
+const VERSION_KEY = 'demoDataVersion';
 import { createOrg } from './org';
 import { createImports, type ImportsApi } from './imports';
 import type { OcrRunner } from './ocrRunner';
@@ -152,6 +161,11 @@ export class DemoApi implements ApiClient {
       accounts,
       pendingExample: seed.users.find((u) => u.status === 'PENDING')?.email ?? '',
       reset: () => this.reset(),
+      consumeUpgradeNotice: () => {
+        const v = this.upgradedFrom !== null;
+        this.upgradedFrom = null;
+        return v;
+      },
     };
   }
 
@@ -162,7 +176,29 @@ export class DemoApi implements ApiClient {
     return this.ready;
   }
 
+  /** Set when `init` replaced stale demo data (the version it found, 0 = none); read once by the shell. */
+  private upgradedFrom: number | null = null;
+
+  /** The stored demo-data version (0 when the browser was seeded before versions existed). */
+  async storedDataVersion(): Promise<number> {
+    const v = (await this.db.kv.get(VERSION_KEY))?.value;
+    return typeof v === 'number' ? v : 0;
+  }
+
+  /** A10: wipes demo data seeded by an older bundle (it is demo data only — nothing to keep). */
+  private async upgradeIfStale() {
+    if (!(await this.db.kv.get('seeded'))) return; // a fresh browser: nothing to upgrade
+    const stored = await this.storedDataVersion();
+    if (stored >= DEMO_DATA_VERSION) return;
+    await this.db.transaction('rw', this.db.tables, async () => {
+      await Promise.all(this.db.tables.map((table) => table.clear()));
+    });
+    this.token = null;
+    this.upgradedFrom = stored;
+  }
+
   private async seedIfEmpty() {
+    await this.upgradeIfStale();
     await this.seedPhase1();
     await this.seedPhase2();
     await this.seedPhase3();
@@ -170,6 +206,7 @@ export class DemoApi implements ApiClient {
     await seedA9(this.db);
     await seedA9Teams(this.db);
     await seedPhotos(this.db);
+    await this.db.kv.put({ key: VERSION_KEY, value: DEMO_DATA_VERSION });
   }
 
   /** @internal A8 hooks for the files module (phase3.ts). */

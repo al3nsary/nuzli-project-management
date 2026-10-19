@@ -55,6 +55,8 @@ export async function refreshRoster(api: ApiClient, db: OfflineDb, userId: strin
     // photo itself and its signed URL are never stored on the device (ADR-090).
     photoFileId: r.photoFileId ?? null,
     hasPhoto: r.hasPhoto ?? Boolean(r.photoFileId),
+    // A10: the worker foreman flag (optional on the wire) — pickers show «مشرف عمّال».
+    ...((r as typeof r & { isForeman?: boolean }).isForeman ? { isForeman: true } : {}),
     searchName: normalizeArabic(r.fullName),
   }));
   await db.transaction('rw', db.roster, db.meta, async () => {

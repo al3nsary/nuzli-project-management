@@ -275,6 +275,11 @@ export interface DemoControls {
   accounts: DemoAccount[];
   pendingExample: string;
   reset(): Promise<void>;
+  /**
+   * A10 (ADR-128): true once after the adapter replaced demo data stored by an older bundle
+   * (call it after the first request, e.g. the session refresh).
+   */
+  consumeUpgradeNotice?(): boolean;
 }
 
 /**

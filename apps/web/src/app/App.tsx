@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { RouterProvider, type createBrowserRouter } from 'react-router-dom';
 import { DirectionProvider, MantineProvider, useMantineColorScheme } from '@mantine/core';
-import { Notifications } from '@mantine/notifications';
+import { Notifications, notifications } from '@mantine/notifications';
 import { ModalsProvider } from '@mantine/modals';
 import { t } from '../i18n';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
@@ -10,6 +10,7 @@ import { ApiProvider } from '../api/context';
 import { ApiError } from '../api/errors';
 import { useAuthStore } from '../stores/auth';
 import { cssVariablesResolver, theme } from '../theme/theme';
+import { effectiveScheme, nzColorSchemeManager } from '../theme/colorScheme';
 import { OfflineRuntime } from '../features/violations/offline/OfflineRuntime';
 import { offlineDb } from '../features/violations/offline/db';
 import { loadOfflineUser } from '../features/violations/offline/session';
@@ -43,6 +44,12 @@ function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode 
   const qc = useQueryClient();
   useEffect(() => {
     let alive = true;
+    // A10 (ADR-128): stale demo data was replaced by the new seed during the first request.
+    const upgradeNotice = () => {
+      if (alive && api.demo?.consumeUpgradeNotice?.()) {
+        notifications.show({ id: 'demo-upgraded', color: 'field', autoClose: 9000, title: t('demo.upgraded.title'), message: t('demo.upgraded.body') });
+      }
+    };
     const off = api.onSessionChange((session) => {
       if (!alive) return;
       if (!session) {
@@ -57,11 +64,13 @@ function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode 
       .refresh()
       .then((session) => {
         if (!alive) return;
+        upgradeNotice();
         api.setAccessToken(session?.accessToken ?? null);
         setSession(session);
       })
       .catch(async (err: unknown) => {
         if (!alive) return;
+        upgradeNotice();
         if (err instanceof ApiError && err.code === 'NETWORK_ERROR') {
           const user = await loadOfflineUser(offlineDb()).catch(() => null);
           if (alive && user) {
@@ -89,12 +98,15 @@ function DocumentDirection() {
   return null;
 }
 
-/** Applies the user's theme preference (auto / light / dark). */
+/**
+ * Applies the user's theme preference. A10 (ADR-127): only an explicit «داكن» is dark; the old
+ * default `auto` and anything else is light — the device setting never decides.
+ */
 function ColorSchemeSync() {
   const pref = useAuthStore((s) => s.user?.preferences.theme);
   const { setColorScheme } = useMantineColorScheme();
   useEffect(() => {
-    if (pref) setColorScheme(pref);
+    if (pref) setColorScheme(effectiveScheme(pref));
   }, [pref, setColorScheme]);
   return null;
 }
@@ -109,12 +121,14 @@ export function AppProviders({
   children: ReactNode;
 }) {
   const [qc] = useState(() => queryClient ?? createQueryClient());
+  const [schemeManager] = useState(() => nzColorSchemeManager());
   return (
     <DirectionProvider initialDirection="rtl" detectDirection={false}>
       <MantineProvider
         theme={theme}
         cssVariablesResolver={cssVariablesResolver}
-        defaultColorScheme="auto"
+        defaultColorScheme="light"
+        colorSchemeManager={schemeManager}
       >
         <Notifications position="top-center" zIndex={1000} />
         <DocumentDirection />

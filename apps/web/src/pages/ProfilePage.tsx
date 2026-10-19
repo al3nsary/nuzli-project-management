@@ -28,6 +28,7 @@ import { useZodForm } from '../forms/useZodForm';
 import { FormError, Ltr, Mobile, RoleBadge } from '../components/ui';
 import { ChangePasswordForm } from '../components/ChangePasswordForm';
 import { PhotoUploader } from '../components/photos/PhotoUploader';
+import { effectiveScheme } from '../theme/colorScheme';
 import { formatDate, formatNumber, t, tKey } from '../i18n';
 
 /** Which notification types can reach each role (brief §9). */
@@ -140,13 +141,14 @@ function DisplayCard() {
   const [prefs, setPrefs] = useState<Pick<UserPreferences, 'digits' | 'showHijri' | 'theme'>>({
     digits: user.preferences.digits,
     showHijri: user.preferences.showHijri,
-    theme: user.preferences.theme,
+    // A10: the old default `auto` shows (and saves) as «فاتح».
+    theme: effectiveScheme(user.preferences.theme),
   });
   const [busy, setBusy] = useState(false);
   const dirty =
     prefs.digits !== user.preferences.digits ||
     prefs.showHijri !== user.preferences.showHijri ||
-    prefs.theme !== user.preferences.theme;
+    prefs.theme !== effectiveScheme(user.preferences.theme);
 
   const submit = async () => {
     setBusy(true);
@@ -194,7 +196,7 @@ function DisplayCard() {
           <SegmentedControl
             value={prefs.theme}
             onChange={(v) => setPrefs((p) => ({ ...p, theme: v as UserPreferences['theme'] }))}
-            data={(['auto', 'light', 'dark'] as const).map((v) => ({
+            data={(['light', 'dark'] as const).map((v) => ({
               value: v,
               label: t(`profile.theme.${v}`),
             }))}

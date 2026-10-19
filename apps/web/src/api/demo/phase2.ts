@@ -138,6 +138,8 @@ interface World {
   /** A9: teamId → open leadership rows, primary first. */
   leaders: Map<string, DemoTeamSupervisor[]>;
   orgUnits: Map<string, DemoOrgUnit>;
+  /** A10: teamId → the worker foreman (open FOREMAN membership). */
+  foremen: Map<string, { id: string; fullName: string; hasPhoto: boolean }>;
 }
 
 // ---------------------------------------------------------------- pure helpers
@@ -212,7 +214,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
   const tx = <T>(fn: () => Promise<T>) => db.transaction('rw', db.tables, fn);
 
   async function world(): Promise<World> {
-    const [users, colors, teams, reference, memberships, leaderRows, orgUnits] = await Promise.all([
+    const [users, colors, teams, reference, memberships, leaderRows, orgUnits, foremanRows] = await Promise.all([
       db.users.toArray(),
       db.colors.toArray(),
       db.teams.toArray(),
@@ -220,6 +222,12 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       db.memberships.toArray(),
       db.teamSupervisors.toArray(),
       db.orgUnits.toArray(),
+      // A10: only the few foremen are read (team cards show them).
+      (async () => {
+        const rows = (await db.memberships.toArray()).filter((m) => m.validTo === null && m.role === 'FOREMAN');
+        const ms = await db.members.bulkGet(rows.map((r) => r.memberId));
+        return rows.map((r, i) => ({ teamId: r.teamId, member: ms[i] }));
+      })(),
     ]);
     const leaders = groupOpenLeaders(leaderRows);
     for (const tm of teams) withLeaders(tm, (leaders.get(tm.id) ?? []).map((r) => r.userId));
@@ -239,6 +247,11 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       counts,
       leaders,
       orgUnits: new Map(orgUnits.map((o) => [o.id, o])),
+      foremen: new Map(
+        foremanRows
+          .filter((r): r is { teamId: string; member: DemoMember } => Boolean(r.member))
+          .map((r) => [r.teamId, { id: r.member.id, fullName: r.member.fullName, hasPhoto: Boolean(r.member.photoFileId) }]),
+      ),
     };
   }
 
@@ -274,7 +287,8 @@ export function createPhase2(api: DemoInternals): Phase2Api {
   }
 
   function teamDto(team: DemoTeam, w: World): TeamDto {
-    return {
+    // A10: `foreman` travels with every team (optional in TeamDto; the detail always had it).
+    const dto: TeamDto & { foreman: { id: string; fullName: string; hasPhoto: boolean } | null } = {
       ...summary(team, w),
       status: team.status,
       supervisor: person(w, team.supervisorId),
@@ -286,7 +300,9 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       memberCount: w.counts.get(team.id) ?? 0,
       createdAt: team.createdAt,
       violationVisibility: team.violationVisibility,
+      foreman: team.status === 'ARCHIVED' ? null : (w.foremen.get(team.id) ?? null),
     };
+    return dto;
   }
 
   const refName = (w: World, id: string | null) => (id ? w.reference.get(id)?.name ?? null : null);
@@ -1703,9 +1719,12 @@ export function createPhase2(api: DemoInternals): Phase2Api {
         seen.add(`m:${m.id}`);
         const team = memberTeam(w, m.id);
         const color = team ? w.colors.get(team.colorId) : undefined;
+        // A10: the worker foreman's card carries the «مشرف عمّال» ribbon (ui-print).
+        const foreman = w.open.get(m.id)?.role === 'FOREMAN';
         subjects.push({
           memberId: m.id,
           data: {
+            ...(foreman ? { isForeman: true, roleLabel: t('teams.foreman.label') } : {}),
             fullName: m.fullName,
             jobTitle: refName(w, m.jobTitleId) ?? m.jobTitleText ?? '',
             nationalId: idOut(m.nationalId),

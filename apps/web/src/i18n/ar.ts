@@ -354,7 +354,7 @@ export const ar = {
   'profile.showHijriHint': 'يظهر التاريخ بتقويم أم القرى إلى جانب التاريخ الميلادي.',
   'profile.theme': 'المظهر',
   'profile.theme.auto': 'حسب الجهاز',
-  'profile.theme.light': 'فاتح',
+  'profile.theme.light': 'فاتح (افتراضي)',
   'profile.theme.dark': 'داكن',
   'profile.preview': 'معاينة: {number} · {date}',
   'profile.savePrefs': 'حفظ التفضيلات',
@@ -2525,7 +2525,7 @@ export const ar = {
   'teams.primaryMustBeChosen': 'المشرف الرئيسي يجب أن يكون من المشرفين المختارين',
   'teams.foreman.label': 'مشرف عمّال',
   'teams.foreman.tooltip': 'لا يملك حسابًا ولا صلاحيات',
-  'teams.foreman.setShort': 'تعيينه مشرف عمّال',
+  'teams.foreman.setShort': 'تعيين مشرفًا للعمّال',
   'teams.foreman.setOf': 'تعيين {name} مشرف عمّال',
   'teams.foreman.set': 'صار {name} مشرف العمّال',
   'teams.foreman.clear': 'إلغاء صفة مشرف العمّال',
@@ -3010,6 +3010,22 @@ export const ar = {
   'import.err.evicted': 'تُستبدل المعاينة أيضًا إذا أنشأت بعدها خمس معاينات أخرى (يُحفظ لكل مدير خمس معاينات على الأكثر).',
   'violations.register.tooOld': 'المخالفة أقدم من {days} يومًا: سجّل العضو من صفحة الفريق ثم أسند المخالفة إليه.',
   // ---- A9 imports end
+  // ---- A10 web
+  'demo.upgraded.title': 'حُدِّثت بيانات العرض إلى أحدث إصدار',
+  'demo.upgraded.body': 'كانت بيانات العرض في هذا المتصفح من إصدارٍ أقدم، فاستُبدلت بالبيانات الجديدة (مشرفو العمّال، والمشرفون المتعدّدون، والهيكل التنظيمي، ومحادثات المهام…). سجّل الدخول من جديد.',
+  'a10.chat.close': 'إغلاق المحادثة',
+  'a10.chat.column': 'المحادثة',
+  'a10.chat.open': 'محادثة المهمة',
+  'a10.chat.aria': 'محادثة المهمة «{name}»: {count} رسالة، {unread} غير مقروءة',
+  'a10.chat.ariaNone': 'ابدأ محادثة المهمة «{name}» مع المشرف',
+  'a10.chat.unreadBadge': '{n} جديدة',
+  'a10.chat.tooltip': 'افتح المحادثة مع المشرف — نفس شاشة المشرف',
+  'a10.chat.tooltipNone': 'لا رسائل بعد — اكتب للمشرف',
+  'gantt.exportFormat.ganttpro': 'GanttPRO (Excel)',
+  'a10.foreman.section': 'مشرف العمّال',
+  'a10.foreman.workers': 'العمّال ({n})',
+  'a10.foreman.none': 'لا مشرف عمّال بعد',
+  // ---- A10 web end
 } as const;
 
 export type MessageKey = keyof typeof ar;

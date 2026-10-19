@@ -128,10 +128,12 @@ export const PHOTO_BORDER_MM = 0.25;
  */
 export function PhotoArea({ model, widthMm, heightMm }: { model: CardModel; widthMm: number; heightMm: number }) {
   if (!model.showPhoto || widthMm <= 0 || heightMm <= 0) return null;
+  // A10: a foreman's photo gets an indigo frame (the ribbon under the name carries the words).
+  const foreman = Boolean(model.role?.foreman);
   const frame: CSSProperties = {
     width: mm(widthMm),
     height: mm(heightMm),
-    border: `${mm(PHOTO_BORDER_MM)} solid ${PHOTO_BORDER}`,
+    border: foreman ? `${mm(PHOTO_BORDER_MM * 2)} solid ${FOREMAN_INK}` : `${mm(PHOTO_BORDER_MM)} solid ${PHOTO_BORDER}`,
     borderRadius: mm(PHOTO_RADIUS_MM),
     background: PHOTO_FILL,
   };
@@ -164,6 +166,49 @@ export function PhotoArea({ model, widthMm, heightMm }: { model: CardModel; widt
       </svg>
       <span className="nz-initials" style={{ fontSize: pt(initialsPt) }}>
         {model.initials}
+      </span>
+    </div>
+  );
+}
+
+/** Foreman indigo (Nozoly indigo 700) and its print-safe white text: contrast 8.6:1. */
+export const FOREMAN_INK = '#303F9F';
+
+/** A hard hat (helmet) glyph as inline SVG — no icon font, prints as vector. */
+export function HelmetGlyph({ sizeMm, color = '#FFFFFF' }: { sizeMm: number; color?: string }) {
+  return (
+    <svg className="nz-helmet" viewBox="0 0 24 24" width={mm(sizeMm)} height={mm(sizeMm)} aria-hidden="true" style={{ width: mm(sizeMm), height: mm(sizeMm) }}>
+      <path d="M3 17.2h18a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-.8a1 1 0 0 1 1-1z" fill={color} />
+      <path d="M4 16.2a8 8 0 0 1 5.6-7.63V12h1.6V6.3a.8.8 0 0 1 .8-.8h0a.8.8 0 0 1 .8.8V12h1.6V8.57A8 8 0 0 1 20 16.2z" fill={color} />
+    </svg>
+  );
+}
+
+/**
+ * Owner request A10: the worker foreman ribbon — «مشرف عمّال» in white on indigo with a helmet,
+ * one body line high, sized in mm/pt. The text label is always printed, so the marker never
+ * depends on colour alone (monochrome Zebra ribbons still read it).
+ */
+export function ForemanRibbon({ label, sizePt, align = 'start' }: { label: string; sizePt: number; align?: 'start' | 'center' }) {
+  const lineMm = sizePt * MM_PER_PT * BODY_LINE_HEIGHT;
+  const glyph = sizePt * MM_PER_PT * 1.05;
+  return (
+    <div className="nz-row nz-row--role" data-field="role" data-foreman="true" style={{ justifyContent: align === 'center' ? 'center' : 'flex-start', blockSize: mm(lineMm) }}>
+      <span
+        className="nz-role"
+        style={{
+          fontSize: pt(sizePt * 0.92),
+          background: FOREMAN_INK,
+          color: '#FFFFFF',
+          border: `${mm(0.2)} solid ${FOREMAN_INK}`,
+          borderRadius: mm(lineMm * 0.22),
+          paddingInline: mm(lineMm * 0.28),
+          gap: mm(lineMm * 0.18),
+          blockSize: mm(lineMm * 0.92),
+        }}
+      >
+        <HelmetGlyph sizeMm={glyph} />
+        <span className="nz-role-text">{label}</span>
       </span>
     </div>
   );
@@ -221,7 +266,7 @@ export function NameBlock({
   );
 }
 
-const DISPLAY_ORDER: RowKind[] = ['jobTitle', 'nationalId', 'department', 'team', 'validUntil'];
+const DISPLAY_ORDER: RowKind[] = ['role', 'jobTitle', 'nationalId', 'department', 'team', 'validUntil'];
 
 export function sortForDisplay(rows: RowSpec[], order: RowKind[] = DISPLAY_ORDER): RowSpec[] {
   return [...rows].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
@@ -239,6 +284,7 @@ export function FieldRow({
   align?: 'start' | 'center';
 }) {
   const style: CSSProperties = { fontSize: pt(sizePt), lineHeight: BODY_LINE_HEIGHT, textAlign: align };
+  if (row.kind === 'role' && model.role) return <ForemanRibbon label={row.value} sizePt={sizePt} align={align} />;
   if (row.kind === 'team' && model.team) {
     const swatchH = sizePt * 0.3528 * 1.05;
     return (

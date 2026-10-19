@@ -149,7 +149,8 @@ export function withLagHours(deps: readonly DemoDependency[], unit: DurationUnit
 export interface ProjectsCore {
   tx<T>(fn: () => Promise<T>): Promise<T>;
   assignees(): Promise<Map<string, AssigneeInfo>>;
-  taskDtos(rows: DemoTask[]): Promise<TaskDto[]>;
+  /** `viewerId` (A10): also `unreadCount` — comments by others after the viewer's read mark. */
+  taskDtos(rows: DemoTask[], viewerId?: string): Promise<TaskDto[]>;
   taskDtosById(ids: string[]): Promise<TaskDto[]>;
   liveTasks(projectId: string): Promise<DemoTask[]>;
   projectDto(p: DemoProject, tasks?: DemoTask[]): Promise<ProjectView>;
@@ -211,16 +212,25 @@ export function createPhase4(
     );
   }
 
-  async function counts(taskIds: string[]) {
+  async function counts(taskIds: string[], viewerId?: string) {
     const ids = new Set(taskIds);
     const any = taskIds.length ? taskIds : ['-'];
-    const [comments, files, items] = await Promise.all([
+    const [comments, files, items, reads] = await Promise.all([
       db.taskComments.toArray(),
       db.files.where('entityId').anyOf(any).toArray(),
       db.checklist.where('taskId').anyOf(any).toArray(),
+      viewerId ? db.commentReads.where('userId').equals(viewerId).toArray() : Promise.resolve([]),
     ]);
+    const readAt = new Map(reads.map((r) => [r.taskId, r.lastReadAt]));
     const c = new Map<string, number>();
-    for (const x of comments) if (ids.has(x.taskId)) c.set(x.taskId, (c.get(x.taskId) ?? 0) + 1);
+    const u = new Map<string, number>();
+    for (const x of comments) {
+      if (!ids.has(x.taskId)) continue;
+      c.set(x.taskId, (c.get(x.taskId) ?? 0) + 1);
+      const read = readAt.get(x.taskId);
+      // Same rule as the hub: comments by others after the viewer's last read.
+      if (viewerId && x.authorId !== viewerId && (!read || x.createdAt > read)) u.set(x.taskId, (u.get(x.taskId) ?? 0) + 1);
+    }
     const a = new Map<string, number>();
     for (const f of files) {
       if (f.entityType === 'task' && f.status === 'READY' && !f.deletedAt && f.entityId) {
@@ -234,11 +244,11 @@ export function createPhase4(
       if (i.done) cur.done++;
       cl.set(i.taskId, cur);
     }
-    return { comments: c, attachments: a, checklist: cl };
+    return { comments: c, unread: u, attachments: a, checklist: cl };
   }
 
-  async function taskDtos(rows: DemoTask[]): Promise<TaskDto[]> {
-    const [who, n] = await Promise.all([assignees(), counts(rows.map((r) => r.id))]);
+  async function taskDtos(rows: DemoTask[], viewerId?: string): Promise<TaskDto[]> {
+    const [who, n] = await Promise.all([assignees(), counts(rows.map((r) => r.id), viewerId)]);
     const today = riyadhToday();
     return rows.map((raw) => {
       const r = rowOf(raw);
@@ -260,6 +270,7 @@ export function createPhase4(
         description: r.description,
         version: r.version,
         commentCount: n.comments.get(r.id) ?? 0,
+        ...(viewerId ? { unreadCount: n.unread.get(r.id) ?? 0 } : {}),
         attachmentCount: n.attachments.get(r.id) ?? 0,
         plannedCost: r.plannedCost,
         actualCost: r.actualCost,
@@ -812,7 +823,7 @@ export function createPhase4(
       const tasks = await liveTasks(id);
       const calendar = (await db.calendars.get(p.calendarId)) ?? (await defaultCalendar());
       const deps = await db.dependencies.where('projectId').equals(id).toArray();
-      const dtos = (await taskDtos(tasks)).sort((a, b) => compareWbs(a.wbs, b.wbs));
+      const dtos = (await taskDtos(tasks, viewer.id)).sort((a, b) => compareWbs(a.wbs, b.wbs));
       const cal: CalendarDto = calendarDto(calendar);
       const [labels, fields] = await Promise.all([
         db.labels.where('projectId').equals(id).toArray(),
@@ -1039,7 +1050,7 @@ export function createPhase4(
       const viewer = await api.actor();
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       const { task } = await visibleTask(id, viewer);
-      return (await taskDtos([task]))[0]!;
+      return (await taskDtos([task], viewer.id))[0]!;
     },
 
     update: async (id, input) => {
@@ -1210,7 +1221,7 @@ export function createPhase4(
       const projectsById = await liveProjects();
       const live = rows.filter((t) => projectsById.has(t.projectId)).map(rowOf);
       live.sort((a, b) => a.endDate.localeCompare(b.endDate) || a.startDate.localeCompare(b.startDate) || a.name.localeCompare(b.name, 'ar'));
-      const dtos = await taskDtos(live);
+      const dtos = await taskDtos(live, viewer.id);
       const cals = new Map((await db.calendars.toArray()).map((c) => [c.id, workCalendarOf(c)]));
       const today = riyadhToday();
       return dtos.map((d): MyTaskDto => {
