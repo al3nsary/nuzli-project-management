@@ -43,7 +43,7 @@ export function previewGantt(
       ...(hours ? { startAt: t.startDate, endAt: t.endDate } : {}),
       progress: t.progress,
       status: t.status,
-      priority: 'MEDIUM',
+      priority: t.priority ?? 'MEDIUM',
       assignee:
         t.type === 'GROUP' || !t.assigneeName || who === null
           ? null
@@ -64,7 +64,8 @@ export function previewGantt(
       overBudget: t.actualCost > t.plannedCost,
       deadline: t.deadline,
       deadlinePassed: false,
-      barColor: null,
+      // A10: GanttPRO colours show on the preview bars as they will in the project.
+      barColor: t.barColor ?? null,
       labelIds: [],
       checklist: { total: 0, done: 0 },
       customValues: {},

@@ -6,6 +6,7 @@
  */
 import type { CellValue, Worksheet } from 'exceljs';
 import Papa from 'papaparse';
+import { detectGanttpro, NOZOLY_CALENDAR_SHEET } from './ganttpro';
 import {
   cleanText,
   emptyDraft,
@@ -204,6 +205,8 @@ export interface TableCell {
   indent?: number;
   /** The cell shows a percentage (xlsx number format with %). */
   percent?: boolean;
+  /** A10: solid fill ARGB (`FF50C7D6`) of the first three columns (GanttPRO keeps the bar colour in A). */
+  fill?: string;
 }
 
 export type TableRow = TableCell[];
@@ -223,6 +226,12 @@ function plainCellValue(v: CellValue): unknown {
   if (typeof v === 'object') {
     const o = v as unknown as Record<string, unknown>;
     if ('result' in o) return plainCellValue(o.result as CellValue);
+    // A10: a hyperlink cell keeps its address as text when the label differs from it.
+    if ('hyperlink' in o && 'text' in o) {
+      const label = plainCellValue(o.text as CellValue);
+      const href = typeof o.hyperlink === 'string' ? o.hyperlink : '';
+      return href && label !== href ? (label ? `${String(label)} (${href})` : href) : label;
+    }
     if ('richText' in o && Array.isArray(o.richText))
       return (o.richText as Array<{ text: string }>).map((r) => r.text).join('');
     if ('text' in o) return o.text;
@@ -247,10 +256,31 @@ export async function xlsxSheetNames(bytes: Uint8Array): Promise<string[]> {
   return wb.worksheets.map((w) => w.name);
 }
 
+/**
+ * A10: the sheet names and whether the workbook is a GanttPRO export (its first sheet with a
+ * header in the GanttPRO layout) — the wizard's file step says so before the upload.
+ */
+export async function xlsxSummary(
+  bytes: Uint8Array,
+): Promise<{ sheets: string[]; ganttpro: boolean }> {
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  try {
+    await wb.xlsx.load(arrayBufferOf(bytes));
+  } catch {
+    throw importError('IMPORT_FILE_INVALID', { reason: 'xlsx' });
+  }
+  const sheets = wb.worksheets.filter((w) => w.name !== NOZOLY_CALENDAR_SHEET);
+  return {
+    sheets: sheets.map((w) => w.name),
+    ganttpro: sheets.some((s) => detectGanttpro(sheetRows(s, 15).rows) !== null),
+  };
+}
+
 export async function readXlsx(
   bytes: Uint8Array,
   sheetName?: string,
-): Promise<{ rows: TableRow[]; sheet: string }> {
+): Promise<{ rows: TableRow[]; sheet: string; calendarRows: TableRow[] | null }> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   try {
@@ -263,12 +293,19 @@ export async function readXlsx(
   let ws: Worksheet | undefined;
   if (sheetName) ws = wb.getWorksheet(sheetName);
   if (!ws) {
-    // The first sheet with a task-name header in its first 15 rows.
-    ws = sheets.find((s) => headerRowIndex(sheetRows(s, 15).rows) >= 0) ?? sheets[0];
+    // The first sheet with a task-name header (or the GanttPRO layout, A10) in its first 15 rows.
+    ws =
+      sheets.find((s) => {
+        const head = sheetRows(s, 15).rows;
+        return headerRowIndex(head) >= 0 || detectGanttpro(head) !== null;
+      }) ?? sheets[0];
   }
   const { rows, truncated } = sheetRows(ws!, MAX_IMPORT_ROWS);
   if (truncated) throw importError('IMPORT_TOO_MANY_TASKS', { max: MAX_IMPORT_TASKS });
-  return { rows, sheet: ws!.name };
+  // A10: the calendar sheet our GanttPRO-layout export adds (ignored by GanttPRO).
+  const calWs = sheets.find((s) => s.name === NOZOLY_CALENDAR_SHEET && s !== ws);
+  const calendarRows = calWs ? sheetRows(calWs, 1100).rows : null;
+  return { rows, sheet: ws!.name, calendarRows };
 }
 
 /**
@@ -290,11 +327,21 @@ function sheetRows(ws: Worksheet, max: number): { rows: TableRow[]; truncated: b
       if (c > MAX_IMPORT_COLUMNS) return;
       while (cells.length < c - 1) cells.push({ v: null, indent: 0, percent: false });
       const fmt = cell.numFmt ?? '';
-      cells.push({
+      const out: TableCell = {
         v: plainCellValue(cell.value),
         indent: cell.alignment?.indent ?? 0,
         percent: fmt.includes('%'),
-      });
+      };
+      // A10: the solid fill of the first columns (GanttPRO keeps the bar colour in column A).
+      const f = c <= 3 ? cell.fill : null;
+      if (
+        f &&
+        f.type === 'pattern' &&
+        f.pattern === 'solid' &&
+        typeof f.fgColor?.argb === 'string'
+      )
+        out.fill = f.fgColor.argb;
+      cells.push(out);
     });
     sparse.push({ r, cells });
   });

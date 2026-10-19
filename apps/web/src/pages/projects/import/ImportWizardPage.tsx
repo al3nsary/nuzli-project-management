@@ -38,14 +38,23 @@ import {
   IconFileTypeCsv,
   IconFileTypeXml,
   IconInfoCircle,
+  IconListTree,
   IconLock,
+  IconScanEye,
+  IconTimeline,
   IconX,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
-import { importJiraSchema, type ImportFormat, type ImportPreviewDto } from '@nuzli/shared';
+import {
+  importJiraSchema,
+  type ImportFileFormat,
+  type ImportFormat,
+  type ImportPreviewDto,
+} from '@nuzli/shared';
 import { useApi } from '../../../api/context';
 import { ApiError } from '../../../api/errors';
 import { PageHeader } from '../../../components/ui';
+import { blobToArrayBuffer } from '../../../lib/bytes';
 import { formatNumber, t, type MessageKey } from '../../../i18n';
 import {
   checkImportFile,
@@ -111,6 +120,7 @@ const STEP_LABELS: MessageKey[] = [
 ];
 
 const SOURCE_ICON: Record<ImportSource, typeof IconFileText> = {
+  ganttpro: IconTimeline,
   xlsx: IconFileSpreadsheet,
   csv: IconFileTypeCsv,
   xml: IconFileTypeXml,
@@ -241,6 +251,7 @@ export function ImportWizardPage() {
             format={source}
             file={file}
             onFile={setFile}
+            onSwitch={(s, f) => chooseSource(s, f)}
             onBack={() => go({ source: null, step: 1 })}
             onUseXml={() => chooseSource('xml')}
             onPreview={(pv) => {
@@ -277,41 +288,113 @@ function SourceStep({
   onSample(s: (typeof SAMPLES)[number]): void;
   demo: boolean;
 }) {
+  const card = (src: ImportSource) => {
+    const Icon = SOURCE_ICON[src];
+    const serverOnly = demo && (src === 'mpp' || src === 'jira-cloud');
+    return (
+      <div key={src} role="listitem" className="nz-imp-source-item">
+        <UnstyledButton
+          className="nz-imp-source surface-card"
+          onClick={() => onChoose(src)}
+          data-source={src}
+        >
+          <span className="nz-imp-source-icon" aria-hidden>
+            <Icon size={22} />
+          </span>
+          <span className="nz-imp-source-body">
+            <span className="nz-imp-source-title">{t(SOURCE_KEYS[src]!.title)}</span>
+            <span className="nz-imp-source-hint">{t(SOURCE_KEYS[src]!.hint)}</span>
+            {serverOnly ? (
+              <span className="pill wait nz-imp-source-pill">
+                {t('import.source.needsServer')}
+              </span>
+            ) : null}
+          </span>
+        </UnstyledButton>
+      </div>
+    );
+  };
   return (
     <Stack gap="lg">
-      <SimpleGrid
-        cols={{ base: 1, xs: 2, md: 3 }}
-        spacing="md"
-        role="list"
-        aria-label={t('import.step.source')}
-      >
-        {IMPORT_SOURCES.map((s) => {
-          const Icon = SOURCE_ICON[s];
-          const serverOnly = demo && (s === 'mpp' || s === 'jira-cloud');
-          return (
-            <div key={s} role="listitem" className="nz-imp-source-item">
-              <UnstyledButton
-                className="nz-imp-source surface-card"
-                onClick={() => onChoose(s)}
-                data-source={s}
-              >
-                <span className="nz-imp-source-icon" aria-hidden>
-                  <Icon size={22} />
+      {/* A10: ready projects from GanttPRO and Microsoft Project come first. */}
+      <section className="nz-imp-ready" aria-labelledby="imp-ready">
+        <Text id="imp-ready" fw={700} className="nz-imp-section-title">
+          {t('import.source.readyTitle')}
+        </Text>
+        <Text size="sm" c="dimmed" mb="sm">
+          {t('import.source.readyLead')}
+        </Text>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md" role="list">
+          <div role="listitem" className="nz-imp-source-item">
+            <UnstyledButton
+              className="nz-imp-source nz-imp-featured surface-card"
+              onClick={() => onChoose('ganttpro')}
+              data-source="ganttpro"
+            >
+              <span className="nz-imp-source-icon nz-imp-featured-icon" aria-hidden>
+                <IconTimeline size={26} />
+              </span>
+              <span className="nz-imp-source-body">
+                <span className="nz-imp-source-title">{t('import.source.ganttpro')}</span>
+                <span className="nz-imp-source-hint">{t('import.source.ganttproHint')}</span>
+                <span className="nz-imp-how" dir="rtl">
+                  {t('import.source.ganttproHow')}
                 </span>
-                <span className="nz-imp-source-body">
-                  <span className="nz-imp-source-title">{t(SOURCE_KEYS[s]!.title)}</span>
-                  <span className="nz-imp-source-hint">{t(SOURCE_KEYS[s]!.hint)}</span>
-                  {serverOnly ? (
-                    <span className="pill wait nz-imp-source-pill">
-                      {t('import.source.needsServer')}
-                    </span>
-                  ) : null}
+              </span>
+            </UnstyledButton>
+          </div>
+          <div role="listitem" className="nz-imp-source-item">
+            <div className="nz-imp-source nz-imp-featured surface-card" data-source="msproject">
+              <span className="nz-imp-source-icon nz-imp-featured-icon" aria-hidden>
+                <IconListTree size={26} />
+              </span>
+              <span className="nz-imp-source-body">
+                <span className="nz-imp-source-title">{t('import.source.msproject')}</span>
+                <span className="nz-imp-source-hint">{t('import.source.msprojectHint')}</span>
+                <span className="nz-imp-how" dir="rtl">
+                  {t('import.source.msprojectHow')}
                 </span>
-              </UnstyledButton>
+                <Group gap={8} mt={6} wrap="wrap">
+                  <Button
+                    size="xs"
+                    leftSection={<IconFileTypeXml size={16} />}
+                    onClick={() => onChoose('xml')}
+                    data-source="xml"
+                    aria-label={`${t('import.source.xml')} — ${t('import.source.xmlHint')}`}
+                  >
+                    {t('import.source.xmlButton')}
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="default"
+                    leftSection={<IconFileText size={16} />}
+                    onClick={() => onChoose('mpp')}
+                    data-source="mpp"
+                    aria-label={`${t('import.source.mpp')} — ${t('import.source.mppHint')}`}
+                    rightSection={
+                      demo ? (
+                        <span className="pill wait nz-imp-source-pill">
+                          {t('import.source.needsServer')}
+                        </span>
+                      ) : undefined
+                    }
+                  >
+                    {t('import.source.mppButton')}
+                  </Button>
+                </Group>
+              </span>
             </div>
-          );
-        })}
-      </SimpleGrid>
+          </div>
+        </SimpleGrid>
+      </section>
+      <section aria-labelledby="imp-table">
+        <Text id="imp-table" fw={700} className="nz-imp-section-title" mb="sm">
+          {t('import.source.tableTitle')}
+        </Text>
+        <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md" role="list">
+          {(['xlsx', 'csv', 'jira-csv', 'jira-cloud'] as const).map(card)}
+        </SimpleGrid>
+      </section>
       <div className="nz-imp-samples surface-card">
         <Text fw={600} mb={4}>
           {t('import.sample.title')}
@@ -356,13 +439,16 @@ function FileStep({
   format,
   file,
   onFile,
+  onSwitch,
   onBack,
   onUseXml,
   onPreview,
 }: {
-  format: ImportFormat;
+  format: ImportFileFormat;
   file: File | null;
   onFile(f: File | null): void;
+  /** A10: MS Project XML ↔ .mpp follow the picked file's extension. */
+  onSwitch(source: ImportFileFormat, f: File): void;
   onBack(): void;
   onUseXml(): void;
   onPreview(pv: ImportPreviewDto): void;
@@ -380,18 +466,25 @@ function FileStep({
   const [error, setError] = useState<unknown>(null);
   const problem = file ? checkImportFile(file, format) : null;
   const tabular = format === 'xlsx' || format === 'csv' || format === 'jira-csv';
+  const workbook = format === 'xlsx' || format === 'ganttpro';
+  const [isGanttpro, setIsGanttpro] = useState(false);
 
-  // Excel: the sheet names (read in the browser; the server reads the chosen one).
+  // Excel: the sheet names and whether it is a GanttPRO export (read in the browser; the server
+  // reads the chosen sheet and decides the format from the content again).
   useEffect(() => {
     setSheets([]);
     setSheet(null);
-    if (!file || format !== 'xlsx' || problem) return;
+    setIsGanttpro(false);
+    if (!file || !workbook || problem) return;
     let live = true;
     void (async () => {
       try {
-        const { xlsxSheetNames } = await import('../../../features/imports/tabular');
-        const names = await xlsxSheetNames(new Uint8Array(await file.arrayBuffer()));
-        if (live) setSheets(names);
+        const { xlsxSummary } = await import('../../../features/imports/tabular');
+        const info = await xlsxSummary(new Uint8Array(await blobToArrayBuffer(file)));
+        if (live) {
+          setSheets(info.sheets);
+          setIsGanttpro(info.ganttpro);
+        }
       } catch (err) {
         if (live) setError(err);
       }
@@ -399,11 +492,18 @@ function FileStep({
     return () => {
       live = false;
     };
-  }, [file, format, problem]);
+  }, [file, workbook, problem]);
 
   const pick = (f: File | undefined | null) => {
     setError(null);
-    if (f) onFile(f);
+    if (!f) return;
+    // A10: «Microsoft Project (XML / MPP)» is one source — the extension picks the reader.
+    const guessed = formatOfName(f.name);
+    if ((format === 'xml' || format === 'mpp') && (guessed === 'xml' || guessed === 'mpp') && guessed !== format) {
+      onSwitch(guessed, f);
+      return;
+    }
+    onFile(f);
   };
 
   const onDrop = (e: DragEvent) => {
@@ -443,14 +543,16 @@ function FileStep({
   const mppError =
     error instanceof ApiError &&
     (error.code === 'MPP_CONVERTER_NOT_CONFIGURED' || error.code === 'MPP_CONVERSION_FAILED');
-  const accept =
-    format === 'xlsx'
-      ? `${FORMAT_FILE.xlsx.ext},${FORMAT_FILE.xlsx.contentType}`
+  const accept = workbook
+    ? `${FORMAT_FILE.xlsx.ext},${FORMAT_FILE.xlsx.contentType}`
+    : format === 'xml' || format === 'mpp'
+      ? '.xml,.mpp'
       : FORMAT_FILE[format].ext;
 
   return (
     <Stack gap="md" className="nz-imp-panel">
       <Text fw={600}>{t('import.file.title', { source: t(SOURCE_KEYS[format]!.title) })}</Text>
+      {format === 'ganttpro' || format === 'xml' ? <HowTo format={format} /> : null}
       {format === 'mpp' && api.mode === 'demo' ? <MppHelp tone="info" onUseXml={onUseXml} /> : null}
       <div
         className="nz-imp-drop"
@@ -503,6 +605,17 @@ function FileStep({
           </UnstyledButton>
         </div>
       ) : null}
+      {file && isGanttpro && !problem ? (
+        <Alert
+          color="ok"
+          variant="light"
+          icon={<IconScanEye size={18} />}
+          title={t('import.detected.ganttpro')}
+          data-testid="import-detected-file"
+        >
+          <Text size="sm">{t('import.detected.fileStep')}</Text>
+        </Alert>
+      ) : null}
       {problem ? (
         <Alert color="breach" icon={<IconAlertTriangle size={18} />} role="alert">
           {problem === 'type'
@@ -517,7 +630,7 @@ function FileStep({
       ) : null}
 
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-        {format === 'xlsx' && sheets.length > 1 ? (
+        {workbook && sheets.length > 1 ? (
           <Select
             label={t('import.opt.sheet')}
             description={t('import.opt.sheetHint')}
@@ -586,7 +699,21 @@ function FileStep({
   );
 }
 
-function suggestion(name: string, format: ImportFormat): string {
+/** A10: how to get the file out of GanttPRO / MS Project (text and icons only, no third-party logos). */
+function HowTo({ format }: { format: 'ganttpro' | 'xml' }) {
+  const k = format === 'ganttpro' ? 'ganttpro' : 'msproject';
+  return (
+    <Alert color="signal" variant="light" icon={<IconInfoCircle size={18} />} title={t('import.how.title')}>
+      <List size="sm" type="ordered" spacing={2}>
+        <List.Item>{t(`import.how.${k}.1` as MessageKey)}</List.Item>
+        <List.Item>{t(`import.how.${k}.2` as MessageKey)}</List.Item>
+        <List.Item>{t(`import.how.${k}.3` as MessageKey)}</List.Item>
+      </List>
+    </Alert>
+  );
+}
+
+function suggestion(name: string, format: ImportFileFormat): string {
   const guessed = formatOfName(name);
   if (!guessed || guessed === format) return '';
   return t('import.file.suggest', { source: t(SOURCE_KEYS[guessed]!.title) });

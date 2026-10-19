@@ -77,6 +77,7 @@ import {
 import { notificationPreview, preview } from '../../features/projects/reports';
 import { buildTasksCsv, buildTasksWorkbook, type TaskExportRow } from '../../features/projects/excel';
 import { writeMspdi } from '../../features/imports/mspdi';
+import { writeGanttpro } from '../../features/imports/ganttpro';
 import { workbookToBlob } from '../../features/violations/excel';
 import type { DemoCalendar, DemoDependency, DemoFile, DemoProject, DemoTask, DemoUser } from './db';
 import type { DemoInternals } from './phase2';
@@ -914,6 +915,47 @@ export function createPhase4(
           })),
         });
         blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+      } else if (format === 'ganttpro') {
+        // A10 (ADR-125, ADR-130): GanttPRO's Excel layout; the GanttPRO importer reads it back identically.
+        const bytes = await writeGanttpro({
+          name: g.project.name,
+          unit,
+          generatedAt,
+          calendar: {
+            name: g.calendar.name,
+            weekendDays: g.calendar.weekendDays,
+            workingHours: g.calendar.workingHours ?? DEFAULT_WORKING_HOURS,
+            exceptions: g.calendar.exceptions.map((e) => ({ date: e.date, isWorking: e.isWorking, name: e.name, workingHours: e.workingHours ?? null })),
+          },
+          tasks: g.tasks.map((t) => ({
+            id: t.id,
+            parentId: t.parentId,
+            wbs: t.wbs,
+            name: t.name,
+            type: t.type,
+            startDate: t.startDate,
+            endDate: t.endDate,
+            durationDays: t.durationDays,
+            ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
+            progress: t.progress,
+            status: t.status,
+            priority: t.priority,
+            assigneeName: t.assignee?.fullName ?? null,
+            description: t.description,
+            plannedCost: t.plannedCost ?? 0,
+            actualCost: t.actualCost ?? 0,
+            deadline: t.deadline ?? null,
+            barColor: t.barColor ?? null,
+          })),
+          deps: g.dependencies.map((d) => ({
+            predecessorId: d.predecessorId,
+            successorId: d.successorId,
+            type: d.type,
+            lagDays: d.lagDays,
+            lagMinutes: d.lagHours !== undefined ? Math.round(d.lagHours * 60) : 0,
+          })),
+        });
+        blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       } else {
         const wb = await buildTasksWorkbook(
           {

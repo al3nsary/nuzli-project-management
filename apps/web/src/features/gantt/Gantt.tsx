@@ -327,7 +327,11 @@ export function Gantt(props: GanttProps) {
       const centreX = zoom === 'hour' ? xOfPos(scale, centerDay.current + 13 / 24) : dayStartX(scale, centerDay.current);
       left = Math.max(0, Math.min(scale.width - vw, centreX - vw / 2));
     } else {
-      const anchor = Math.max(toDayNumber(data.project.startDate), Math.min(today, scale.endDay));
+      // Today when it falls inside the project's span; otherwise its start (A10: an imported
+      // project that ended before today used to open on an empty «now»).
+      const startDay = toDayNumber(data.project.startDate);
+      const lastDay = data.tasks.reduce((m, t) => Math.max(m, toDayNumber(t.endDate)), startDay);
+      const anchor = today >= startDay && today <= lastDay ? today : startDay;
       left = unit === 'HOUR' ? Math.max(0, Math.min(scale.width - vw, xOfPos(scale, anchor + 9 / 24) - vw * 0.8)) : scrollLeftFor(scale, anchor, vw);
     }
     anchored.current = { project: data.project.id, zoom, width: vw };
@@ -350,7 +354,7 @@ export function Gantt(props: GanttProps) {
       requestAnimationFrame(retry);
     };
     if (Math.abs(apply() - left) > 1) requestAnimationFrame(retry);
-  }, [data.project.id, data.project.startDate, zoom, scale, today, view.width, unit]);
+  }, [data.project.id, data.project.startDate, data.tasks, zoom, scale, today, view.width, unit]);
 
   const frame = useRef(0);
   const onBodyScroll = useCallback(() => {

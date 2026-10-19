@@ -291,3 +291,34 @@
     flex: 1 1 40%;
   }
 }
+
+/* ---- A10: ready projects (GanttPRO, Microsoft Project) first; text + icons, no third-party logos */
+.nz-imp-section-title {
+  font-size: 14.5px;
+  color: var(--ink);
+}
+.nz-imp-featured {
+  border-color: var(--line2);
+  min-height: 132px;
+  cursor: default;
+}
+button.nz-imp-featured {
+  cursor: pointer;
+}
+.nz-imp-featured-icon {
+  inline-size: 48px;
+  block-size: 48px;
+  border-radius: 14px;
+  background: var(--primary);
+  color: #fff;
+}
+.nz-imp-how {
+  align-self: flex-start;
+  margin-block-start: 4px;
+  padding: 2px 10px;
+  border-radius: var(--r4, 9px);
+  background: var(--tint);
+  color: var(--primary);
+  font-size: 12.5px;
+  font-weight: 600;
+}

@@ -61,6 +61,7 @@ import { ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { VestBand } from '../../theme/VestBand';
 import { MemberAvatar } from '../../components/UserAvatar';
 import { scrollInline } from '../../lib/direction';
+import { EDGE_SAFE_MIDDLEWARES, revealTarget } from '../../lib/floating';
 import { formatNumber, localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
 import { useOverlayParam } from '../../lib/useUrlState';
@@ -141,6 +142,7 @@ const MemberCard = memo(function MemberCard({
     id: member.id,
     data: { from: colOf(member) },
   });
+  const menuTarget = useRef<HTMLButtonElement>(null);
   const style: CSSProperties = {
     opacity: isDragging || (dragging && selected) ? 0.4 : 1,
     ['--team' as string]: member.team?.color.hex ?? 'var(--muted)',
@@ -192,9 +194,17 @@ const MemberCard = memo(function MemberCard({
         </span>
       </button>
       {onForeman && member.team ? (
-        <Menu position="bottom-end" width={220} shadow="md" withinPortal>
+        <Menu
+          position="bottom-end"
+          width={220}
+          shadow="md"
+          withinPortal
+          middlewares={EDGE_SAFE_MIDDLEWARES}
+          onOpen={() => revealTarget(menuTarget.current)}
+        >
           <Menu.Target>
             <ActionIcon
+              ref={menuTarget}
               variant="subtle"
               color="slate"
               size={32}

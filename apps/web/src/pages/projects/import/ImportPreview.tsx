@@ -9,6 +9,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Badge,
   Button,
   Group,
@@ -21,7 +22,7 @@ import {
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconUserQuestion } from '@tabler/icons-react';
+import { IconAlertTriangle, IconScanEye, IconUserQuestion } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ImportPreviewDto } from '@nuzli/shared';
 import { useApi } from '../../../api/context';
@@ -45,8 +46,10 @@ import {
   formatLocalTime,
   formatNumber,
   getDisplayPrefs,
+  hasKey,
   t,
   tKey,
+  type MessageKey,
   tCount,
 } from '../../../i18n';
 import { ImportErrorAlert } from './ImportWizardPage';
@@ -138,6 +141,10 @@ export function ImportPreview({
   const localLabel = (v: string) =>
     v.length > 10 ? `${formatDate(v.slice(0, 10))} ${formatLocalTime(v)}` : formatDate(v);
   const holidays = cal.exceptions.filter((e) => !e.isWorking).length;
+  // A10: the format the content was recognised as (a GanttPRO export chosen as «Excel», …).
+  const detected = pv.detectedFormat ?? pv.format;
+  const formatName = (f: string) => tKey(`import.format.${f}`, 'import.format.other');
+  const sourceTypes = Object.entries(pv.stats.sourceTypes ?? {});
   const warnings = showAllWarnings ? pv.warnings : pv.warnings.slice(0, 6);
 
   const commit = async () => {
@@ -181,6 +188,30 @@ export function ImportPreview({
 
   return (
     <Stack gap="lg" className="nz-imp-preview">
+      {detected !== pv.format || detected === 'ganttpro' ? (
+        <Alert
+          color="ok"
+          variant="light"
+          icon={<IconScanEye size={18} />}
+          title={
+            detected === 'ganttpro'
+              ? t('import.detected.ganttpro')
+              : detected === 'xml'
+                ? t('import.detected.xml')
+                : t('import.detected.other', { format: formatName(detected) })
+          }
+          data-testid="import-detected"
+        >
+          <Stack gap={4}>
+            {detected !== pv.format ? (
+              <Text size="sm">{t('import.detected.differs', { chosen: formatName(pv.format) })}</Text>
+            ) : null}
+            {detected === 'ganttpro' ? (
+              <Text size="sm">{t('import.detected.ganttproBody')}</Text>
+            ) : null}
+          </Stack>
+        </Alert>
+      ) : null}
       {/* Summary */}
       <section className="nz-imp-card surface-card" aria-labelledby="imp-sum">
         <Text id="imp-sum" fw={600} mb="sm">
@@ -209,7 +240,7 @@ export function ImportPreview({
           </div>
           <div className="nz-imp-fact">
             <span className="nz-imp-fact-label">{t('import.preview.format')}</span>
-            <span>{tKey(`import.format.${pv.format}`, 'import.format.other')}</span>
+            <span data-testid="import-format">{formatName(detected)}</span>
           </div>
         </div>
         <div className="nz-imp-cal" aria-label={t('import.preview.calendar')}>
@@ -249,12 +280,33 @@ export function ImportPreview({
           <Stat label={t('import.stats.groups')} value={pv.stats.groupCount} />
           <Stat label={t('import.stats.milestones')} value={pv.stats.milestoneCount} />
           <Stat label={t('import.stats.links')} value={pv.stats.dependencyCount} />
+          {pv.stats.maxLevel ? <Stat label={t('import.stats.levels')} value={pv.stats.maxLevel} /> : null}
+          {pv.stats.colorCount ? <Stat label={t('import.stats.colors')} value={pv.stats.colorCount} /> : null}
+          {pv.stats.deadlineCount ? (
+            <Stat label={t('import.stats.deadlines')} value={pv.stats.deadlineCount} />
+          ) : null}
           <Stat
             label={t('import.stats.warnings')}
             value={pv.warnings.length}
             tone={pv.warnings.length ? 'wait' : undefined}
           />
         </div>
+        {sourceTypes.length ? (
+          <Text size="xs" c="dimmed" mt="xs" data-testid="import-source-types">
+            {t('import.stats.sourceTypes', {
+              list: sourceTypes
+                .map(([k, n]) =>
+                  hasKey(`import.stats.sourceType.${k}`)
+                    ? t(`import.stats.sourceType.${k}` as MessageKey, { n: formatNumber(n) })
+                    : `${k}: ${formatNumber(n)}`,
+                )
+                .join('، '),
+            })}
+            {pv.stats.estimatedHours || pv.stats.timeLogMinutes
+              ? ` · ${t('import.stats.notImported', { hours: formatNumber(pv.stats.estimatedHours ?? 0), minutes: formatNumber(pv.stats.timeLogMinutes ?? 0) })}`
+              : ''}
+          </Text>
+        ) : null}
       </section>
 
       {/* Warnings */}
@@ -275,7 +327,7 @@ export function ImportPreview({
                 <Badge size="sm" variant="light" color="signal" className="nz-imp-warn-code">
                   {warningLabel(w.code)}
                 </Badge>
-                <span>{w.message_ar}</span>
+                <span>{isolateRanges(w.message_ar)}</span>
                 {w.row ? (
                   <span className="nz-imp-dim num">
                     {t('import.warnings.row', { n: formatNumber(w.row) })}
@@ -440,6 +492,13 @@ export function ImportPreview({
     </Stack>
   );
 }
+
+/**
+ * Time and number ranges in the server's Arabic text («10:00–14:00») are isolated left-to-right,
+ * else the bidi algorithm shows them reversed («14:00–10:00») inside the Arabic sentence.
+ */
+export const isolateRanges = (s: string): string =>
+  s.replace(/\d{1,2}:\d{2}\s*[–-]\s*\d{1,2}:\d{2}/g, (m) => `⁦${m}⁩`);
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: 'wait' }) {
   return (
