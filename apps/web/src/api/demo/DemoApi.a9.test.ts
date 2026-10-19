@@ -4,13 +4,16 @@
  * checklists, duplicate, bulk, restore, templates, portfolios, time log, view preferences,
  * reports, workload, the hub, the chat and HOUR projects.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DemoApi } from './DemoApi';
 import { DEMO_PASSWORD } from './constants';
 import { ApiError } from '../errors';
 
 let n = 0;
 let api: DemoApi;
+afterEach(() => {
+  vi.useRealTimers();
+});
 beforeEach(() => {
   api = new DemoApi({ dbName: `nuzli-demo-a9-${Date.now()}-${n++}` });
 });
@@ -264,6 +267,8 @@ describe('templates and portfolios (ADR-094)', () => {
 describe('time log (ADR-096)', () => {
   it('supervisors log on their own tasks; others are hidden; admins log for anyone', async () => {
     const { a, b } = await smallProject();
+    // Entry dates are bounded to today − 366 … today + 7 days (security review A9 L3).
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-02T08:00:00Z') });
     await loginAs(SUP1);
     const e = await api.tasks.addTimeEntry(a.id, { date: '2026-11-01', minutes: 90, note: 'تجهيز' });
     expect(e).toMatchObject({ minutes: 90, user: { id: SUP1_ID }, task: { name: 'أ' } });
@@ -305,7 +310,9 @@ describe('read models (ADR-096)', () => {
     const project = await api.projects.create({ name: 'عبء', startDate: '2027-06-06' });
     const a = await api.tasks.create(project.id, { name: 'أ', startDate: '2027-06-06', durationDays: 2, assigneeId: SUP1_ID });
     await api.tasks.create(project.id, { name: 'متزامنة', startDate: '2027-06-06', durationDays: 1, assigneeId: SUP1_ID });
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-06-07T08:00:00Z') });
     await api.tasks.addTimeEntry(a.id, { date: '2027-06-06', minutes: 45, userId: SUP1_ID });
+    vi.useRealTimers();
     const w = await api.workload({ from: '2027-06-06', to: '2027-06-08', userIds: [SUP1_ID] });
     expect(w.capacityMinutesPerDay).toBe(480);
     const row = w.people[0]!;

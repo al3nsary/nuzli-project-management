@@ -1,6 +1,7 @@
 import {
   ALLOWED_IMAGE_TYPES,
   ERRORS,
+  MAX_IMPORT_BYTES,
   MAX_UPLOAD_BYTES,
   assignViolationSchema,
   nationalIdKind,
@@ -63,6 +64,7 @@ import type {
 } from './db';
 import type { DemoInternals } from './phase2';
 import { sniffImageType } from './phase2';
+import { verifyImportBytes } from '../../features/imports/files';
 import { drawIdCard, drawPlaceholder, drawPortrait } from './placeholderImage';
 import { fail, newId, paginate, sameName, validate } from './util';
 
@@ -437,6 +439,8 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         await api.beforePhotoPresign(data, actor);
       }
       if (data.entityType === 'logo' && (data.entityId || !can(actor, 'logos.manage'))) fail('FORBIDDEN');
+      // A9 imports (ADR-110): admins only (projects.create), no entityId/kind, ≤ 20 MB (schema).
+      if (data.entityType === 'import' && !can(actor, 'projects.create')) fail('FORBIDDEN');
       if (data.entityType === 'task') await api.beforeTaskPresign?.(data, actor);
       if (data.entityType === 'violation') {
         if (!data.entityId || (data.kind !== 'ID_CARD' && data.kind !== 'EVIDENCE' && data.kind !== 'PERSON')) {
@@ -504,6 +508,14 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         const obj = await db.objects.get(fileId);
         if (!obj) fail('FILE_NOT_UPLOADED');
         const bytes = new Uint8Array(obj.data);
+        if (file.entityType === 'import') {
+          // A structure check instead of an image sniff (verifyImportBytes, like the API).
+          if (file.createdById !== actor.id) fail('NOT_FOUND');
+          if (bytes.byteLength > MAX_IMPORT_BYTES) throw ApiError.of('FILE_TOO_LARGE', 413);
+          if (!verifyImportBytes(bytes, file.mimeType)) throw ApiError.of('FILE_TYPE_NOT_ALLOWED', 400);
+          await db.files.update(fileId, { status: 'READY' });
+          return { id: fileId, status: 'READY' as const };
+        }
         if (bytes.byteLength > MAX_UPLOAD_BYTES) throw ApiError.of('FILE_TOO_LARGE', 413);
         const isPdf = String.fromCharCode(...bytes.slice(0, 4)) === '%PDF';
         const sniffed = isPdf ? 'application/pdf' : sniffImageType(bytes);
@@ -1119,9 +1131,10 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
 
     registerMember: async (id, input) => {
       network();
+      // A9 security review (ADR-118): admins only — supervisors and monitors get 403.
       const viewer = await api.actor();
-      const isAdmin = can(viewer, 'members.manage');
-      if (!isAdmin && !can(viewer, 'members.manageOwn')) fail('FORBIDDEN');
+      if (!can(viewer, 'members.manage')) fail('FORBIDDEN');
+      const isAdmin = true;
       const data = validate(registerViolationMemberSchema, input);
       const w = await world();
       // A supervisor cannot see an unassigned violation; their right comes from the team they lead.
@@ -1134,6 +1147,13 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         if (!team) fail('NOT_FOUND', { field: 'teamId' });
         if (!isAdmin && !leadsNow(w, team.id, viewer.id)) fail('NOT_FOUND');
         if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
+        // M1: a membership backdated to captured_at only for a recent capture (and not from the future).
+        const maxAgeDays = w.settings.VIOLATION_REGISTER_MAX_AGE_DAYS ?? 30;
+        const driftMinutes = w.settings.CLOCK_DRIFT_THRESHOLD_MINUTES ?? 10;
+        const age = Date.now() - Date.parse(v.capturedAt);
+        if (age > maxAgeDays * 86_400_000 || age < -driftMinutes * 60_000) {
+          fail('VIOLATION_TOO_OLD_TO_REGISTER', { maxAgeDays, capturedAt: v.capturedAt });
+        }
       }
       for (const [field, kind, refId] of [
         ['jobTitleId', 'job-titles', data.jobTitleId],

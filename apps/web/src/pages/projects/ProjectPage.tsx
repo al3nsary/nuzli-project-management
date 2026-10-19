@@ -49,6 +49,8 @@ import {
   IconDots,
   IconDownload,
   IconFileSpreadsheet,
+  IconFileTypeCsv,
+  IconFileTypeXml,
   IconFileTypePdf,
   IconFilter,
   IconFolder,
@@ -70,7 +72,7 @@ import {
   IconChartArcs,
 } from '@tabler/icons-react';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { can, type PhotoUrlDto, type Priority, type TaskDto, type TaskStatus } from '@nuzli/shared';
+import { can, type PhotoUrlDto, type ProjectExportFormat, type Priority, type TaskDto, type TaskStatus } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { ApiError, errorMessage } from '../../api/errors';
 import { useGantt } from '../../api/projectQueries';
@@ -645,16 +647,18 @@ function ProjectBody(p: BodyProps) {
     const span = to - from;
     printGantt({ data, fromDay: from - 2, toDay: to + 2, zoom: span > 400 ? 'quarter' : span > 120 ? 'month' : span < 20 ? 'day' : 'week', showHijri, digits });
   };
-  const exportXlsx = async () => {
+  /** A9 exports (ADR-110): xlsx (RTL, never frozen), CSV (UTF-8 BOM) and MS Project XML. */
+  const exportFile = async (format: ProjectExportFormat) => {
     setExporting(true);
     try {
-      const blob = await api.projects.exportXlsx(data.project.id);
+      const blob = await api.projects.export(data.project.id, format);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `project-${riyadhToday()}.xlsx`;
+      a.download = `project-${riyadhToday()}.${format}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      notifications.show({ color: 'ok', message: t('gantt.exported', { format: t(`gantt.exportFormat.${format}`) }) });
     } catch (err) {
       notifications.show({ color: 'breach', message: errorMessage(err) });
     } finally {
@@ -766,8 +770,16 @@ function ProjectBody(p: BodyProps) {
                 <Menu.Item leftSection={<IconFileTypePdf size={16} />} onClick={exportPdf}>
                   {t('gantt.exportPdf')}
                 </Menu.Item>
-                <Menu.Item leftSection={<IconFileSpreadsheet size={16} />} onClick={() => void exportXlsx()}>
+                <Menu.Divider />
+                <Menu.Label>{t('gantt.exportData')}</Menu.Label>
+                <Menu.Item leftSection={<IconFileSpreadsheet size={16} />} onClick={() => void exportFile('xlsx')}>
                   {t('gantt.exportXlsx')}
+                </Menu.Item>
+                <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={() => void exportFile('csv')}>
+                  {t('gantt.exportCsv')}
+                </Menu.Item>
+                <Menu.Item leftSection={<IconFileTypeXml size={16} />} onClick={() => void exportFile('xml')}>
+                  {t('gantt.exportXml')}
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>

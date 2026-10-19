@@ -10,6 +10,7 @@ import {
   BULK_MAX,
   HUB_FILTERS,
   VIEW_PREF_MAX_BYTES,
+  VIEW_PREF_MAX_COUNT,
   attachmentBrowseQuerySchema,
   can,
   canAny,
@@ -146,7 +147,7 @@ export function jsonBytes(value: unknown): number {
 }
 
 /** Parents before children (insert order). */
-function topoOrder<T extends { id: string; parentId: string | null }>(tasks: readonly T[]): T[] {
+export function topoOrder<T extends { id: string; parentId: string | null }>(tasks: readonly T[]): T[] {
   const byParent = new Map<string | null, T[]>();
   const ids = new Set(tasks.map((t) => t.id));
   for (const t of tasks) {
@@ -185,6 +186,16 @@ export function rebaseTasks<T extends StoredTask>(
     const start = to.unit === 'HOUR' && t.startDate.length > 10 ? `${day}${t.startDate.slice(10, 16)}` : day;
     return normalizeLeaf({ ...t, startDate: start, deadline }, to.cal, to.unit === 'HOUR', to.unit);
   });
+}
+
+/** Security review A9 L3 (time-entries.service `assertEntryDate`): a year back … a week ahead (Riyadh). */
+export const TIME_ENTRY_PAST_DAYS = 366;
+export const TIME_ENTRY_FUTURE_DAYS = 7;
+export function assertEntryDate(date: string, now = new Date()): void {
+  const today = riyadhToday(now);
+  if (date < addCalendarDaysIso(today, -TIME_ENTRY_PAST_DAYS) || date > addCalendarDaysIso(today, TIME_ENTRY_FUTURE_DAYS)) {
+    fail('VALIDATION_FAILED', { fieldErrors: { date: ['التاريخ خارج المدى المسموح: من سنة مضت إلى أسبوع قادم.'] } });
+  }
 }
 
 export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
@@ -526,6 +537,8 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     // Someone else's entry is not revealed to a supervisor (404).
     if (!e || (!can(viewer, 'tasks.manage') && e.userId !== viewer.id)) fail('NOT_FOUND');
     const t = await db.tasks.get(e.taskId);
+    // Security review A9 L3: nor their own entry once the task is reassigned or archived.
+    if (!can(viewer, 'tasks.manage') && (!t || t.assigneeId !== viewer.id || t.archivedAt)) fail('NOT_FOUND');
     const p = t ? await db.projects.get(t.projectId) : undefined;
     if (p?.archivedAt) fail('PROJECT_ARCHIVED');
     return e;
@@ -977,6 +990,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       const viewer = await api.actor();
       if (!canAny(viewer, [...TASK_WORK])) fail('FORBIDDEN');
       const data = validate(timeEntrySchema, input);
+      assertEntryDate(data.date);
       const { task, project } = await core.visibleTask(id, viewer);
       if (project.archivedAt) fail('PROJECT_ARCHIVED');
       const admin = can(viewer, 'tasks.manage');
@@ -1018,6 +1032,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
         const viewer = await api.actor();
         if (!canAny(viewer, [...TASK_WORK])) fail('FORBIDDEN');
         const data = validate(updateTimeEntrySchema, input);
+        if (data.date !== undefined) assertEntryDate(data.date);
         const cur = await ownEntry(id, viewer);
         const next: DemoTimeEntry = {
           ...cur,
@@ -1066,6 +1081,11 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
         const projectId = data.projectId ?? null;
         if (projectId) await core.visibleProject(projectId, viewer);
         const row = { id: prefId(viewer.id, projectId, data.key), userId: viewer.id, projectId, key: data.key, value: structuredClone(data.value), updatedAt: new Date().toISOString() };
+        // Security review A9 L1: at most VIEW_PREF_MAX_COUNT stored preferences per user (a new key beyond → 409).
+        if (!(await db.viewPrefs.get(row.id))) {
+          const count = await db.viewPrefs.where('userId').equals(viewer.id).count();
+          if (count >= VIEW_PREF_MAX_COUNT) fail('VIEW_PREF_LIMIT', { max: VIEW_PREF_MAX_COUNT });
+        }
         await db.viewPrefs.put(row);
         return prefDto(row);
       },
@@ -1224,7 +1244,8 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
           return {
             task: { id: t.id, name: t.name, wbs: t.wbsCache, type: t.type, status: t.status, assignee: a ? { id: a.id, fullName: a.fullName } : null },
             project: { id: t.projectId, name: live.get(t.projectId)?.name ?? '' },
-            path: pathOf(t.parentId),
+            // A9 security review (ADR-117): parent group names are not a supervisor's to see.
+            path: admin ? pathOf(t.parentId) : [],
             commentCount: s.commentCount,
             unreadCount: s.unreadCount,
             lastReadAt: reads.get(t.id) ?? null,

@@ -74,6 +74,8 @@ const TeamViolationsPage = lazyPage(
 // Phase 4: projects and the Gantt (dnd-kit, exceljs and the scheduling engine stay lazy).
 const ProjectsPage = lazyPage(() => import('../pages/projects/ProjectsPage'), 'ProjectsPage', 'cards');
 const ProjectPage = lazyPage(() => import('../pages/projects/ProjectPage'), 'ProjectPage', 'gantt');
+// A9 imports (ADR-117): the parsers, exceljs and the Gantt load with the wizard only.
+const ImportWizardPage = lazyPage(() => import('../pages/projects/import/ImportWizardPage'), 'ImportWizardPage', 'detail');
 const MyTasksPage = lazyPage(() => import('../pages/projects/MyTasksPage'), 'MyTasksPage', 'tasks');
 const CalendarsPage = lazyPage(() => import('../pages/settings/CalendarsPage'), 'CalendarsPage', 'form');
 // A9: GanttPRO-style pages (owner request A9).
@@ -324,6 +326,14 @@ export const routes: RouteObject[] = [
         element: (
           <RequirePermission permission="projects.readAll">
             <ProjectsPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'projects/import',
+        element: (
+          <RequirePermission permission="projects.create">
+            <ImportWizardPage />
           </RequirePermission>
         ),
       },

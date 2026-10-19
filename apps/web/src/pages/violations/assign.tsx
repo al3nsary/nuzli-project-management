@@ -441,6 +441,12 @@ function RegisterMemberForm({
         }
       }
       if (err instanceof ApiError) setErrors(err.fieldErrors);
+      // A9 security review (ADR-118): a capture older than the setting cannot backdate a membership.
+      if (err instanceof ApiError && err.code === 'VIOLATION_TOO_OLD_TO_REGISTER') {
+        const days = (err.details as { maxAgeDays?: number } | undefined)?.maxAgeDays;
+        setError(days ? new ApiError(err.status, err.code, t('violations.register.tooOld', { days }), err.details) : err);
+        return;
+      }
       setError(err);
     } finally {
       setBusy(false);

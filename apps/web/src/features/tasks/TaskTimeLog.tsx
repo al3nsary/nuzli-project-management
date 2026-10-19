@@ -15,6 +15,7 @@ import { qkA9, useTaskTime } from '../../api/a9Queries';
 import { useUsers } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
 import { formatDate, formatMinutes, formatNumber, riyadhDay, t } from '../../i18n';
+import { addCalendarDaysIso } from '../projects/engine';
 
 interface Draft {
   date: string;
@@ -156,7 +157,7 @@ export function TaskTimeLog({ taskId, admin, canLog }: { taskId: string; admin: 
               />
             ) : null}
             <Group grow gap="xs" wrap="nowrap" align="flex-start">
-              <TextInput type="date" label={t('a9s.time.date')} value={draft.date} max={riyadhDay()} onChange={(e) => setDraft((d) => ({ ...d, date: e.currentTarget.value }))} />
+              <TextInput type="date" label={t('a9s.time.date')} value={draft.date} min={addCalendarDaysIso(riyadhDay(), -366)} max={riyadhDay()} onChange={(e) => setDraft((d) => ({ ...d, date: e.currentTarget.value }))} />
             </Group>
             <Group grow gap="xs" wrap="nowrap" align="flex-start">
               <NumberInput label={t('a9s.time.hours')} min={0} max={24} value={draft.hours} onChange={(v) => setDraft((d) => ({ ...d, hours: Number(v) || 0 }))} allowDecimal={false} />

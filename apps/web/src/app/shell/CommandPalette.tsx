@@ -71,8 +71,10 @@ export function paletteItems(
     out.push({ id: 'act:record', section: 'actions', label: t('palette.recordViolation'), icon: IconCamera, to: '/violations/new', hint: 'G R' });
   if (canAny(user, ['teams.create', 'teams.createOwn']))
     out.push({ id: 'act:team', section: 'actions', label: t('palette.createTeam'), icon: IconPlus, to: '/teams?create=1' });
-  if (can(user, 'projects.create'))
+  if (can(user, 'projects.create')) {
     out.push({ id: 'act:project', section: 'actions', label: t('palette.newProject'), icon: IconPlus, to: '/projects?create=1' });
+    out.push({ id: 'act:import', section: 'actions', label: t('palette.importProject'), icon: IconPlus, to: '/projects/import' });
+  }
   if (extra.toggleTheme)
     out.push({ id: 'act:theme', section: 'actions', label: extra.themeLabel ?? t('shell.darkMode'), icon: IconMoon, run: extra.toggleTheme });
   if (extra.openSheet)

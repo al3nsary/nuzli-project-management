@@ -1,3 +1,4 @@
+import type { ImportCommitResultDto, ImportPreviewDto } from '@nuzli/shared';
 import type {
   AuthSession,
   Paginated,
@@ -563,6 +564,8 @@ export class HttpApi implements ApiClient {
       this.request<void>('DELETE', `/projects/${enc(id)}/access/${enc(userId)}`),
     gantt: (id) => this.request<GanttView>('GET', `/projects/${enc(id)}/gantt`),
     exportXlsx: (id) => this.requestBlob(`/projects/${enc(id)}/export.xlsx`),
+    export: (id, format) => this.requestBlob(`/projects/${enc(id)}/export?format=${enc(format)}`),
+    convert: (id, durationUnit) => this.request<ProjectView>('POST', `/projects/${enc(id)}/convert`, { body: { durationUnit } }),
     budget: (id) => this.request<BudgetReportDto>('GET', `/projects/${enc(id)}/budget`),
     people: (id) => this.request<ProjectPersonDto[]>('GET', `/projects/${enc(id)}/people`),
     dashboard: (id) => this.request<ProjectDashboardDto>('GET', `/projects/${enc(id)}/dashboard`),
@@ -696,6 +699,25 @@ export class HttpApi implements ApiClient {
       'GET',
       `/workload${toQueryString({ from: q.from, to: q.to, userIds: q.userIds?.length ? q.userIds.join(',') : undefined })}`,
     );
+
+  imports: ApiClient['imports'] = {
+    upload: async (file, contentType, opts) => {
+      const presigned = await this.files.presign({
+        entityType: 'import',
+        contentType,
+        sizeBytes: file.size,
+        ...(await sha256Hex(file)),
+      });
+      // Exactly the canonical type the presign signed (never the browser's guess).
+      await this.files.upload(presigned, new Blob([file], { type: contentType }), opts);
+      opts?.onProgress?.(1);
+      await this.files.confirm(presigned.fileId);
+      return { fileId: presigned.fileId };
+    },
+    preview: (input) => this.request<ImportPreviewDto>('POST', '/projects/import', { body: input }),
+    jira: (input) => this.request<ImportPreviewDto>('POST', '/projects/import/jira', { body: input }),
+    commit: (input) => this.request<ImportCommitResultDto>('POST', '/projects/import/commit', { body: input }),
+  };
 
   hub: ApiClient['hub'] = {
     list: (q) => this.request<HubPageDto>('GET', `/hub${toQueryString(q)}`),

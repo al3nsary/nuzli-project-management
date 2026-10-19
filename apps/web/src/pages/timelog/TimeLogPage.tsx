@@ -16,6 +16,7 @@ import { addDays, startOfWeek, weekDays } from '../../features/calendar/calendar
 import { dayNumber, longDay, shortDate, weekdayNames } from '../../features/calendar/calendarFormat';
 import { QUICK_MINUTES, buildWeekGrid, splitMinutes, toMinutes, validMinutes, type TaskRef, type WeekRow } from '../../features/timelog/timelog';
 import cls from '../../features/timelog/TimeLog.module.css';
+import { addCalendarDaysIso } from '../../features/projects/engine';
 
 const WEEKEND = [5, 6];
 
@@ -445,7 +446,7 @@ function EntryModal({
             </>
           )}
 
-          <TextInput type="date" label={t('a9c.tl.date')} value={date} onChange={(e) => setDate(e.currentTarget.value)} required />
+          <TextInput type="date" label={t('a9c.tl.date')} value={date} min={addCalendarDaysIso(riyadhDay(), -366)} max={addCalendarDaysIso(riyadhDay(), 7)} onChange={(e) => setDate(e.currentTarget.value)} required />
 
           <div>
             <Group grow gap="sm" align="flex-start">

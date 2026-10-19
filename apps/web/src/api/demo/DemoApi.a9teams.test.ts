@@ -451,6 +451,21 @@ describe('violations recorded without a person (ADR-103)', () => {
     expect((await codeOf(api.violations.registerMember(second.id, { fullName: 'شخص', nationalId: validId('109384700'), teamId: TEAM(5) }))).code).toBe('FORBIDDEN');
   });
 
+  it('security review A9 (ADR-118): register-member is admin-only, and a capture older than VIOLATION_REGISTER_MAX_AGE_DAYS cannot backdate a membership (409)', async () => {
+    api.ocrEngine = async () => fakeEngine([]);
+    const { v } = await recordUnassigned();
+    await loginAs(SUP1);
+    expect((await codeOf(api.violations.registerMember(v.id, { fullName: 'شخص', nationalId: validId('109384711'), teamId: TEAM(1) }))).code).toBe('FORBIDDEN');
+    await loginAs(ADMIN);
+    const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    await api.db.violations.update(v.id, { capturedAt: old });
+    const err = await codeOf(api.violations.registerMember(v.id, { fullName: 'شخص', nationalId: validId('109384722'), teamId: TEAM(5) }));
+    expect([err.code, err.status]).toEqual(['VIOLATION_TOO_OLD_TO_REGISTER', 409]);
+    expect(err.details).toMatchObject({ maxAgeDays: 30, capturedAt: old });
+    await api.settings.update({ VIOLATION_REGISTER_MAX_AGE_DAYS: 60 });
+    expect((await api.violations.registerMember(v.id, { fullName: 'شخص', nationalId: validId('109384733'), teamId: TEAM(5) })).member.fullName).toBe('شخص');
+  });
+
   it('stats count unassigned violations; the assigned filter works on list, mine and stats', async () => {
     await loginAs(ADMIN);
     const all = await api.violations.stats({});

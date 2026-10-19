@@ -43,6 +43,7 @@ import { buildProjectSeed } from './seedProjects';
 import { seedViolations } from './seedViolations';
 import { seedA9Teams } from './seedA9Teams';
 import { createOrg } from './org';
+import { createImports, type ImportsApi } from './imports';
 import type { OcrRunner } from './ocrRunner';
 import { browserOcrEngine, type OcrEngine } from '../../features/violations/ocr/engine';
 import { fail, hashPassword, newId, paginate, rejectFullIdInUrl, validate } from './util';
@@ -100,6 +101,8 @@ export class DemoApi implements ApiClient {
   portfolios!: A9Api['portfolios'];
   workload!: A9Api['workload'];
   hub!: A9Api['hub'];
+  /** A9 imports (ADR-117): parsed in the browser with the API's rules. */
+  imports!: ImportsApi;
   /** @internal Phase 4 hooks used by the files module and tests. */
   phase4!: Phase4Hooks;
   photos!: ApiClient['photos'];
@@ -134,6 +137,7 @@ export class DemoApi implements ApiClient {
       workload: a9.workload,
       hub: a9.hub,
     });
+    this.imports = createImports(this as never, p4.core);
     this.org = createOrg(this);
     this.photoHooks = createPhotos(this);
     this.photos = this.photoHooks.photos;

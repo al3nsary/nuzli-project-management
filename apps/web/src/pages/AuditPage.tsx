@@ -86,6 +86,10 @@ export const AUDIT_ACTIONS = [
   'project.access_granted',
   'project.access_revoked',
   'project.exported',
+  // A9 imports, exports, hours (ADR-109..112)
+  'project.converted',
+  'project.import_previewed',
+  'project.imported',
   'task.created',
   'task.updated',
   'task.archived',
@@ -117,6 +121,9 @@ export const AUDIT_ACTIONS = [
   'violation.unassigned',
   'violation.member_registered',
   'violation.ocr_viewed',
+  // A9 security review (ADR-118)
+  'violation.ocr_retried',
+  'violation.person_photo_viewed',
 ] as const;
 
 const ENTITY_TYPES = [
@@ -142,6 +149,7 @@ const ENTITY_TYPES = [
   'org_unit',
   'org_position',
   'member',
+  'import',
 ] as const;
 
 function display(value: unknown, field: string): string {
@@ -157,6 +165,9 @@ function display(value: unknown, field: string): string {
   }
   if (field === 'severity') return tKey(`severity.${String(value)}`, 'common.none');
   if (field === 'priority') return tKey(`priority.${String(value)}`, 'common.none');
+  // A9: export/import formats and the duration unit.
+  if (field === 'format' || field === 'imported') return tKey(`import.format.${String(value)}`, 'import.format.other');
+  if (field === 'durationUnit') return tKey(`createProject.unit.${String(value)}`, 'common.none');
   if (typeof value === 'boolean') return value ? t('common.yes') : t('common.no');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
@@ -211,6 +222,12 @@ export function AuditDiff({ before, after }: { before: unknown; after: unknown }
   );
 }
 
+/** The file format of an export/import entry (`after.format`), shown next to the action. */
+const formatOf = (after: unknown): string | null => {
+  const f = after && typeof after === 'object' ? (after as { format?: unknown }).format : undefined;
+  return typeof f === 'string' ? f : null;
+};
+
 function Entry({ entry, targetName }: { entry: AuditEntryDto; targetName?: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -219,6 +236,11 @@ function Entry({ entry, targetName }: { entry: AuditEntryDto; targetName?: strin
         <Box style={{ minWidth: 0, flex: '1 1 280px' }}>
           <Group gap={8} wrap="wrap">
             <Text fw={600}>{tKey(`audit.action.${entry.action}`, 'audit.action.other')}</Text>
+            {formatOf(entry.after) ? (
+              <Badge color="field" variant="light" size="sm" data-testid="audit-format">
+                {tKey(`import.format.${formatOf(entry.after)}`, 'import.format.other')}
+              </Badge>
+            ) : null}
             <Badge color="slate" variant="outline" size="sm">
               {tKey(`audit.entity.${entry.entityType}`, 'audit.entity.other')}
               {targetName ? `: ${targetName}` : ''}

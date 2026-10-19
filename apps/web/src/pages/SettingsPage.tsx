@@ -28,6 +28,7 @@ const GROUPS: { title: MessageKey; keys: SettingKey[] }[] = [
       'CLOCK_DRIFT_THRESHOLD_MINUTES',
       'GPS_ACCURACY_WARN_METERS',
       'VIOLATION_PHOTO_RETENTION_DAYS',
+      'VIOLATION_REGISTER_MAX_AGE_DAYS',
     ],
   },
   { title: 'settings.group.files', keys: ['PRESIGNED_URL_TTL_SECONDS'] },

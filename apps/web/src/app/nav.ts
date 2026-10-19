@@ -376,6 +376,8 @@ export interface RouteMeta {
 
 export const ROUTE_META: RouteMeta[] = [
   { pattern: '/teams/:id', title: 'nav.teams', parent: '/teams', entity: 'team', activeId: 'teams' },
+  // A9 imports (ADR-117): before '/projects/:id' so the static path wins.
+  { pattern: '/projects/import', title: 'nav.importProject', parent: '/projects', activeId: 'projects' },
   { pattern: '/projects/:id', title: 'nav.projects', parent: '/projects', entity: 'project', activeId: 'projects' },
   // A9: the supervisor's task page (chat-style notes thread) under «مهامي».
   { pattern: '/my-tasks/:id', title: 'nav.myTasks', parent: '/my-tasks', entity: 'task', activeId: 'myTasks' },

@@ -173,6 +173,16 @@ import type {
   updateProjectSchemaH,
   updateTaskSchemaH,
 } from './hoursWire';
+import type { DurationUnit } from './hoursWire';
+import type { ImportContentType } from '../features/imports/files';
+import type {
+  ImportCommitInput,
+  ImportCommitResultDto,
+  ImportJiraInput,
+  ImportPreviewDto,
+  ImportProjectInput,
+  ProjectExportFormat,
+} from '@nuzli/shared';
 
 /**
  * The data contract between screens and the backend (docs/API.md, Phase 1).
@@ -533,6 +543,13 @@ export interface ApiClient {
     gantt(id: string): Promise<GanttView>;
     /** Tasks to Excel (ADR-019): RTL sheets, no freeze panes. */
     exportXlsx(id: string): Promise<Blob>;
+    /**
+     * A9 `GET /projects/:id/export?format=`: xlsx (RTL, never frozen), csv (UTF-8 BOM, formula guard)
+     * or xml (MS Project MSPDI). Audited `project.exported` with the format.
+     */
+    export(id: string, format: ProjectExportFormat): Promise<Blob>;
+    /** A9 `POST /projects/:id/convert` — DAY ↔ HOUR with the engine's conversions (ADR-109). */
+    convert(id: string, durationUnit: DurationUnit): Promise<ProjectView>;
     // A9
     budget(id: string): Promise<BudgetReportDto>;
     people(id: string): Promise<ProjectPersonDto[]>;
@@ -646,6 +663,21 @@ export interface ApiClient {
 
   /** `GET /workload?from&to&userIds` (≤ 92 days). */
   workload(query: { from: string; to: string; userIds?: string[] }): Promise<WorkloadDto>;
+
+  /**
+   * A9 project imports (docs/API.md «A9 — imports, exports, hours», ADR-110..112, ADR-117):
+   * upload (presign `entityType: 'import'` → PUT → confirm) → preview (kept one hour) → commit.
+   */
+  imports: {
+    /** One call for screens: presign with the canonical content type → PUT → confirm. */
+    upload(file: Blob, contentType: ImportContentType, opts?: UploadOptions): Promise<{ fileId: string }>;
+    /** `POST /projects/import` — 400 IMPORT_*, 413 IMPORT_TOO_MANY_TASKS, 501/502 MPP_*. */
+    preview(input: ImportProjectInput): Promise<ImportPreviewDto>;
+    /** `POST /projects/import/jira` — the token is used for this call only. */
+    jira(input: ImportJiraInput): Promise<ImportPreviewDto>;
+    /** `POST /projects/import/commit` — 410 IMPORT_PREVIEW_EXPIRED, 400 ASSIGNEE_NOT_SUPERVISOR. */
+    commit(input: ImportCommitInput): Promise<ImportCommitResultDto>;
+  };
 
   /** Communication hub (`GET /hub`) and the attachments browser (`GET /attachments`). */
   hub: {

@@ -1,0 +1,8 @@
+Summary,Issue key,Issue id,Issue Type,Status,Status Category,Assignee,Created,Due date,Custom field (Start date),Original Estimate,Parent,Custom field (Epic Link),Outward issue link (Blocks),Outward issue link (Blocks),Inward issue link (Blocks),Description
+تجهيز موقع الفعالية (تجريبي),EVT-1,20001,Epic,In Progress,In Progress,,25/Oct/26 9:00 AM,,,,,,,,,بيانات تجريبية لتجربة استيراد Jira
+تخطيط مواقع الخيام,EVT-2,20002,Story,Done,Done,فهد بن خالد الدوسري,26/Oct/26 10:00 AM,03/Nov/26,02/Nov/26,57600,,EVT-1,EVT-3,EVT-4,,
+نصب الخيام,EVT-3,20003,Task,In Progress,In Progress,سارة بنت عبدالعزيز الشهري,26/Oct/26 11:30 AM,08/Nov/26,04/Nov/26,86400,,EVT-1,EVT-7,,,
+تمديد الكهرباء المؤقتة,EVT-4,20004,Task,To Do,To Do,ماجد الغامدي,27/Oct/26 8:00 AM,,,57600,,EVT-1,,,,
+فحص السلامة,EVT-5,20005,Sub-task,To Do,To Do,ماجد الغامدي,27/Oct/26 8:05 AM,,,14400,20004,,,,,
+تشغيل الفعالية,EVT-6,20006,Epic,To Do,To Do,,28/Oct/26 9:00 AM,,,,,,,,,
+استقبال الزوار,EVT-7,20007,Task,Blocked,To Do,سارة بنت عبدالعزيز الشهري,28/Oct/26 9:30 AM,,,28800,,EVT-6,,,EVT-5,

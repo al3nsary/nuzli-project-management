@@ -373,6 +373,8 @@ export interface DemoDependency {
   successorId: string;
   type: DependencyType;
   lagDays: number;
+  /** A9 HOUR projects: lag in working minutes (`task_dependencies.lag_minutes`, ADR-109). */
+  lagMinutes?: number;
   createdAt: string;
 }
 
@@ -382,7 +384,7 @@ export interface DemoCalendar {
   weekendDays: number[];
   isDefault: boolean;
   createdAt: string;
-  exceptions: { id: string; date: string; isWorking: boolean; name: string }[];
+  exceptions: { id: string; date: string; isWorking: boolean; name: string; workingHours?: { start: string; end: string }[] | null }[];
   /** A9 HOUR projects: working intervals of a normal day (absent = 09:00–13:00, 14:00–18:00). */
   workingHours?: { start: string; end: string }[];
 }

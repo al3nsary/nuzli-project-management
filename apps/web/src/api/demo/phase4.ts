@@ -13,9 +13,11 @@
  * task → 404). HOUR projects (ADR-105) schedule in working minutes with the same engine.
  */
 import { detectCycle, tasksToDays, tasksToHours, wouldCreateCycle, type WorkCalendar } from '@nuzli/scheduling';
+import { ensureProjectCalendar, weekendFromWorkingDays } from './calendars';
 import {
   ENABLED_DEPENDENCY_TYPES,
   calendarExceptionSchema,
+  convertProjectSchema,
   can,
   canAny,
   createDependencySchema,
@@ -44,6 +46,7 @@ import {
   updateCalendarSchemaH,
   updateProjectSchemaH,
   updateTaskSchemaH,
+  DEFAULT_WORKING_HOURS,
   type DurationUnit,
   type ProjectView,
 } from '../hoursWire';
@@ -66,12 +69,14 @@ import {
   toCents,
   fromCents,
   withA9,
+  minutesToHours,
   workCalendarOf,
   type StoredTask,
   type VersionedField,
 } from '../../features/projects/engine';
 import { notificationPreview, preview } from '../../features/projects/reports';
-import { buildTasksWorkbook } from '../../features/projects/excel';
+import { buildTasksCsv, buildTasksWorkbook, type TaskExportRow } from '../../features/projects/excel';
+import { writeMspdi } from '../../features/imports/mspdi';
 import { workbookToBlob } from '../../features/violations/excel';
 import type { DemoCalendar, DemoDependency, DemoFile, DemoProject, DemoTask, DemoUser } from './db';
 import type { DemoInternals } from './phase2';
@@ -130,6 +135,12 @@ const TASK_READ = ['projects.readAll', 'tasks.readAssigned'] as const;
 
 /** A demo task row with the A9 columns filled (rows stored before A9 lack them). */
 export const rowOf = (t: DemoTask): DemoTask => withA9(t);
+
+/** HOUR projects schedule links with their working-minute lag (`lagHours` for the engine). */
+export function withLagHours(deps: readonly DemoDependency[], unit: DurationUnit): DemoDependency[] {
+  if (unit !== 'HOUR') return [...deps];
+  return deps.map((d) => (d.lagMinutes != null ? { ...d, lagHours: minutesToHours(d.lagMinutes) } : d));
+}
 
 /**
  * The shared plumbing of the projects modules (phase4 + phaseA9): scope, the one write path,
@@ -327,6 +338,7 @@ export function createPhase4(
     successorId: d.successorId,
     type: d.type,
     lagDays: d.lagDays,
+    ...(d.lagMinutes != null ? { lagHours: minutesToHours(d.lagMinutes) } : {}),
   });
 
   // ------------------------------------------------------------ scope (ADR-092)
@@ -408,7 +420,7 @@ export function createPhase4(
   const recomputeState = (s: WriteState, tasks: DemoTask[], changed?: string[], deps?: DemoDependency[]) =>
     recompute({
       tasks,
-      dependencies: deps ?? s.deps,
+      dependencies: withLagHours(deps ?? s.deps, s.unit),
       calendar: s.cal,
       autoSchedule: s.project.autoSchedule,
       durationUnit: s.unit,
@@ -491,6 +503,35 @@ export function createPhase4(
     const derived = s.tasks.map((t) => (parents.has(t.id) ? t : normalizeLeaf(t, s.cal, false, s.unit)));
     const finals = recomputeState(s, derived);
     return (await persist(s, finals, { actorId, explicit: new Set(), explicitAction: 'task.moved', auditExtra: { cause } })).ids.length;
+  }
+
+  /**
+   * DAY ↔ HOUR (ProjectStore.convertUnit, ADR-109): the project row already holds the new unit.
+   * Each task keeps its working days (engine `tasksToHours` / `tasksToDays`), lags × / ÷ the
+   * standard day, then the full forward pass. Audited `project.converted`; tasks `task.moved`.
+   */
+  async function convertIn(projectId: string, from: DurationUnit, actorId: string): Promise<number> {
+    const s = await load(projectId);
+    const std = s.cal.standardMinutesPerDay;
+    const leaves = s.unit === 'HOUR' ? tasksToHours(s.tasks, s.cal) : tasksToDays(s.tasks, s.cal).map((t) => ({ ...t, durationHours: undefined }));
+    const deps: DemoDependency[] = s.deps.map((d) => {
+      if (s.unit === 'HOUR') return { ...d, lagMinutes: (Math.trunc(d.lagDays) || 0) * std };
+      const { lagMinutes, ...rest } = d;
+      return lagMinutes == null ? rest : { ...rest, lagDays: Math.round(lagMinutes / std) || 0 };
+    });
+    for (const d of deps) await db.dependencies.put(d);
+    s.deps = deps;
+    const finals = recomputeState(s, leaves as DemoTask[]);
+    const n = (await persist(s, finals, { actorId, explicit: new Set(), explicitAction: 'task.moved', auditExtra: { cause: 'project.converted' } })).ids.length;
+    await api.writeAudit({
+      actorId,
+      action: 'project.converted',
+      entityType: 'project',
+      entityId: projectId,
+      before: { durationUnit: from },
+      after: { durationUnit: s.unit, tasks: s.tasks.length },
+    });
+    return n;
   }
 
   async function defaultCalendar(): Promise<DemoCalendar> {
@@ -588,8 +629,19 @@ export function createPhase4(
         if (!tpl || !(await canSeeProject(viewer, tpl))) fail('NOT_FOUND');
         if (!tpl.isTemplate || tpl.archivedAt) fail('NOT_A_TEMPLATE');
       }
+      // A9 create form (ADR-109): working days / hours different from the base calendar create one.
+      const customCalendar = !!data.workingDays || !!data.workingHours;
       await tx(async () => {
-        const calendarId = data.calendarId ?? tpl?.calendarId ?? (await defaultCalendar()).id;
+        const calendarId = customCalendar
+          ? (
+              await ensureProjectCalendar(api, viewer.id, {
+                baseId: data.calendarId ?? tpl?.calendarId,
+                weekendDays: data.workingDays ? weekendFromWorkingDays(data.workingDays) : undefined,
+                workingHours: data.workingHours,
+                name: `تقويم ${data.name}`,
+              })
+            ).id
+          : (data.calendarId ?? tpl?.calendarId ?? (await defaultCalendar()).id);
         if (!(await db.calendars.get(calendarId))) {
           fail('VALIDATION_FAILED', { fieldErrors: { calendarId: ['التقويم غير موجود. أنشئ تقويمًا أو اختر تقويمًا آخر'] } });
         }
@@ -642,6 +694,8 @@ export function createPhase4(
         f === 'budget' ? (cur.budget ?? null) : f === 'currency' ? (cur.currency ?? 'SAR') : f === 'durationUnit' ? unitOf(cur) : cur[f];
       const changed = FIELDS.filter((f) => data[f] !== undefined && data[f] !== curValue(f));
       if (!changed.length) return projectDto(cur);
+      // A different unit alone is the conversion (= POST /projects/:id/convert).
+      if (changed.length === 1 && changed[0] === 'durationUnit') return projects.convert(id, data.durationUnit!);
       if (cur.archivedAt && !(data.status && data.status !== 'ARCHIVED')) fail('PROJECT_ARCHIVED');
       if (data.calendarId !== undefined && !(await db.calendars.get(data.calendarId))) {
         fail('VALIDATION_FAILED', { fieldErrors: { calendarId: ['التقويم غير موجود. أنشئ تقويمًا أو اختر تقويمًا آخر'] } });
@@ -655,11 +709,7 @@ export function createPhase4(
         await db.projects.put(next);
         let rescheduled = 0;
         if (changed.includes('durationUnit') && !next.archivedAt) {
-          // Convert the schedule between days and hours (engine `tasksToHours` / `tasksToDays`).
-          const s = await load(id);
-          const leaves = s.unit === 'HOUR' ? tasksToHours(s.tasks, s.cal) : tasksToDays(s.tasks, s.cal).map((t) => ({ ...t, durationHours: undefined }));
-          const finals = recomputeState(s, leaves as DemoTask[]);
-          rescheduled = (await persist(s, finals, { actorId: viewer.id, explicit: new Set(), explicitAction: 'task.moved', auditExtra: { cause: 'project.durationUnit' } })).ids.length;
+          rescheduled = await convertIn(id, unitOf(cur), viewer.id);
         }
         const reschedule =
           !next.archivedAt && (changed.includes('calendarId') || (changed.includes('autoSchedule') && data.autoSchedule === true));
@@ -782,45 +832,121 @@ export function createPhase4(
       };
     },
 
-    exportXlsx: async (id) => {
+    exportXlsx: (id) => projects.export(id, 'xlsx'),
+
+    export: async (id, format) => {
       const viewer = await api.actor();
       const g = await projects.gantt(id);
       const generatedAt = new Date();
-      const wb = await buildTasksWorkbook(
-        {
+      const unit = unitOf(g.project);
+      const labelName = new Map((g.labels ?? []).map((l) => [l.id, l.name]));
+      const customFields = (g.customFields ?? []).map((cf) => ({ id: cf.id, name: cf.name, type: cf.type }));
+      const rows: TaskExportRow[] = g.tasks.map((t) => ({
+        wbs: t.wbs,
+        name: t.name,
+        type: t.type,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        durationDays: t.durationDays,
+        ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
+        progress: t.progress,
+        status: t.status,
+        priority: t.priority,
+        assigneeName: t.assignee?.fullName ?? null,
+        teamName: t.assignee?.teamName ?? null,
+        description: t.description,
+        plannedCost: t.plannedCost ?? 0,
+        actualCost: t.actualCost ?? 0,
+        deadline: t.deadline ?? null,
+        labels: (t.labelIds ?? []).map((l) => labelName.get(l)).filter((n): n is string => !!n),
+        customValues: t.customValues ?? {},
+      }));
+      let blob: Blob;
+      if (format === 'csv') {
+        blob = new Blob([buildTasksCsv({ durationUnit: unit, customFields }, rows)], { type: 'text/csv;charset=utf-8' });
+      } else if (format === 'xml') {
+        const xml = writeMspdi({
           name: g.project.name,
-          status: g.project.status,
           startDate: g.project.startDate,
-          endDate: g.project.endDate,
-          progress: g.project.progress,
-          calendarName: g.calendar.name,
-          autoSchedule: g.project.autoSchedule,
-          generatedAt,
-        },
-        g.tasks.map((t) => ({
-          wbs: t.wbs,
-          name: t.name,
-          type: t.type,
-          startDate: t.startDate,
-          endDate: t.endDate,
-          durationDays: t.durationDays,
-          progress: t.progress,
-          status: t.status,
-          priority: t.priority,
-          assigneeName: t.assignee?.fullName ?? null,
-          teamName: t.assignee?.teamName ?? null,
-          description: t.description,
-        })),
-      );
+          unit,
+          currencyCode: g.project.currency,
+          createdAt: new Date(g.project.createdAt),
+          calendar: {
+            name: g.calendar.name,
+            weekendDays: g.calendar.weekendDays,
+            workingHours: g.calendar.workingHours ?? DEFAULT_WORKING_HOURS,
+            exceptions: g.calendar.exceptions.map((e) => ({ date: e.date, isWorking: e.isWorking, name: e.name, workingHours: e.workingHours ?? null })),
+          },
+          tasks: g.tasks.map((t) => ({
+            id: t.id,
+            parentId: t.parentId,
+            wbs: t.wbs,
+            name: t.name,
+            type: t.type,
+            startDate: t.startDate,
+            endDate: t.endDate,
+            durationDays: t.durationDays,
+            ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
+            progress: t.progress,
+            plannedCost: t.plannedCost ?? 0,
+            actualCost: t.actualCost ?? 0,
+            deadline: t.deadline ?? null,
+            notes: t.description,
+            assigneeName: t.assignee?.fullName ?? null,
+          })),
+          deps: g.dependencies.map((d) => ({
+            predecessorId: d.predecessorId,
+            successorId: d.successorId,
+            type: d.type,
+            lagDays: d.lagDays,
+            lagMinutes: d.lagHours !== undefined ? Math.round(d.lagHours * 60) : 0,
+          })),
+        });
+        blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+      } else {
+        const wb = await buildTasksWorkbook(
+          {
+            name: g.project.name,
+            status: g.project.status,
+            startDate: g.project.startDate,
+            endDate: g.project.endDate,
+            progress: g.project.progress,
+            calendarName: g.calendar.name,
+            autoSchedule: g.project.autoSchedule,
+            generatedAt,
+            durationUnit: unit,
+            currency: g.project.currency,
+            budget: g.project.budget ?? null,
+            customFields,
+          },
+          rows,
+        );
+        blob = await workbookToBlob(wb);
+      }
       await api.writeAudit({
         actorId: viewer.id,
         action: 'project.exported',
         entityType: 'project',
         entityId: id,
         before: null,
-        after: { format: 'xlsx', tasks: g.tasks.length },
+        after: { format, tasks: g.tasks.length },
       });
-      return workbookToBlob(wb);
+      return blob;
+    },
+
+    convert: async (id, durationUnit) => {
+      const viewer = await api.actor('projects.manage');
+      const unit = validate(convertProjectSchema, { durationUnit }).durationUnit;
+      const cur = await visibleProject(id, viewer);
+      if (unitOf(cur) === unit) return projectDto(cur);
+      if (cur.archivedAt) fail('PROJECT_ARCHIVED');
+      let next!: DemoProject;
+      await tx(async () => {
+        next = { ...cur, durationUnit: unit };
+        await db.projects.put(next);
+        await convertIn(id, unitOf(cur), viewer.id);
+      });
+      return projectDto(next);
     },
 
     // The A9 read models are implemented in phaseA9.ts and assigned over these.
@@ -982,6 +1108,12 @@ export function createPhase4(
         const after = await db.tasks.get(id);
         if (after?.assigneeId && after.assigneeId !== previousAssignee) await notifyAssigned(after, s.project, viewer);
       });
+      // A9 security review (ADR-117): a caller without projects.readAll (a supervisor) gets only
+      // their own task — the rolled-up parents are not theirs to see.
+      if (!can(viewer, 'projects.readAll')) {
+        const [own] = await taskDtosById([id]);
+        return { task: own!, affected: [], previous: previous[id] ? { [id]: previous[id]! } : {} };
+      }
       const dtos = await taskDtosById([id, ...ids.filter((x) => x !== id)]);
       return { task: dtos[0]!, affected: dtos.slice(1), previous };
     },
@@ -1409,6 +1541,8 @@ export function createPhase4(
       let ids: string[] = [];
       await tx(async () => {
         const s = await load(projectId);
+        // A9 hours: an HOUR project stores the lag in working minutes (lagHours wins over lagDays).
+        if (s.unit === 'HOUR') dep.lagMinutes = data.lagHours !== undefined ? Math.round(data.lagHours * 60) : Math.round(data.lagDays * s.cal.standardMinutesPerDay);
         const missing = [data.predecessorId, data.successorId].filter((x) => !s.before.has(x));
         if (missing.length) fail('NOT_FOUND', { taskIds: missing });
         if (s.deps.some((d) => d.predecessorId === data.predecessorId && d.successorId === data.successorId)) {

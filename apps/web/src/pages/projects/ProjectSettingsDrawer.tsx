@@ -77,6 +77,63 @@ export function ProjectSettingsDrawer({ opened, onClose, project, data }: { open
   );
 }
 
+// ---------------------------------------------------------------- duration unit (A9, ADR-109)
+
+/**
+ * «تحويل إلى ساعات / أيام» through `POST /projects/:id/convert`: a confirmation that says what
+ * happens (each task keeps its working days; lags follow the standard day) and the milestone
+ * caveat, then the conversion in one transaction (audited `project.converted`).
+ */
+function UnitConvert({ project, onDone }: { project: ProjectView; onDone(): Promise<void> }) {
+  const api = useApi();
+  const unit = unitOf(project);
+  const target = unit === 'HOUR' ? 'DAY' : 'HOUR';
+  const [busy, setBusy] = useState(false);
+  const ask = () =>
+    modals.openConfirmModal({
+      title: t(target === 'HOUR' ? 'convert.toHoursTitle' : 'convert.toDaysTitle'),
+      children: (
+        <Stack gap="xs">
+          <Text size="sm">{t(target === 'HOUR' ? 'convert.toHoursBody' : 'convert.toDaysBody', { count: formatNumber(project.taskCount) })}</Text>
+          <Alert color="signal" variant="light">
+            <Text size="sm">{t('convert.milestoneCaveat')}</Text>
+          </Alert>
+        </Stack>
+      ),
+      labels: { confirm: t(target === 'HOUR' ? 'convert.toHours' : 'convert.toDays'), cancel: t('common.cancel') },
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          await api.projects.convert(project.id, target);
+          await onDone();
+          notifications.show({ color: 'ok', message: t(target === 'HOUR' ? 'convert.doneHours' : 'convert.doneDays') });
+        } catch (err) {
+          notifications.show({ color: 'breach', message: errorMessage(err) });
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
+  return (
+    <div>
+      <Text size="sm" fw={500} mb={4}>
+        {t('createProject.unit')}
+      </Text>
+      <Group justify="space-between" gap="xs" wrap="wrap">
+        <span className="pill brand" data-testid="project-unit">
+          {t(unit === 'HOUR' ? 'createProject.unit.HOUR' : 'createProject.unit.DAY')}
+        </span>
+        <Button size="xs" variant="light" loading={busy} onClick={ask}>
+          {t(target === 'HOUR' ? 'convert.toHours' : 'convert.toDays')}
+        </Button>
+      </Group>
+      <Text size="xs" c="dimmed" mt={4}>
+        {t('convert.hint')}
+      </Text>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- general
 
 function GeneralPanel({ project, onClose, opened }: { project: ProjectView; onClose(): void; opened: boolean }) {
@@ -91,7 +148,6 @@ function GeneralPanel({ project, onClose, opened }: { project: ProjectView; onCl
     status: project.status,
     calendarId: project.calendarId,
     autoSchedule: project.autoSchedule,
-    durationUnit: unitOf(project),
   });
   const [form, setForm] = useState(initial);
   const [error, setError] = useState<unknown>(null);
@@ -117,11 +173,10 @@ function GeneralPanel({ project, onClose, opened }: { project: ProjectView; onCl
       if (form.status !== project.status) patch.status = form.status;
       if (form.calendarId !== project.calendarId) patch.calendarId = form.calendarId;
       if (form.autoSchedule !== project.autoSchedule) patch.autoSchedule = form.autoSchedule;
-      if (form.durationUnit !== unitOf(project)) patch.durationUnit = form.durationUnit;
       if (Object.keys(patch).length) {
         await api.projects.update(project.id, patch);
         await refresh();
-        notifications.show({ color: 'ok', message: patch.calendarId || patch.autoSchedule === true || patch.durationUnit ? t('projects.savedRescheduled') : t('common.saved') });
+        notifications.show({ color: 'ok', message: patch.calendarId || patch.autoSchedule === true ? t('projects.savedRescheduled') : t('common.saved') });
       }
       onClose();
     } catch (err) {
@@ -164,21 +219,7 @@ function GeneralPanel({ project, onClose, opened }: { project: ProjectView; onCl
           allowDeselect={false}
         />
       </SimpleGrid>
-      <div>
-        <Text size="sm" fw={500} mb={4} id="ps-unit">
-          {t('createProject.unit')}
-        </Text>
-        <SegmentedControl
-          aria-labelledby="ps-unit"
-          fullWidth
-          value={form.durationUnit}
-          onChange={(v) => setForm({ ...form, durationUnit: v as 'DAY' | 'HOUR' })}
-          data={[
-            { value: 'DAY', label: t('createProject.unit.DAY') },
-            { value: 'HOUR', label: t('createProject.unit.HOUR') },
-          ]}
-        />
-      </div>
+      <UnitConvert project={project} onDone={refresh} />
       <Select
         label={t('projects.calendar')}
         description={t('projects.calendarChangeHint')}

@@ -16,6 +16,7 @@ import {
   IconLayoutGrid,
   IconLayoutKanban,
   IconLayoutList,
+  IconFileImport,
   IconPlus,
   IconSearch,
   IconStar,
@@ -262,9 +263,14 @@ export function ProjectsPage() {
         lead={t('projects.lead')}
         actions={
           canCreate ? (
-            <Button leftSection={<IconPlus size={18} />} onClick={() => setCreating(true)}>
-              {t('projects.createNew')}
-            </Button>
+            <Group gap="xs">
+              <Button component={Link} to="/projects/import" variant="default" leftSection={<IconFileImport size={18} />}>
+                {t('projects.import')}
+              </Button>
+              <Button leftSection={<IconPlus size={18} />} onClick={() => setCreating(true)}>
+                {t('projects.createNew')}
+              </Button>
+            </Group>
           ) : undefined
         }
       />

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <SaveVersion>14</SaveVersion>
+  <Name>tower-floor-fitout.xml</Name>
+  <Title>تشطيب الطابق الثالث (تجريبي)</Title>
+  <ScheduleFromStart>1</ScheduleFromStart>
+  <StartDate>2026-11-01T08:00:00</StartDate>
+  <CalendarUID>1</CalendarUID>
+  <DefaultStartTime>08:00:00</DefaultStartTime>
+  <DefaultFinishTime>17:00:00</DefaultFinishTime>
+  <MinutesPerDay>480</MinutesPerDay>
+  <MinutesPerWeek>2400</MinutesPerWeek>
+  <DaysPerMonth>20</DaysPerMonth>
+  <DurationFormat>5</DurationFormat>
+  <CurrencyCode>SAR</CurrencyCode>
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>دوام الموقع مع استراحة الغداء</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <WeekDays>
+        <WeekDay><DayType>1</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>2</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>3</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>4</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>5</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>
+        <WeekDay><DayType>6</DayType><DayWorking>0</DayWorking></WeekDay>
+        <WeekDay><DayType>7</DayType><DayWorking>0</DayWorking></WeekDay>
+      </WeekDays>
+      <Exceptions>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod><FromDate>2026-11-05T00:00:00</FromDate><ToDate>2026-11-05T23:59:00</ToDate></TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>إجازة الموقع (تجريبي)</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+      </Exceptions>
+    </Calendar>
+  </Calendars>
+  <Tasks>
+    <Task><UID>0</UID><ID>0</ID><Name>تشطيب الطابق الثالث (تجريبي)</Name><OutlineNumber>0</OutlineNumber><OutlineLevel>0</OutlineLevel><Summary>1</Summary></Task>
+    <Task><UID>1</UID><ID>1</ID><Name>تجهيز الطابق</Name><WBS>1</WBS><OutlineNumber>1</OutlineNumber><OutlineLevel>1</OutlineLevel><Summary>1</Summary><Start>2026-11-01T08:00:00</Start><Finish>2026-11-03T12:00:00</Finish><Duration>PT20H0M0S</Duration><DurationFormat>5</DurationFormat></Task>
+    <Task><UID>2</UID><ID>2</ID><Name>حماية الأرضيات والنوافذ</Name><WBS>1.1</WBS><OutlineNumber>1.1</OutlineNumber><OutlineLevel>2</OutlineLevel><Start>2026-11-01T08:00:00</Start><Finish>2026-11-01T11:00:00</Finish><Duration>PT3H0M0S</Duration><DurationFormat>5</DurationFormat><PercentComplete>100</PercentComplete><Cost>80000</Cost><ActualCost>75000</ActualCost><Notes>بيانات تجريبية</Notes></Task>
+    <Task><UID>3</UID><ID>3</ID><Name>التمديدات الكهربائية</Name><WBS>1.2</WBS><OutlineNumber>1.2</OutlineNumber><OutlineLevel>2</OutlineLevel><Start>2026-11-01T11:00:00</Start><Finish>2026-11-02T14:00:00</Finish><Duration>PT10H0M0S</Duration><DurationFormat>5</DurationFormat><PercentComplete>30</PercentComplete><Cost>450000</Cost><Deadline>2026-11-04T17:00:00</Deadline>
+      <PredecessorLink><PredecessorUID>2</PredecessorUID><Type>1</Type><CrossProject>0</CrossProject><LinkLag>0</LinkLag><LagFormat>5</LagFormat></PredecessorLink>
+    </Task>
+    <Task><UID>4</UID><ID>4</ID><Name>تمديدات السباكة</Name><WBS>1.3</WBS><OutlineNumber>1.3</OutlineNumber><OutlineLevel>2</OutlineLevel><Start>2026-11-01T12:00:00</Start><Finish>2026-11-02T10:00:00</Finish><Duration>PT6H0M0S</Duration><DurationFormat>5</DurationFormat><Cost>300000</Cost>
+      <PredecessorLink><PredecessorUID>2</PredecessorUID><Type>3</Type><CrossProject>0</CrossProject><LinkLag>600</LinkLag><LagFormat>5</LagFormat></PredecessorLink>
+    </Task>
+    <Task><UID>5</UID><ID>5</ID><Name>التشطيب</Name><WBS>2</WBS><OutlineNumber>2</OutlineNumber><OutlineLevel>1</OutlineLevel><Summary>1</Summary></Task>
+    <Task><UID>6</UID><ID>6</ID><Name>لياسة الجدران</Name><WBS>2.1</WBS><OutlineNumber>2.1</OutlineNumber><OutlineLevel>2</OutlineLevel><Start>2026-11-02T16:00:00</Start><Duration>PT12H0M0S</Duration><DurationFormat>5</DurationFormat><Cost>520000</Cost>
+      <PredecessorLink><PredecessorUID>3</PredecessorUID><Type>1</Type><CrossProject>0</CrossProject><LinkLag>1200</LinkLag><LagFormat>5</LagFormat></PredecessorLink>
+    </Task>
+    <Task><UID>7</UID><ID>7</ID><Name>الدهان</Name><WBS>2.2</WBS><OutlineNumber>2.2</OutlineNumber><OutlineLevel>2</OutlineLevel><Duration>PT8H0M0S</Duration><DurationFormat>5</DurationFormat><Cost>360000</Cost>
+      <PredecessorLink><PredecessorUID>6</PredecessorUID><Type>1</Type><CrossProject>0</CrossProject><LinkLag>0</LinkLag><LagFormat>5</LagFormat></PredecessorLink>
+    </Task>
+    <Task><UID>8</UID><ID>8</ID><Name>فحص الجودة</Name><WBS>3</WBS><OutlineNumber>3</OutlineNumber><OutlineLevel>1</OutlineLevel><Duration>PT2H0M0S</Duration><DurationFormat>5</DurationFormat>
+      <PredecessorLink><PredecessorUID>7</PredecessorUID><Type>1</Type><CrossProject>0</CrossProject><LinkLag>0</LinkLag><LagFormat>5</LagFormat></PredecessorLink>
+      <PredecessorLink><PredecessorUID>4</PredecessorUID><Type>1</Type><CrossProject>0</CrossProject><LinkLag>0</LinkLag><LagFormat>5</LagFormat></PredecessorLink>
+    </Task>
+    <Task><UID>9</UID><ID>9</ID><Name>تسليم الطابق</Name><WBS>4</WBS><OutlineNumber>4</OutlineNumber><OutlineLevel>1</OutlineLevel><Duration>PT0H0M0S</Duration><DurationFormat>5</DurationFormat><Milestone>1</Milestone>
+      <PredecessorLink><PredecessorUID>8</PredecessorUID><Type>1</Type><CrossProject>0</CrossProject><LinkLag>0</LinkLag><LagFormat>5</LagFormat></PredecessorLink>
+    </Task>
+  </Tasks>
+  <Resources>
+    <Resource><UID>1</UID><ID>1</ID><Name>فهد بن خالد الدوسري</Name><Type>1</Type></Resource>
+    <Resource><UID>2</UID><ID>2</ID><Name>ماجد بن علي الغامدي</Name><Type>1</Type></Resource>
+    <Resource><UID>3</UID><ID>3</ID><Name>سارة الشهري</Name><Type>1</Type></Resource>
+  </Resources>
+  <Assignments>
+    <Assignment><UID>1</UID><TaskUID>2</TaskUID><ResourceUID>1</ResourceUID><Units>1</Units></Assignment>
+    <Assignment><UID>2</UID><TaskUID>3</TaskUID><ResourceUID>2</ResourceUID><Units>1</Units></Assignment>
+    <Assignment><UID>3</UID><TaskUID>4</TaskUID><ResourceUID>3</ResourceUID><Units>1</Units></Assignment>
+    <Assignment><UID>4</UID><TaskUID>6</TaskUID><ResourceUID>3</ResourceUID><Units>1</Units></Assignment>
+    <Assignment><UID>5</UID><TaskUID>7</TaskUID><ResourceUID>1</ResourceUID><Units>1</Units></Assignment>
+    <Assignment><UID>6</UID><TaskUID>8</TaskUID><ResourceUID>2</ResourceUID><Units>1</Units></Assignment>
+  </Assignments>
+</Project>

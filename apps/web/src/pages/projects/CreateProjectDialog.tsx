@@ -2,11 +2,11 @@
  * «إنشاء مشروع جديد» — the GanttPRO create-project form (owner screenshot 2), in this order:
  * اسم المشروع · تاريخ البدء · وحدة المدة (أيام/ساعات) · القالب · أيام العمل (الأحد…السبت) ·
  * ساعات العمل (فترات) · الميزانية · «إنشاء مشروع جديد» — then «أو» and the two import buttons
- * (Excel/CSV/MS Project and Jira; the importers arrive in the next round, so they open a
- * «قريبًا في هذا الإصدار» dialog). No AI option (owner decision).
+ * «استيراد Excel، CSV، MPP» and «استيراد من Jira», which open the import wizard (ADR-117).
+ * No AI option (owner decision).
  *
- * Working days and hours belong to the project's calendar: an existing calendar with the same
- * weekend (and hours) is reused, otherwise one is created for the project (ADR-105).
+ * Working days and hours are sent as `workingDays` / `workingHours` (ADR-109): the API reuses
+ * the base calendar when they equal it, otherwise it creates one for the project.
  */
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -31,7 +31,6 @@ import { IconBrandTrello, IconFileImport, IconPlus, IconX } from '@tabler/icons-
 import { useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../api/context';
 import { ApiError } from '../../api/errors';
-import { useCalendars } from '../../api/projectQueries';
 import { useTemplates } from '../../api/a9Queries';
 import { DEFAULT_WORKING_HOURS, type DurationUnit, type WorkingInterval } from '../../api/hoursWire';
 import { FormError } from '../../components/ui';
@@ -62,15 +61,11 @@ export function intervalsValid(list: readonly WorkingInterval[]): boolean {
 export const hoursPerDay = (list: readonly WorkingInterval[]) =>
   list.reduce((s, w) => s + Math.max(0, minutesOf(w.end) - minutesOf(w.start)), 0) / 60;
 
-const sameHours = (a: readonly WorkingInterval[] | undefined, b: readonly WorkingInterval[]) =>
-  JSON.stringify((a?.length ? a : DEFAULT_WORKING_HOURS).map((w) => [w.start, w.end])) === JSON.stringify(b.map((w) => [w.start, w.end]));
-
 export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onClose(): void }) {
   const api = useApi();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const phone = useMediaQuery('(max-width: 600px)') ?? false;
-  const calendars = useCalendars(opened);
   const templates = useTemplates(opened);
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState(riyadhToday());
@@ -82,7 +77,6 @@ export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onCl
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const [soon, setSoon] = useState<null | 'file' | 'jira'>(null);
 
   const hoursOk = intervalsValid(hours);
   const toggleDay = (d: number) => setWorkingDays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort()));
@@ -98,25 +92,14 @@ export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onCl
     setBusy(true);
     setError(null);
     try {
-      const weekendDays = WEEK.filter((d) => !workingDays.includes(d));
-      const sorted = [...hours].sort((a, b) => a.start.localeCompare(b.start));
-      const match = (calendars.data ?? []).find(
-        (c) => c.weekendDays.join(',') === weekendDays.join(',') && sameHours(c.workingHours, sorted),
-      );
-      const calendarId =
-        match?.id ??
-        (
-          await api.calendars.create({
-            name: t('createProject.calendarName', { name: name.trim() }).slice(0, 80),
-            weekendDays,
-            workingHours: sorted,
-          })
-        ).id;
+      // A9 (ADR-109): the API reuses the base calendar when the days and hours equal it, else it
+      // creates «تقويم {name}» with its holidays — the form no longer builds calendars itself.
       const p = await api.projects.create({
         name: name.trim(),
         startDate,
-        calendarId,
         durationUnit: unit,
+        workingDays: [...workingDays].sort((x, y) => x - y),
+        workingHours: [...hours].sort((x, y) => x.start.localeCompare(y.start)),
         ...(budget === '' ? {} : { budget: Number(budget) }),
         ...(templateId ? { fromTemplateId: templateId } : {}),
       });
@@ -290,27 +273,14 @@ export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onCl
               {t('createProject.submit')}
             </Button>
             <Divider label={t('createProject.or')} labelPosition="center" />
-            <Button variant="default" fullWidth leftSection={<IconFileImport size={18} />} onClick={() => setSoon('file')}>
+            <Button variant="default" fullWidth leftSection={<IconFileImport size={18} />} onClick={() => navigate('/projects/import', { replace: true })}>
               {t('createProject.importFile')}
             </Button>
-            <Button variant="default" fullWidth leftSection={<IconBrandTrello size={18} />} onClick={() => setSoon('jira')}>
+            <Button variant="default" fullWidth leftSection={<IconBrandTrello size={18} />} onClick={() => navigate('/projects/import?source=jira-cloud&step=2', { replace: true })}>
               {t('createProject.importJira')}
             </Button>
           </Stack>
         </form>
-      </Modal>
-      <Modal opened={soon !== null} onClose={() => setSoon(null)} title={t('createProject.soonTitle')} centered size="sm">
-        <Stack>
-          <span className="pill brand" style={{ alignSelf: 'flex-start' }}>
-            {t('soon.badge')}
-          </span>
-          <Text size="sm">{soon === 'jira' ? t('createProject.soonJira') : t('createProject.soonImport')}</Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setSoon(null)}>
-              {t('common.close')}
-            </Button>
-          </Group>
-        </Stack>
       </Modal>
     </>
   );

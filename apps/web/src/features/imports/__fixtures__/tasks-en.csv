@@ -1,0 +1,6 @@
+ID,Name,Duration,Start,Finish,Predecessors,Outline Level,Resource Names,% Complete
+1,Site preparation,5 days,Sun 10/11/26,Thu 10/15/26,,1,,0%
+2,Survey,2 days,Sun 10/11/26,Mon 10/12/26,,2,Ahmad,100%
+3,Fencing,3 days,Tue 10/13/26,Thu 10/15/26,2,2,Saad;Ali,50%
+4,Excavation,1 wk,Sun 10/18/26,Thu 10/22/26,3FS+2 days,1,Ahmad,0%
+5,Inspection,0 days,Thu 10/22/26,Thu 10/22/26,4SS-1d;99,1,,0%
