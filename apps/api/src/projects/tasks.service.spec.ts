@@ -226,8 +226,14 @@ describe('TasksService — assignee and supervisor rules (ADR-007)', () => {
     });
     const res = await service.update(A, { version: 0, progress: 50, status: 'IN_PROGRESS' }, SUP, ctx);
     expect(res.task).toMatchObject({ progress: 50, status: 'IN_PROGRESS', version: 1 });
-    expect(res.affected.map((t) => t.id)).toEqual([G]);
+    // Security review A9 H1 (ADR-117): the roll-up happens, but the group is not returned to a supervisor.
+    expect(res.affected).toEqual([]);
+    expect(Object.keys(res.previous ?? {})).toEqual([A]);
     expect(fake.t(G).progress).toBe(25);
+    // An admin making the same kind of change still receives the rolled-up ancestor.
+    const adm = await service.update(B, { version: 0, progress: 50 }, ADMIN, ctx);
+    expect(adm.affected.map((t) => t.id)).toEqual([G]);
+    expect(Object.keys(adm.previous ?? {}).sort()).toEqual([B, G].sort());
   });
 
   it('anything else from a supervisor is 403; a task not assigned to them is 404', async () => {

@@ -76,6 +76,17 @@ function siblingsOf(tasks: readonly StoredTask[], parentId: string | null, excep
     .sort((a, b) => a.sortOrder - b.sortOrder || cmpId(a.id, b.id));
 }
 
+/**
+ * ADR-117 (security review A9 H1): a caller without `projects.readAll` (a supervisor) only ever
+ * sees its own task. The roll-up into ancestors still happens, but their rows and before-values
+ * are not returned: `affected` is empty and `previous` keeps only the task's own entry.
+ */
+export function scopeUpdateResult(res: TaskUpdateResult, viewer: PermissionSubject): TaskUpdateResult {
+  if (can(viewer, 'projects.readAll')) return res;
+  const own = res.previous?.[res.task.id];
+  return { task: res.task, affected: [], previous: own ? { [res.task.id]: own } : {} };
+}
+
 export function copyName(name: string): string {
   return name.slice(0, 300 - COPY_SUFFIX.length) + COPY_SUFFIX;
 }
@@ -266,7 +277,7 @@ export class TasksService {
     const dtos = await this.store.taskDtos([id, ...ids.filter((x) => x !== id)]);
     const task = dtos[0]!;
     if (task.assignee && task.assignee.id !== previousAssignee) this.notifyAssigned(task, projectName, viewer);
-    return { task, affected: dtos.slice(1), previous };
+    return scopeUpdateResult({ task, affected: dtos.slice(1), previous }, viewer);
   }
 
   // ─────────────────────────────────────────── batch (one drag-end, or an undo/redo step)

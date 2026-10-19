@@ -42,11 +42,12 @@ services:
     shm_size: 256m
 
   # A9 (ADR-111): .mpp conversion is CPU and memory heavy; cap it so it never starves the API.
+  # ADR-120: a 96 MB parent plus CONVERTER_CONCURRENCY child JVMs of CONVERTER_CHILD_HEAP each.
   converter:
     <<: *restart
     deploy:
       resources:
-        limits: { cpus: "1.00", memory: 768M }
+        limits: { cpus: "1.00", memory: 1G }
 
   backup:
     <<: *restart

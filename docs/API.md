@@ -143,7 +143,7 @@ Scope: MONITOR creates and reads what they recorded; ADMIN reads and manages all
 | GET | `/violations?…` | [violationFilterSchema] + pagination | `Paginated<ViolationDto>` (scoped) |
 | GET | `/violations/mine` | pagination | MONITOR: recorded by me |
 | GET | `/violations/:id` | — | `ViolationDto` |
-| GET | `/violations/:id/files/:fileId/url` | — | presigned GET; ID-card views audited `violation.id_photo_viewed` |
+| GET | `/violations/:id/files/:fileId/url` | — | presigned GET; ID-card views audited `violation.id_photo_viewed`, PERSON (face) photo views audited `violation.person_photo_viewed` (ADR-118) |
 | PATCH | `/violations/:id` | [updateViolationSchema] | recorder within `VIOLATION_EDIT_WINDOW_MINUTES` after `received_at`, else ADMIN only (`EDIT_WINDOW_CLOSED`); audited with before/after |
 | POST | `/violations/:id/status` | [changeViolationStatusSchema] | ADMIN; CANCELLED requires reason |
 | POST | `/violations/:id/responses` | [violationResponseSchema] | SUPERVISOR (visible + own team) → notifies admins `VIOLATION_OBJECTION` |
@@ -201,7 +201,7 @@ Schemas and DTO types are in `@nuzli/shared` (`schemas/projects.ts` additions an
 
 ### Supervisor scope (ADR-092)
 - SUPERVISOR no longer holds `projects.readGranted`: `GET /projects`, `/projects/:id`, `/gantt`, `/export.xlsx`, `/budget`, `/people`, `/dashboard`, `/calendar`, `/labels`, `/custom-fields`, `/project-templates`, `/portfolios`, `/reports/projects`, `/workload` → **403**. `project_access` rows are kept (admin routes unchanged) but grant nothing.
-- Supervisors keep, **for tasks assigned to them only** (any other task → **404**): `GET /tasks/mine`, `GET /tasks/:id`, `PATCH /tasks/:id` (progress/status), `GET/POST /tasks/:id/comments`, `POST /tasks/:id/comments/read`, `GET /tasks/:id/activity`, `GET/POST /tasks/:id/attachments` (+ `/:fileId/url`, delete own upload), `GET /tasks/:id/checklist`, `PATCH /tasks/:id/checklist/:itemId` (`done` only), `GET /tasks/:id/labels`, `GET /tasks/:id/custom-fields`, `GET/POST /tasks/:id/time-entries`, `GET /me/time-entries`, `PATCH/DELETE /time-entries/:id` (own), `GET /hub`, `GET /attachments`.
+- Supervisors keep, **for tasks assigned to them only** (any other task → **404**): `GET /tasks/mine`, `GET /tasks/:id`, `PATCH /tasks/:id` (progress/status; the answer carries **only their own task**: `affected: []`, `previous` = their task only — ADR-117), `GET/POST /tasks/:id/comments`, `POST /tasks/:id/comments/read`, `GET /tasks/:id/activity`, `GET/POST /tasks/:id/attachments` (+ `/:fileId/url`, delete own upload), `GET /tasks/:id/checklist`, `PATCH /tasks/:id/checklist/:itemId` (`done` only), `GET /tasks/:id/labels`, `GET /tasks/:id/custom-fields`, `GET/POST /tasks/:id/time-entries`, `GET /me/time-entries`, `PATCH/DELETE /time-entries/:id` (own, and only while the task is still assigned to them and not archived — ADR-117), `GET /hub` (`path` always `[]` for them — ADR-117), `GET /attachments`.
 - Mentions: only users who can open the task (active admins + the assignee); others → 400 `VALIDATION_FAILED`.
 
 ### Changed request schemas
@@ -247,7 +247,7 @@ Every write that changes existing tasks returns `previous: Record<taskId, TaskPr
 | POST | `/projects/:id/tasks/bulk` | tasks.manage | [taskBulkSchema] `{ ids (≤1000), versions: Record<id, version>, patch: { status?, priority?, assigneeId?, labelIdsAdd?, labelIdsRemove?, progress?, barColor?, shiftWorkingDays? } }` | `200 TaskBulkResult { tasks, previous }`; any stale version → 409, nothing written |
 | POST | `/projects/:id/tasks/bulk-archive` | tasks.manage | [taskBulkArchiveSchema] `{ ids, versions }` | `200 TaskBulkArchiveResult { archivedIds, affected, previous, deletedDependencies }` |
 | POST | `/projects/:id/tasks/restore` | tasks.manage | [taskRestoreSchema] `{ ids }` | `200 TaskRestoreResult { restored, affected, previous }`; parent still archived → 400 `TASK_PARENT_INVALID` |
-| GET/PUT/DELETE | `/me/view-prefs` | profile.update | GET `?projectId&key`; PUT [putViewPrefSchema] `{ projectId?, key, value }`; DELETE `?projectId&key` | `ViewPrefDto[]` / `ViewPrefDto` / `204`; JSON > 32 KB → **413** `VIEW_PREF_TOO_LARGE`; keys like `gantt.columns`, `gantt.views`, `list.columns` |
+| GET/PUT/DELETE | `/me/view-prefs` | profile.update | GET `?projectId&key`; PUT [putViewPrefSchema] `{ projectId?, key, value }`; DELETE `?projectId&key` | `ViewPrefDto[]` / `ViewPrefDto` / `204`; JSON > 32 KB → **413** `VIEW_PREF_TOO_LARGE`; a new key beyond **200 stored per user** → **409** `VIEW_PREF_LIMIT` (updating an existing key always works); keys like `gantt.columns`, `gantt.views`, `list.columns` |
 | POST | `/projects/:id/save-as-template` | projects.create | [saveAsTemplateSchema] `{ name?, description? }` | `201 ProjectDto` (`isTemplate: true`) |
 | GET | `/project-templates` | readAll | — | `ProjectDto[]` |
 | POST | `/projects` + `fromTemplateId` | projects.create | [createProjectSchema] | `201 ProjectDto`; not a template → 409 `NOT_A_TEMPLATE` |
@@ -255,12 +255,12 @@ Every write that changes existing tasks returns `previous: Record<taskId, TaskPr
 | GET | `/portfolios/:id` | readAll | — | `PortfolioSummaryDto` (`projects[]` with `overdueCount`, `leafCount`, `doneCount`; `totals`: progress weighted by leaf count, budget, costs, date span, overdue, `byStatus`) |
 | PATCH/DELETE | `/portfolios/:id` | projects.manage | [updatePortfolioSchema] (`projectIds` replaces) | `PortfolioDto` / `204` |
 | POST / DELETE | `/portfolios/:id/projects[/:projectId]` | projects.manage | [portfolioProjectSchema] `{ projectId }` | `200 PortfolioDto` |
-| GET/POST | `/tasks/:id/time-entries` | task read / manage or assignee | [timeEntrySchema] `{ date, minutes 1..1440, note?, userId? (admin) }` | `TimeEntryDto[]` / `201`; supervisor on another task → 404, `userId` by a supervisor → 403 |
-| PATCH/DELETE | `/time-entries/:id` | owner or admin | [updateTimeEntrySchema] | `TimeEntryDto` / `204`; someone else's entry → 404 |
+| GET/POST | `/tasks/:id/time-entries` | task read / manage or assignee | [timeEntrySchema] `{ date, minutes 1..1440, note?, userId? (admin) }` | `TimeEntryDto[]` / `201`; supervisor on another task → 404, `userId` by a supervisor → 403; `date` outside **[today − 366 days, today + 7 days]** (Riyadh) → 400 `VALIDATION_FAILED` (`fieldErrors.date`) |
+| PATCH/DELETE | `/time-entries/:id` | owner or admin | [updateTimeEntrySchema] | `TimeEntryDto` / `204`; someone else's entry → 404; for a supervisor also 404 once the task is reassigned or archived; `date` bounded as above |
 | GET | `/me/time-entries?from&to` | manage or updateAssigned | [timeRangeQuerySchema] (default last 31 days, ≤ 366) | `TimeEntryDto[]` |
 | GET | `/workload?from&to&userIds=a,b` | readAll | [workloadQuerySchema] (≤ 92 days) | `WorkloadDto` (per user per day `assignedMinutes` = the real working minutes of each assigned TASK that day — see «A9 — imports, exports, hours» —, `loggedMinutes`, `taskCount`, `capacityMinutes`) |
 | GET | `/reports/projects?status=` | readAll | [projectReportQuerySchema] | `ProjectReportRow[]` (`project`, `leafCount`, `doneCount`, `overdueCount`, `deadlinePassedCount`, `milestoneCount`) |
-| GET | `/hub?projectId&filter=all\|new\|mentioned\|assigned\|created&q&page&pageSize` | tasks.comment | [hubQuerySchema] | `HubPageDto { items: HubItemDto[], total, page, pageSize, counts: Record<filter, n>, unreadTotal }`; item = `task`, `project`, `path` (ancestor names), `commentCount`, `unreadCount`, `lastReadAt`, `lastComment` (preview) |
+| GET | `/hub?projectId&filter=all\|new\|mentioned\|assigned\|created&q&page&pageSize` | tasks.comment | [hubQuerySchema] | `HubPageDto { items: HubItemDto[], total, page, pageSize, counts: Record<filter, n>, unreadTotal }`; item = `task`, `project`, `path` (ancestor names for admins; **always `[]` for supervisors**, ADR-117), `commentCount`, `unreadCount`, `lastReadAt`, `lastComment` (preview) |
 | POST | `/tasks/:id/comments/read` | tasks.comment | — | `200 CommentReadDto { taskId, lastReadAt }` (posting a comment also marks it read for the author) |
 | GET | `/attachments?projectId&type=image\|pdf\|other&uploadedBy&from&to&q&page&pageSize` | readAll or readAssigned | [attachmentBrowseQuerySchema] | `Paginated<AttachmentBrowseDto>` (file meta + `task` + `project` + `uploadedBy`); download via `GET /tasks/:id/attachments/:fileId/url` |
 
@@ -327,10 +327,10 @@ Schemas and DTO types are in `@nuzli/shared` (`schemas/teams.ts`, `schemas/org.t
 | Method | Path | Permission | Body | Response |
 |---|---|---|---|---|
 | GET | `/violations/:id/ocr` | violations.manage, or the recorder (violations.create) | — | `ViolationOcrDto { status: … \| 'NONE', attempts, extractedAt, error?, fields: { nationalId: { value (masked unless nationalIds.readFull), masked, full, confidence, kind } \| null, name, nameLatin, birthDate { value, calendar: HIJRI \| GREGORIAN, confidence }, expiryDate, nationality }, suggestedMembers: ViolationSuggestionDto[], suggestedUsers }`. Suggestions only while unassigned: the exact blind-index match first, then name similarity ≥ 0.45 (top 5) among active members; `suggestedUsers` for admins only. `Cache-Control: no-store`. Every call is audited `violation.ocr_viewed` (`after.fullNationalId`). |
-| POST | `/violations/:id/ocr/retry` | violations.manage | — | `202 { queued: true }` |
+| POST | `/violations/:id/ocr/retry` | violations.manage | — | `202 { queued: true }`; audited `violation.ocr_retried` (ADR-118) |
 | POST | `/violations/:id/assign` | violations.manage, or the recorder (any time) | [assignViolationSchema] `{ memberId }` | `200 ViolationDto` — team, primary and all supervisors resolved **at captured_at**; another member already set → 409 `VIOLATION_ALREADY_ASSIGNED`; the same member → no-op |
 | POST | `/violations/:id/unassign` | violations.manage | [unassignViolationSchema] `{ reason? }` | `200 ViolationDto` (member and snapshot cleared) |
-| POST | `/violations/:id/register-member` | members.manage, or members.manageOwn leading `teamId` | [registerViolationMemberSchema] `{ fullName, nationalId, teamId?, jobTitleId?, jobTitleText?, departmentId?, departmentText?, usePersonPhoto = true }` | `201 RegisterViolationMemberResultDto { member: MemberDto, violation: ViolationDto \| null }`. The membership starts at `capturedAt` (so the snapshot is that team); the PERSON photo is copied to a new `member-photos/…` object. No `teamId` → admins only (else 403). A duplicate ID → admins 409 `NATIONAL_ID_TAKEN` + `details.existingMemberId`, others `NATIONAL_ID_NOT_ACCEPTED`. Rate limited 30/min. |
+| POST | `/violations/:id/register-member` | **members.manage (admins only** since the A9 security review, ADR-118; supervisors and monitors → 403) | [registerViolationMemberSchema] `{ fullName, nationalId, teamId?, jobTitleId?, jobTitleText?, departmentId?, departmentText?, usePersonPhoto = true }` | `201 RegisterViolationMemberResultDto { member: MemberDto, violation: ViolationDto \| null }`. With `teamId` the membership starts at `capturedAt` (so the snapshot is that team) — allowed only when `capturedAt` is within the last `VIOLATION_REGISTER_MAX_AGE_DAYS` days (setting, default 30) and not in the future beyond `CLOCK_DRIFT_THRESHOLD_MINUTES`, else **409** `VIOLATION_TOO_OLD_TO_REGISTER` `{ maxAgeDays, capturedAt }` (register the member from the team page, then assign). The PERSON photo is copied to a new `member-photos/…` object. A duplicate ID → 409 `NATIONAL_ID_TAKEN` + `details.existingMemberId`. Rate limited 30/min. |
 
 OCR (ADR-104): server-side tesseract.js 5 with self-hosted `ara+eng` LSTM data (`@tesseract.js-data/*`, `4.0.0_best_int`, never a CDN) and an in-process queue (`OCR_CONCURRENCY` 1–2, `OCR_MAX_ATTEMPTS` 3, back-off 30 s ×4, a start-up sweep and a one-minute tick; `OCR_ENABLED=false` keeps jobs PENDING). Extracted fields are stored encrypted (`violation_ocr.extracted_enc`, AES-256-GCM) with `id_number_hash` (HMAC); OCR text is never stored or logged. Retention deletes OCR rows with the photos. Key rotation (`rotate-national-id-key`) also re-encrypts `violation_ocr`.
 
@@ -367,7 +367,7 @@ Schemas and DTO types are in `@nuzli/shared` (`schemas/projects.ts` hours additi
 
 ### Imports (ADR-110, ADR-111, ADR-112)
 Flow: upload with `POST /files/presign { entityType: 'import', contentType, sizeBytes }` → PUT → `POST /files/:id/confirm` → `POST /projects/import` → preview (kept **1 hour** in `import_previews`) → `POST /projects/import/commit`.
-- **Uploads `entityType: 'import'`:** admin only (`projects.create`), no `entityId`/`kind`, ≤ **20 MB**, `contentType` one of `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (.xlsx), `text/csv`, `application/xml` / `text/xml` (.xml), `application/vnd.ms-project` (.mpp) — the client sends the canonical type for the extension. Confirm checks the structure (xlsx = ZIP with `xl/workbook.xml`; .mpp = OLE2; XML = starts with `<`, **no DOCTYPE**; CSV = text without NUL bytes, UTF-8 or UTF-16 with a BOM). Keys `imports/yyyy/mm/<uuid>.<ext>`; only the uploader may read the file; it is deleted after the commit, when the preview expires, or after 24 h.
+- **Uploads `entityType: 'import'`:** admin only (`projects.create`), no `entityId`/`kind`, ≤ **20 MB**, `contentType` one of `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (.xlsx), `text/csv`, `application/xml` / `text/xml` (.xml), `application/vnd.ms-project` (.mpp) — the client sends the canonical type for the extension. Confirm checks the structure (xlsx = ZIP with `xl/workbook.xml` that passes the ZIP-bomb guard — ≤ 100 MB uncompressed, ≤ 50 MB per entry, ≤ 2,000 entries, ratio ≤ 100:1 above 1 MB, declared sizes verified by inflating, ADR-119; .mpp = OLE2; XML = starts with `<`, **no DOCTYPE**; CSV = text without NUL bytes, UTF-8 or UTF-16 with a BOM). Keys `imports/yyyy/mm/<uuid>.<ext>`; only the uploader may read the file; it is deleted after the commit, when the preview expires, or after 24 h.
 
 | Method | Path | Permission | Body | Response |
 |---|---|---|---|---|
@@ -394,3 +394,23 @@ Mapping (docs/imports.md lists the column names): **Excel/CSV** — header synon
 
 ### Configuration
 `CONVERTER_URL` (e.g. `http://converter:8080`), `CONVERTER_TOKEN` (required in production with the URL, ≥ 32 random characters, the same value as in `env/converter.env`), `CONVERTER_TIMEOUT_MS` (60000), `JIRA_ALLOWED_HOSTS` (extra exact Jira hosts, comma separated).
+
+## A9 security review — behaviour changes (2026-10-19, ADR-117..120)
+
+docs/security-review-2026-10-A9.md has the findings and their status. What a client sees:
+
+| Route | Change |
+|---|---|
+| `PATCH /tasks/:id` (and `POST/DELETE /tasks/:id/labels`) | A caller without `projects.readAll` (a supervisor) gets `{ task, affected: [], previous: { [task.id]: … } }`. The roll-up into the parent groups still happens; their rows are not sent. Admins are unchanged. |
+| `GET /hub` | `path` is `[]` for supervisors (parent group names are not theirs); the project name stays. Aggregated in SQL; 60 requests/min per IP. |
+| `GET /attachments` | Same results; scoped and paged in SQL; 60 requests/min per IP. |
+| `POST /violations/:id/register-member` | Admins only (403 for others). With `teamId`, `capturedAt` must be within `VIOLATION_REGISTER_MAX_AGE_DAYS` (default 30) and not in the future → else 409 `VIOLATION_TOO_OLD_TO_REGISTER`. |
+| `PATCH/DELETE /time-entries/:id` | A supervisor's own entry is 404 once the task is reassigned or archived. |
+| `POST /tasks/:id/time-entries`, `PATCH /time-entries/:id` | `date` within today − 366 days … today + 7 days (Riyadh), else 400 `VALIDATION_FAILED` `fieldErrors.date`. |
+| `PUT /me/view-prefs` | At most 200 stored preferences per user: a new key beyond that → 409 `VIEW_PREF_LIMIT`. |
+| `POST /projects/import` | At most 5 previews per admin: a sixth deletes the oldest (its `previewId` then answers 410 `IMPORT_PREVIEW_EXPIRED`). xlsx: ZIP-bomb guard before parsing (400 `IMPORT_FILE_INVALID` `{ reason: 'xlsx-limits', detail }`), only real cells read, at most 200 columns and 5,016 non-empty rows (more → 413 `IMPORT_TOO_MANY_TASKS`), parsed in a worker thread (256 MB heap, 30 s → 400 `IMPORT_FILE_INVALID` `reason: 'xlsx-timeout' \| 'xlsx-limits'`). CSV: at most 200 columns and 5,016 rows. |
+| `POST /projects/import/jira` | One 60 s deadline across all pages (502 `JIRA_REQUEST_FAILED` `{ reason: 'timeout' }`); stricter IPv6 address checks (only global unicast, no 6to4/Teredo/NAT64/site-local). |
+| `.mpp` imports | Each conversion runs in a child JVM killed at the timeout; a busy converter answers 503 → 502 `MPP_CONVERSION_FAILED`. The API reads the converter's XML as a stream capped at 60 MB. |
+| OCR | ID-card images above 25 megapixels (or not a JPEG/PNG/WebP by header) fail permanently with `error: 'IMAGE_TOO_LARGE' \| 'NOT_AN_IMAGE'` before the engine runs. Retries are audited. |
+
+New error codes: `VIOLATION_TOO_OLD_TO_REGISTER` (409), `VIEW_PREF_LIMIT` (409). New setting: `VIOLATION_REGISTER_MAX_AGE_DAYS` (1–365, default 30). New audit actions: `violation.ocr_retried`, `violation.person_photo_viewed`. New shared constant: `VIEW_PREF_MAX_COUNT = 200`.

@@ -363,8 +363,9 @@ export class ViolationsService {
   /**
    * Presigned GET for one photo of a violation the viewer may see. ID-card photos also need
    * `violations.viewIdPhoto` (supervisors never get them) and every issued URL is audited
-   * (`violation.id_photo_viewed`). Evidence photos carry no identity document and are not
-   * audited, to keep the log readable (ADR-050).
+   * (`violation.id_photo_viewed`). PERSON photos are face photos (sensitive under PDPL), so their
+   * URLs are audited too (`violation.person_photo_viewed`, security review A9 L7). Evidence photos
+   * carry no identity document and are not audited, to keep the log readable (ADR-050).
    */
   async fileUrl(
     id: string,
@@ -380,9 +381,9 @@ export class ViolationsService {
     if (!file) throw new AppError('NOT_FOUND');
     const ttl = await this.settings.get('PRESIGNED_URL_TTL_SECONDS');
     const url = await this.storage.presignGet(file.storageKey, ttl);
-    if (link.kind === 'ID_CARD') {
+    if (link.kind === 'ID_CARD' || link.kind === 'PERSON') {
       await this.audit.logCtx(ctx, {
-        action: AuditAction.VIOLATION_ID_PHOTO_VIEWED,
+        action: link.kind === 'ID_CARD' ? AuditAction.VIOLATION_ID_PHOTO_VIEWED : AuditAction.VIOLATION_PERSON_PHOTO_VIEWED,
         entityType: 'violation',
         entityId: v.id,
         after: { fileId, ttlSeconds: ttl },

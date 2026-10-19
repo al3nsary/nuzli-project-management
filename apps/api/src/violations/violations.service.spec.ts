@@ -60,6 +60,7 @@ function violationRow(over: Record<string, unknown> = {}) {
     files: [
       { kind: 'ID_CARD', file: { id: 'f-id', mimeType: 'image/jpeg', status: 'READY', deletedAt: null } },
       { kind: 'EVIDENCE', file: { id: 'f-ev', mimeType: 'image/jpeg', status: 'READY', deletedAt: null } },
+      { kind: 'PERSON', file: { id: 'f-person', mimeType: 'image/jpeg', status: 'READY', deletedAt: null } },
     ],
     responses: [],
     ...over,
@@ -490,6 +491,11 @@ describe('supervisor responses and photo URLs', () => {
     s.prisma.auditLog.create.mockClear();
     await s.svc.fileUrl('v1', 'f-ev', MONITOR, ctx);
     expect(s.prisma.auditLog.create).not.toHaveBeenCalled();
+    // Security review A9 L7: PERSON (face) photo URLs are audited as well.
+    await s.svc.fileUrl('v1', 'f-person', MONITOR, ctx);
+    expect(s.prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'violation.person_photo_viewed', entityId: 'v1' }),
+    });
 
     const t = setup({ settings: { SUPERVISORS_CAN_SEE_VIOLATIONS: true } });
     await expectCode(t.svc.fileUrl('v1', 'f-id', SUP, ctx), 'FORBIDDEN');

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
+  can,
   HUB_FILTERS,
   type AttachmentBrowseDto,
   type AttachmentKindGroup,
@@ -15,7 +16,6 @@ import {
 import type { z } from 'zod';
 import { paginate } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
-import { taskScopeWhere } from './project-dto';
 import { preview } from './task-collab.service';
 import { addCalendarDaysIso } from './task-engine';
 
@@ -35,7 +35,8 @@ export interface HubStat {
 }
 
 /**
- * Per-task hub figures from the comments and the viewer's read mark (pure; unit-tested):
+ * Per-task hub figures from the comments and the viewer's read mark (pure; unit-tested, and the
+ * reference the SQL aggregation `hubStatsSql` must agree with):
  * unread = comments by others after `last_read_at` (all of them when never read).
  */
 export function hubStats(
@@ -87,65 +88,151 @@ export function kindGroup(mimeType: string): AttachmentKindGroup {
 /** Start of a Riyadh calendar day as an instant. */
 const riyadhStart = (iso: string): Date => new Date(`${iso}T00:00:00+03:00`);
 
+/** `%term%` for ILIKE … ESCAPE '\' with the user's `%`, `_` and `\` taken literally. */
+export function likePattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * The task scope of ADR-092 in SQL, over `tasks t JOIN projects p` (security review A9 L4: the
+ * scope is a join, never a list of ids). ADMIN (`projects.readAll`): every live task of a
+ * non-template project. SUPERVISOR (`tasks.readAssigned`): only the live tasks assigned to them in
+ * non-archived projects. Anyone else: nothing.
+ */
+export function taskScopeSql(viewer: Viewer): Prisma.Sql {
+  const base = Prisma.sql`t.archived_at IS NULL AND p.is_template = false`;
+  if (can(viewer, 'projects.readAll')) return base;
+  if (can(viewer, 'tasks.readAssigned')) return Prisma.sql`${base} AND t.assignee_id = ${viewer.id}::uuid AND p.archived_at IS NULL`;
+  return Prisma.sql`FALSE`;
+}
+
+/** One aggregated row per comment thread in the viewer's scope (hub; L4). */
+export interface HubStatRow {
+  taskId: string;
+  assigneeId: string | null;
+  createdById: string | null;
+  commentCount: number;
+  unreadCount: number;
+  mentioned: boolean;
+  lastAt: Date;
+}
+
+/**
+ * Hub figures aggregated in PostgreSQL (security review A9 L4): one row per thread, no comment
+ * rows leave the database. Same rules as `hubStats`.
+ */
+export function hubStatsSql(viewer: Viewer, q: Pick<HubQuery, 'projectId' | 'q'>): Prisma.Sql {
+  const parts: Prisma.Sql[] = [taskScopeSql(viewer)];
+  if (q.projectId) parts.push(Prisma.sql`t.project_id = ${q.projectId}::uuid`);
+  const term = q.q?.trim();
+  if (term) {
+    const like = likePattern(term);
+    parts.push(
+      Prisma.sql`(t.name ILIKE ${like} ESCAPE '\\' OR EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.body ILIKE ${like} ESCAPE '\\'))`,
+    );
+  }
+  return Prisma.sql`
+    SELECT t.id AS "taskId", t.assignee_id AS "assigneeId", t.created_by AS "createdById",
+           count(c.id)::int AS "commentCount",
+           (count(c.id) FILTER (WHERE c.author_id <> ${viewer.id}::uuid AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)))::int AS "unreadCount",
+           coalesce(bool_or(${viewer.id}::uuid = ANY (c.mentions)), false) AS "mentioned",
+           max(c.created_at) AS "lastAt"
+      FROM tasks t
+      JOIN projects p ON p.id = t.project_id
+      JOIN task_comments c ON c.task_id = t.id
+      LEFT JOIN task_comment_reads r ON r.task_id = t.id AND r.user_id = ${viewer.id}::uuid
+     WHERE ${Prisma.join(parts, ' AND ')}
+     GROUP BY t.id, t.assignee_id, t.created_by, r.last_read_at`;
+}
+
+/** WHERE of the attachments browser over `files f JOIN tasks t JOIN projects p` (L4). */
+export function attachmentWhereSql(viewer: Viewer, q: Omit<AttachmentQuery, 'page' | 'pageSize'>): Prisma.Sql {
+  const parts: Prisma.Sql[] = [
+    Prisma.sql`f.entity_type = 'task' AND f.status = 'READY'::"FileStatus" AND f.deleted_at IS NULL`,
+    taskScopeSql(viewer),
+  ];
+  if (q.projectId) parts.push(Prisma.sql`t.project_id = ${q.projectId}::uuid`);
+  if (q.type === 'image') parts.push(Prisma.sql`f.mime_type LIKE 'image/%'`);
+  if (q.type === 'pdf') parts.push(Prisma.sql`f.mime_type = 'application/pdf'`);
+  if (q.type === 'other') parts.push(Prisma.sql`NOT (f.mime_type LIKE 'image/%' OR f.mime_type = 'application/pdf')`);
+  if (q.uploadedBy) parts.push(Prisma.sql`f.uploaded_by = ${q.uploadedBy}::uuid`);
+  if (q.from) parts.push(Prisma.sql`f.created_at >= ${riyadhStart(q.from)}::timestamptz`);
+  if (q.to) parts.push(Prisma.sql`f.created_at < ${riyadhStart(addCalendarDaysIso(q.to, 1))}::timestamptz`);
+  const term = q.q?.trim();
+  if (term) {
+    const like = likePattern(term);
+    parts.push(Prisma.sql`(t.name ILIKE ${like} ESCAPE '\\' OR p.name ILIKE ${like} ESCAPE '\\')`);
+  }
+  return Prisma.join(parts, ' AND ');
+}
+
+const ATTACHMENT_FROM = Prisma.sql`files f JOIN tasks t ON t.id = f.entity_id JOIN projects p ON p.id = t.project_id`;
+
 /**
  * A9 communication hub (every comment thread the viewer can open, with unread counts and
- * filters) and the attachments browser. Supervisors see only tasks assigned to them
- * (`taskScopeWhere`, ADR-092); admins every task of non-template projects.
+ * filters) and the attachments browser. Supervisors see only tasks assigned to them (ADR-092);
+ * admins every task of non-template projects. Since the A9 security review (ADR-117) the scope
+ * and the aggregation run in SQL, and a supervisor gets no ancestor path (`path: []`).
  */
 @Injectable()
 export class HubService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private scope(viewer: Viewer, extra: Prisma.TaskWhereInput): Prisma.TaskWhereInput {
-    return { AND: [{ archivedAt: null, project: { isTemplate: false } }, taskScopeWhere(viewer), extra] };
+  /** Aggregated thread figures (SQL; replaced by an in-memory oracle in unit tests). */
+  protected async threadStats(viewer: Viewer, q: HubQuery): Promise<HubStat[]> {
+    const rows = await this.prisma.$queryRaw<HubStatRow[]>(hubStatsSql(viewer, q));
+    return rows.map((r) => ({
+      taskId: r.taskId,
+      assigneeId: r.assigneeId,
+      createdById: r.createdById,
+      commentCount: Number(r.commentCount),
+      unreadCount: Number(r.unreadCount),
+      mentioned: !!r.mentioned,
+      lastAt: new Date(r.lastAt).getTime(),
+      lastCommentId: null,
+    }));
   }
 
   async hub(viewer: Viewer, q: HubQuery): Promise<HubPageDto> {
-    const term = q.q?.trim();
-    const tasks = await this.prisma.task.findMany({
-      where: this.scope(viewer, {
-        comments: { some: {} },
-        ...(q.projectId ? { projectId: q.projectId } : {}),
-        ...(term
-          ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { comments: { some: { body: { contains: term, mode: 'insensitive' } } } }] }
-          : {}),
-      }),
-      select: {
-        id: true,
-        name: true,
-        wbsCache: true,
-        type: true,
-        status: true,
-        parentId: true,
-        assigneeId: true,
-        createdById: true,
-        assignee: { select: { id: true, fullName: true } },
-        project: { select: { id: true, name: true } },
-      },
-    });
-    const ids = tasks.map((t) => t.id);
-    const [comments, reads] = ids.length
-      ? await Promise.all([
-          this.prisma.taskComment.findMany({ where: { taskId: { in: ids } }, select: { id: true, taskId: true, authorId: true, createdAt: true, mentions: true } }),
-          this.prisma.taskCommentRead.findMany({ where: { userId: viewer.id, taskId: { in: ids } }, select: { taskId: true, lastReadAt: true } }),
-        ])
-      : [[], []];
-    const readMap = new Map(reads.map((r) => [r.taskId, r.lastReadAt]));
-    const stats = hubStats(tasks, comments, readMap, viewer.id);
+    const stats = await this.threadStats(viewer, q);
     const counts = Object.fromEntries(HUB_FILTERS.map((f) => [f, stats.filter((s) => matchesFilter(s, f, viewer.id)).length])) as Record<HubFilter, number>;
     const unreadTotal = stats.reduce((n, s) => n + s.unreadCount, 0);
     const filtered = stats.filter((s) => matchesFilter(s, q.filter, viewer.id)).sort((a, b) => b.lastAt - a.lastAt || (a.taskId < b.taskId ? -1 : 1));
     const page = filtered.slice((q.page - 1) * q.pageSize, q.page * q.pageSize);
+    const pageIds = page.map((s) => s.taskId);
+    if (!pageIds.length) return { items: [], total: filtered.length, page: q.page, pageSize: q.pageSize, counts, unreadTotal };
 
-    const byId = new Map(tasks.map((t) => [t.id, t]));
-    const lastIds = page.map((s) => s.lastCommentId).filter((x): x is string => !!x);
-    const [lasts, names] = await Promise.all([
-      lastIds.length
-        ? this.prisma.taskComment.findMany({ where: { id: { in: lastIds } }, select: { id: true, body: true, createdAt: true, author: { select: { id: true, fullName: true } } } })
-        : Promise.resolve([]),
-      this.ancestors(page.map((s) => byId.get(s.taskId)!.parentId).filter((p): p is string => !!p)),
+    const [tasks, lasts, reads] = await Promise.all([
+      this.prisma.task.findMany({
+        where: { id: { in: pageIds } },
+        select: {
+          id: true,
+          name: true,
+          wbsCache: true,
+          type: true,
+          status: true,
+          parentId: true,
+          assignee: { select: { id: true, fullName: true } },
+          project: { select: { id: true, name: true } },
+        },
+      }),
+      // The last comment of each thread on this page only (at most pageSize small queries).
+      Promise.all(
+        pageIds.map((taskId) =>
+          this.prisma.taskComment.findFirst({
+            where: { taskId },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            select: { id: true, body: true, createdAt: true, author: { select: { id: true, fullName: true } } },
+          }),
+        ),
+      ),
+      this.prisma.taskCommentRead.findMany({ where: { userId: viewer.id, taskId: { in: pageIds } }, select: { taskId: true, lastReadAt: true } }),
     ]);
-    const lastById = new Map(lasts.map((c) => [c.id, c]));
+    const byId = new Map(tasks.map((t) => [t.id, t]));
+    const readMap = new Map(reads.map((r) => [r.taskId, r.lastReadAt]));
+    // L4 (ADR-117): parent groups are not assigned to a supervisor, so their names are not shown.
+    const showPath = can(viewer, 'projects.readAll');
+    const names = showPath ? await this.ancestors(tasks.map((t) => t.parentId).filter((p): p is string => !!p)) : new Map();
     const pathOf = (parentId: string | null): string[] => {
       const out: string[] = [];
       for (let cur = parentId, guard = 0; cur && guard < 100; guard++) {
@@ -156,23 +243,25 @@ export class HubService {
       }
       return out;
     };
-    const items: HubItemDto[] = page.map((s) => {
-      const t = byId.get(s.taskId)!;
-      const last = s.lastCommentId ? lastById.get(s.lastCommentId) : undefined;
-      return {
+    const items: HubItemDto[] = [];
+    page.forEach((s, i) => {
+      const t = byId.get(s.taskId);
+      if (!t) return; // deleted between the two reads
+      const last = lasts[i];
+      items.push({
         task: { id: t.id, name: t.name, wbs: t.wbsCache, type: t.type, status: t.status, assignee: t.assignee },
         project: t.project,
-        path: pathOf(t.parentId),
+        path: showPath ? pathOf(t.parentId) : [],
         commentCount: s.commentCount,
         unreadCount: s.unreadCount,
         lastReadAt: readMap.get(t.id)?.toISOString() ?? null,
         lastComment: last ? { id: last.id, author: last.author, bodyPreview: preview(last.body), createdAt: last.createdAt.toISOString() } : null,
-      };
+      });
     });
     return { items, total: filtered.length, page: q.page, pageSize: q.pageSize, counts, unreadTotal };
   }
 
-  /** Names and parents of the given tasks and all their ancestors. */
+  /** Names and parents of the given tasks and all their ancestors (admins only). */
   private async ancestors(start: string[]): Promise<Map<string, { name: string; parentId: string | null }>> {
     const out = new Map<string, { name: string; parentId: string | null }>();
     let todo = [...new Set(start)];
@@ -186,67 +275,50 @@ export class HubService {
 
   // ─────────────────────────────────────────── attachments browser
 
-  async attachments(viewer: Viewer, q: AttachmentQuery): Promise<Paginated<AttachmentBrowseDto>> {
-    const term = q.q?.trim();
-    const tasks = await this.prisma.task.findMany({
-      where: this.scope(viewer, {
-        ...(q.projectId ? { projectId: q.projectId } : {}),
-        ...(term
-          ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { project: { name: { contains: term, mode: 'insensitive' } } }] }
-          : {}),
-      }),
-      select: { id: true, name: true, wbsCache: true, project: { select: { id: true, name: true } } },
-    });
-    if (!tasks.length) return paginate([], 0, q.page, q.pageSize);
-    const typeWhere: Prisma.FileWhereInput =
-      q.type === 'image'
-        ? { mimeType: { startsWith: 'image/' } }
-        : q.type === 'pdf'
-          ? { mimeType: 'application/pdf' }
-          : q.type === 'other'
-            ? { NOT: [{ mimeType: { startsWith: 'image/' } }, { mimeType: 'application/pdf' }] }
-            : {};
-    const where: Prisma.FileWhereInput = {
-      AND: [
-        { entityType: 'task', entityId: { in: tasks.map((t) => t.id) }, status: 'READY', deletedAt: null },
-        typeWhere,
-        q.uploadedBy ? { uploadedById: q.uploadedBy } : {},
-        q.from || q.to
-          ? { createdAt: { ...(q.from ? { gte: riyadhStart(q.from) } : {}), ...(q.to ? { lt: riyadhStart(addCalendarDaysIso(q.to, 1)) } : {}) } }
-          : {},
-      ],
-    };
-    const [total, files] = await Promise.all([
-      this.prisma.file.count({ where }),
-      this.prisma.file.findMany({
-        where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-        skip: (q.page - 1) * q.pageSize,
-        take: q.pageSize,
-        select: { id: true, mimeType: true, sizeBytes: true, uploadedById: true, createdAt: true, entityId: true },
-      }),
+  /** One page of matching file ids (newest first) and the total, scoped in SQL (L4). */
+  protected async attachmentPage(viewer: Viewer, q: AttachmentQuery): Promise<{ ids: string[]; total: number }> {
+    const where = attachmentWhereSql(viewer, q);
+    const [countRows, idRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`SELECT count(*)::int AS total FROM ${ATTACHMENT_FROM} WHERE ${where}`),
+      this.prisma.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT f.id FROM ${ATTACHMENT_FROM} WHERE ${where} ORDER BY f.created_at DESC, f.id ASC LIMIT ${q.pageSize} OFFSET ${(q.page - 1) * q.pageSize}`,
+      ),
     ]);
+    return { ids: idRows.map((r) => r.id), total: Number(countRows[0]?.total ?? 0) };
+  }
+
+  async attachments(viewer: Viewer, q: AttachmentQuery): Promise<Paginated<AttachmentBrowseDto>> {
+    const { ids, total } = await this.attachmentPage(viewer, q);
+    if (!ids.length) return paginate([], total, q.page, q.pageSize);
+    const files = await this.prisma.file.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, mimeType: true, sizeBytes: true, uploadedById: true, createdAt: true, entityId: true },
+    });
+    const taskIds = [...new Set(files.map((f) => f.entityId).filter((x): x is string => !!x))];
     const uploaderIds = [...new Set(files.map((f) => f.uploadedById).filter((u): u is string => !!u))];
-    const users = uploaderIds.length ? await this.prisma.user.findMany({ where: { id: { in: uploaderIds } }, select: { id: true, fullName: true } }) : [];
+    const [tasks, users] = await Promise.all([
+      this.prisma.task.findMany({ where: { id: { in: taskIds } }, select: { id: true, name: true, wbsCache: true, project: { select: { id: true, name: true } } } }),
+      uploaderIds.length ? this.prisma.user.findMany({ where: { id: { in: uploaderIds } }, select: { id: true, fullName: true } }) : Promise.resolve([]),
+    ]);
+    const fileById = new Map(files.map((f) => [f.id, f]));
     const userById = new Map(users.map((u) => [u.id, u]));
     const taskById = new Map(tasks.map((t) => [t.id, t]));
-    return paginate(
-      files.map((f) => {
-        const t = taskById.get(f.entityId!)!;
-        return {
-          id: f.id,
-          mimeType: f.mimeType,
-          type: kindGroup(f.mimeType),
-          sizeBytes: f.sizeBytes,
-          uploadedBy: f.uploadedById ? (userById.get(f.uploadedById) ?? null) : null,
-          createdAt: f.createdAt.toISOString(),
-          task: { id: t.id, name: t.name, wbs: t.wbsCache },
-          project: t.project,
-        };
-      }),
-      total,
-      q.page,
-      q.pageSize,
-    );
+    const items: AttachmentBrowseDto[] = [];
+    for (const id of ids) {
+      const f = fileById.get(id);
+      const t = f?.entityId ? taskById.get(f.entityId) : undefined;
+      if (!f || !t) continue;
+      items.push({
+        id: f.id,
+        mimeType: f.mimeType,
+        type: kindGroup(f.mimeType),
+        sizeBytes: f.sizeBytes,
+        uploadedBy: f.uploadedById ? (userById.get(f.uploadedById) ?? null) : null,
+        createdAt: f.createdAt.toISOString(),
+        task: { id: t.id, name: t.name, wbs: t.wbsCache },
+        project: t.project,
+      });
+    }
+    return paginate(items, total, q.page, q.pageSize);
   }
 }

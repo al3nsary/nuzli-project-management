@@ -27,6 +27,7 @@ import type { RequestContext } from '../common/request';
 import { PrismaService, type Db } from '../prisma/prisma.service';
 import { mapTaskDbError, ProjectStore, WRITE_TX_OPTIONS } from './project-store';
 import { sortOrderBetween } from './task-engine';
+import { scopeUpdateResult } from './tasks.service';
 
 type Viewer = PermissionSubject & { id: string; fullName?: string };
 
@@ -197,7 +198,7 @@ export class TaskDetailsService {
       });
     });
     const [task] = await this.store.taskDtos([taskId]);
-    return { task: task!, affected: [], previous: out.previous };
+    return scopeUpdateResult({ task: task!, affected: [], previous: out.previous }, viewer);
   }
 
   // ─────────────────────────────────────────── custom fields

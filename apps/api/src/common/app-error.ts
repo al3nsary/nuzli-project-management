@@ -42,6 +42,7 @@ export const ERROR_STATUS: Partial<Record<ErrorCode, number>> = {
   CALENDAR_DATE_EXISTS: HttpStatus.CONFLICT,
   // A9
   VIEW_PREF_TOO_LARGE: HttpStatus.PAYLOAD_TOO_LARGE,
+  VIEW_PREF_LIMIT: HttpStatus.CONFLICT,
   TIME_ENTRY_NOT_ALLOWED: HttpStatus.FORBIDDEN,
   NOT_A_TEMPLATE: HttpStatus.CONFLICT,
   // A9 — teams, org, violations (ADR-100..104)
@@ -55,6 +56,7 @@ export const ERROR_STATUS: Partial<Record<ErrorCode, number>> = {
   ORG_UNIT_NOT_EMPTY: HttpStatus.CONFLICT,
   ORG_UNIT_ARCHIVED: HttpStatus.CONFLICT,
   VIOLATION_ALREADY_ASSIGNED: HttpStatus.CONFLICT,
+  VIOLATION_TOO_OLD_TO_REGISTER: HttpStatus.CONFLICT,
   PDF_NOT_CONFIGURED: HttpStatus.NOT_IMPLEMENTED,
   PDF_FAILED: HttpStatus.BAD_GATEWAY,
   IMPORT_TOO_MANY_TASKS: HttpStatus.PAYLOAD_TOO_LARGE,

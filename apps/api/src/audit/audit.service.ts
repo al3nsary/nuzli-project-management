@@ -136,6 +136,9 @@ export const AuditAction = {
   VIOLATION_UNASSIGNED: 'violation.unassigned',
   VIOLATION_MEMBER_REGISTERED: 'violation.member_registered',
   VIOLATION_OCR_VIEWED: 'violation.ocr_viewed',
+  // Security review A9 L7 (ADR-118):
+  VIOLATION_OCR_RETRIED: 'violation.ocr_retried',
+  VIOLATION_PERSON_PHOTO_VIEWED: 'violation.person_photo_viewed',
 } as const;
 
 export interface AuditEntryInput {

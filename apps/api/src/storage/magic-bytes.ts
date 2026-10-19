@@ -3,6 +3,8 @@
  * Only JPEG, PNG, WebP and PDF are recognised; everything else — SVG, HTML, executables,
  * polyglots that do not start with a known signature — returns null and is rejected.
  */
+import { inspectZip } from './zip-guard';
+
 export type DetectedType = 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
 
 const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -74,7 +76,13 @@ function contains(buf: Uint8Array, needle: string): boolean {
 export function verifyImportBytes(bytes: Uint8Array, declared: ImportType): boolean {
   switch (declared) {
     case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-      return startsWith(bytes, ZIP) && contains(bytes, '[Content_Types].xml') && contains(bytes, 'xl/workbook.xml');
+      // Security review A9 M2: a ZIP bomb never reaches READY (limits and verified sizes, zip-guard.ts).
+      return (
+        startsWith(bytes, ZIP) &&
+        contains(bytes, '[Content_Types].xml') &&
+        contains(bytes, 'xl/workbook.xml') &&
+        inspectZip(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)).ok
+      );
     case 'application/vnd.ms-project':
       return startsWith(bytes, OLE2);
     case 'application/xml':

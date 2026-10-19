@@ -2,13 +2,15 @@ import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import type { RequestContext } from '../common/request';
 import { createFakeDb, d, task, type FakeData } from '../../test/unit/fake-project-db';
-import { HubService } from './hub.service';
+import { attachmentWhereSql, HubService, hubStats, hubStatsSql, likePattern, type HubStat } from './hub.service';
+import { taskScopeWhere } from './project-dto';
 import { ProjectReportsService } from './project-reports.service';
 import { ProjectStore } from './project-store';
 import { ProjectsService } from './projects.service';
 import { TemplatesService } from './templates.service';
 import { TasksService } from './tasks.service';
-import { TimeEntriesService } from './time-entries.service';
+import { addCalendarDaysIso, riyadhToday } from './task-engine';
+import { assertEntryDate, TimeEntriesService } from './time-entries.service';
 import { ViewPrefsService } from './view-prefs.service';
 
 const ctx: RequestContext = { actorId: 'admin', ip: null, requestId: 'r', userAgent: null };
@@ -28,6 +30,55 @@ async function code(p: Promise<unknown>): Promise<string | undefined> {
     () => undefined,
     (e: unknown) => (e instanceof AppError ? e.code : String(e)),
   );
+}
+
+/**
+ * The hub and attachments browser aggregate in SQL (ADR-117). The unit fake has no SQL, so these
+ * subclasses answer the two SQL steps with the in-memory reference (Prisma scope + `hubStats`);
+ * the SQL itself is checked as text below and against PostgreSQL in the integration suite.
+ */
+class OracleHub extends HubService {
+  constructor(private readonly db: any) {
+    super(db);
+  }
+  private scope(viewer: typeof ADMIN | typeof SUP, extra: object) {
+    return { AND: [{ archivedAt: null, project: { isTemplate: false } }, taskScopeWhere(viewer), extra] };
+  }
+  protected override async threadStats(viewer: typeof ADMIN, q: Parameters<HubService['hub']>[1]): Promise<HubStat[]> {
+    const term = q.q?.trim();
+    const tasks = await this.db.task.findMany({
+      where: this.scope(viewer, {
+        comments: { some: {} },
+        ...(q.projectId ? { projectId: q.projectId } : {}),
+        ...(term ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { comments: { some: { body: { contains: term, mode: 'insensitive' } } } }] } : {}),
+      }),
+      select: { id: true, assigneeId: true, createdById: true },
+    });
+    const ids = tasks.map((t: { id: string }) => t.id);
+    const comments = await this.db.taskComment.findMany({ where: { taskId: { in: ids } } });
+    const reads = await this.db.taskCommentRead.findMany({ where: { userId: viewer.id, taskId: { in: ids } } });
+    return hubStats(tasks, comments, new Map(reads.map((r: { taskId: string; lastReadAt: Date }) => [r.taskId, r.lastReadAt])), viewer.id);
+  }
+  protected override async attachmentPage(viewer: typeof ADMIN, q: Parameters<HubService['attachments']>[1]) {
+    const term = q.q?.trim();
+    const tasks = await this.db.task.findMany({
+      where: this.scope(viewer, {
+        ...(q.projectId ? { projectId: q.projectId } : {}),
+        ...(term ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { project: { name: { contains: term, mode: 'insensitive' } } }] } : {}),
+      }),
+      select: { id: true },
+    });
+    const day = (iso: string, plus = 0) => new Date(new Date(`${iso}T00:00:00+03:00`).getTime() + plus * 86_400_000);
+    const files: Array<{ id: string; mimeType: string; uploadedById: string; createdAt: Date }> = await this.db.file.findMany({
+      where: { entityType: 'task', entityId: { in: tasks.map((t: { id: string }) => t.id) }, status: 'READY', deletedAt: null },
+    });
+    const hit = files
+      .filter((f) => (q.type === 'image' ? f.mimeType.startsWith('image/') : q.type === 'pdf' ? f.mimeType === 'application/pdf' : q.type === 'other' ? !f.mimeType.startsWith('image/') && f.mimeType !== 'application/pdf' : true))
+      .filter((f) => !q.uploadedBy || f.uploadedById === q.uploadedBy)
+      .filter((f) => (!q.from || f.createdAt >= day(q.from)) && (!q.to || f.createdAt < day(q.to, 1)))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? -1 : 1));
+    return { ids: hit.slice((q.page - 1) * q.pageSize, q.page * q.pageSize).map((f) => f.id), total: hit.length };
+  }
 }
 
 function setup(over: Partial<FakeData> = {}) {
@@ -66,7 +117,7 @@ function setup(over: Partial<FakeData> = {}) {
     projects,
     prefs: new ViewPrefsService(fake.db as never, store),
     time: new TimeEntriesService(fake.db as never, store, audit),
-    hub: new HubService(fake.db as never),
+    hub: new OracleHub(fake.db),
   };
 }
 
@@ -108,6 +159,16 @@ describe('A9 supervisors do not see projects (ADR-092)', () => {
 });
 
 describe('A9 view preferences', () => {
+  it('security review A9 L1: at most 200 stored preferences per user; updating an existing one still works', async () => {
+    const { prefs, fake } = setup();
+    for (let i = 0; i < 200; i++) fake.data.viewPrefs.push({ id: `p${i}`, userId: 'admin', projectId: null, key: `gantt.v${i}`, value: i, updatedAt: new Date() });
+    const err = await prefs.put(ADMIN, { key: 'gantt.new', value: 1 }).catch((e: unknown) => e as AppError);
+    expect(err).toMatchObject({ code: 'VIEW_PREF_LIMIT', status: 409 });
+    await expect(prefs.put(ADMIN, { key: 'gantt.v3', value: 'changed' })).resolves.toMatchObject({ value: 'changed' });
+    // Another user is not affected.
+    await expect(prefs.put(SUP, { key: 'gantt.new', value: 1 })).resolves.toMatchObject({ key: 'gantt.new' });
+  });
+
   it('global and per-project values; upsert; 32 KB cap; a project must be visible', async () => {
     const { prefs, fake } = setup();
     await prefs.put(ADMIN, { key: 'gantt.columns', value: [{ id: 'name', width: 240 }] });
@@ -152,6 +213,27 @@ describe('A9 time log', () => {
     expect(fake.data.audit.map((a) => a.action)).toEqual(expect.arrayContaining(['time_entry.created', 'time_entry.updated', 'time_entry.deleted']));
   });
 
+  it('security review A9 L3: losing the task (reassigned or archived) loses the entries; dates are bounded', async () => {
+    const { time, fake } = setup();
+    const mine = await time.create(A, { date: '2026-10-12', minutes: 90 }, SUP, supCtx);
+    const rowA = fake.data.tasks.find((t) => t.id === A)!;
+    rowA.assigneeId = 'sup2';
+    expect(await code(time.update(mine.id, { minutes: 10 }, SUP, supCtx))).toBe('NOT_FOUND');
+    expect(await code(time.remove(mine.id, SUP, supCtx))).toBe('NOT_FOUND');
+    rowA.assigneeId = 'sup1';
+    rowA.archivedAt = new Date();
+    expect(await code(time.update(mine.id, { minutes: 10 }, SUP, supCtx))).toBe('NOT_FOUND');
+    // Admins still manage it.
+    expect((await time.update(mine.id, { minutes: 15 }, ADMIN, ctx)).minutes).toBe(15);
+    rowA.archivedAt = null;
+    const today = riyadhToday(new Date());
+    expect(await code(time.create(A, { date: addCalendarDaysIso(today, 8), minutes: 30 }, SUP, supCtx))).toBe('VALIDATION_FAILED');
+    expect(await code(time.create(A, { date: '1999-01-01', minutes: 30 }, ADMIN, ctx))).toBe('VALIDATION_FAILED');
+    expect(await code(time.update(mine.id, { date: '2100-01-01' }, ADMIN, ctx))).toBe('VALIDATION_FAILED');
+    await expect(time.create(A, { date: addCalendarDaysIso(today, 7), minutes: 30 }, SUP, supCtx)).resolves.toBeDefined();
+    expect(() => assertEntryDate(addCalendarDaysIso(today, -366))).not.toThrow();
+  });
+
   it('logged minutes feed the budget report and the workload', async () => {
     const { time, reports } = setup();
     await time.create(A, { date: '2026-10-12', minutes: 90 }, SUP, supCtx);
@@ -180,12 +262,16 @@ describe('A9 communication hub', () => {
     commentReads: [{ userId: 'sup1', taskId: A, lastReadAt: at(9) }],
   });
 
-  it('a supervisor sees only their tasks, with unread counts, the last comment and the parent path', async () => {
+  it('a supervisor sees only their tasks, with unread counts and the last comment, but no parent path (ADR-117)', async () => {
     const { hub } = setup(hubData());
     const page = await hub.hub(SUP, { filter: 'all', page: 1, pageSize: 25 });
     expect(page.items.map((i) => i.task.id)).toEqual([A, C]);
     const a = page.items[0]!;
-    expect(a).toMatchObject({ commentCount: 3, unreadCount: 1, path: ['الأعمال'], project: { id: P, name: 'مشروع البرج' } });
+    // Security review A9 L4: the parent group is not assigned to the supervisor, so its name is hidden.
+    expect(a).toMatchObject({ commentCount: 3, unreadCount: 1, path: [], project: { id: P, name: 'مشروع البرج' } });
+    expect(JSON.stringify(page)).not.toContain('الأعمال');
+    const adm = await hub.hub(ADMIN, { filter: 'all', page: 1, pageSize: 25 });
+    expect(adm.items.find((i) => i.task.id === A)?.path).toEqual(['الأعمال']);
     expect(a.lastComment).toMatchObject({ id: 'c3', bodyPreview: 'ممتاز', author: { id: 'admin' } });
     expect(page.items[1]).toMatchObject({ unreadCount: 1, path: [] });
     expect(page.counts).toEqual({ all: 2, new: 2, mentioned: 1, assigned: 2, created: 0 });
@@ -215,6 +301,27 @@ describe('A9 communication hub', () => {
     const page = await hub.hub(ADMIN, { filter: 'all', page: 2, pageSize: 2 });
     expect(page).toMatchObject({ total: 3, page: 2, pageSize: 2 });
     expect(page.items.map((i) => i.task.id)).toEqual([C]);
+  });
+});
+
+describe('A9 hub and attachments SQL (security review L4, ADR-117)', () => {
+  const text = (x: { text: string }) => x.text.replace(/\s+/g, ' ');
+  it('the scope is a join bound to the viewer, never an id list; values are parameters', () => {
+    const sup = hubStatsSql(SUP, { q: '50%_off' });
+    expect(text(sup)).toContain('JOIN task_comments c ON c.task_id = t.id');
+    expect(text(sup)).toMatch(/t\.archived_at IS NULL AND p\.is_template = false AND t\.assignee_id = \$\d+::uuid AND p\.archived_at IS NULL/);
+    expect(text(sup)).toContain("ESCAPE '\\'");
+    expect(text(sup)).not.toContain(' IN (');
+    expect(sup.values).toContain('sup1');
+    expect(sup.values).toContain('%50\\%\\_off%');
+    expect(text(hubStatsSql(ADMIN, {}))).not.toContain('assignee_id =');
+    const nobody = { id: 'm', role: 'MONITOR' as const, status: 'ACTIVE' as const };
+    expect(text(hubStatsSql(nobody, {}))).toContain('WHERE FALSE');
+    const att = attachmentWhereSql(SUP, { type: 'other', from: '2026-10-13', to: '2026-10-13' });
+    expect(text(att)).toContain("f.entity_type = 'task' AND f.status = 'READY'::\"FileStatus\" AND f.deleted_at IS NULL");
+    expect(text(att)).toContain('t.assignee_id = $1::uuid');
+    expect(att.values).toEqual(['sup1', new Date('2026-10-12T21:00:00Z'), new Date('2026-10-13T21:00:00Z')]);
+    expect(likePattern('a\\b')).toBe('%a\\\\b%');
   });
 });
 

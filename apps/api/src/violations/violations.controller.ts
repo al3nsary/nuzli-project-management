@@ -195,8 +195,8 @@ export class ViolationsController {
   @HttpCode(202)
   @RequirePermission('violations.manage')
   @ApiOperation({ summary: 'إعادة قراءة بطاقة الهوية آليًّا' })
-  async retryOcr(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<{ queued: true }> {
-    await this.assignments.retryOcr(id, viewer);
+  async retryOcr(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser, @ReqCtx() ctx: RequestContext): Promise<{ queued: true }> {
+    await this.assignments.retryOcr(id, viewer, ctx);
     return { queued: true };
   }
 
@@ -228,8 +228,9 @@ export class ViolationsController {
 
   @Post(':id/register-member')
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
-  @RequireAnyPermission('members.manage', 'members.manageOwn')
-  @ApiOperation({ summary: 'تسجيل عضو جديد من بيانات البطاقة وصورة الشخص ثم إسناد المخالفة إليه' })
+  // Security review A9 M1 (ADR-118): admins only.
+  @RequirePermission('members.manage')
+  @ApiOperation({ summary: '(المدير) تسجيل عضو جديد من بيانات البطاقة وصورة الشخص ثم إسناد المخالفة إليه' })
   registerMember(
     @Param('id', UuidPipe) id: string,
     @ZodBody(registerViolationMemberSchema) body: z.output<typeof registerViolationMemberSchema>,

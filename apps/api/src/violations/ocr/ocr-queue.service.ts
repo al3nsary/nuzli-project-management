@@ -4,6 +4,7 @@ import { AppConfig } from '../../config/app-config';
 import { CryptoService } from '../../crypto/crypto.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../../storage/storage.service';
+import { ocrImageProblem } from '../../storage/image-dimensions';
 import { OCR_ENGINE, OCR_LANGS, type OcrEngine } from './ocr-engine';
 import { parseIdCard, type ExtractedCard } from './ocr-parser';
 
@@ -206,6 +207,10 @@ export class OcrQueueService implements OnApplicationBootstrap, OnModuleDestroy 
       if (!file || file.deletedAt || file.status !== 'READY') throw new OcrPermanentError('FILE_GONE');
       const bytes = Buffer.from(await this.storage.readAll(file.storageKey));
       if (!bytes.length) throw new OcrPermanentError('FILE_EMPTY');
+      // Security review A9: a decompression bomb (huge dimensions in a small file) never reaches
+      // the engine — the size is read from the header and checked before decoding.
+      const imageProblem = ocrImageProblem(bytes);
+      if (imageProblem) throw new OcrPermanentError(imageProblem);
       const result = await this.engine.recognize(bytes);
       const fields = parseIdCard({ text: result.text, lines: result.lines });
       const payload: StoredOcr = { v: 1, fields, engine: OCR_ENGINE_LABEL, meanConfidence: Math.round(result.confidence) };

@@ -3,13 +3,15 @@
  * English synonyms, outline from WBS codes, an outline-level column or indentation, tolerant
  * dates, durations and predecessors (docs/imports.md lists every accepted column name).
  */
-import { Workbook, type CellValue, type Worksheet } from 'exceljs';
+import { Worker } from 'node:worker_threads';
 import Papa from 'papaparse';
 import { AppError } from '../common/app-error';
+import { inspectZip } from '../storage/zip-guard';
 import {
   cleanText,
   emptyDraft,
   headerKey,
+  MAX_IMPORT_TASKS,
   normalizeWbs,
   parentsFromLevels,
   parentsFromWbs,
@@ -98,53 +100,157 @@ export type TableRow = TableCell[];
 
 // ─────────────────────────────────────────── readers
 
-function plainCellValue(v: CellValue): unknown {
+/** Columns read per row (security review A9 M3): anything further right is ignored. */
+export const MAX_IMPORT_COLUMNS = 200;
+/** Spreadsheet rows considered at all (row numbers above this are ignored, as before). */
+export const MAX_IMPORT_ROW_NUMBER = 100_000;
+/** Non-empty rows read: the task limit plus room for a title block and the header row. */
+export const MAX_IMPORT_ROWS = MAX_IMPORT_TASKS + 16;
+
+export interface XlsxReadOptions {
+  /** Hard deadline for the parse (the worker is terminated). */
+  timeoutMs?: number;
+  /** V8 old-generation heap of the parsing worker. */
+  maxOldGenerationSizeMb?: number;
+  maxRows?: number;
+}
+
+/**
+ * The parsing worker (plain JavaScript run with `eval`, so it behaves the same from `dist` and
+ * under ts-jest). It loads the workbook with exceljs, iterates only real cells
+ * (`eachRow` / `eachCell` without empties, security review M3), caps columns and rows, and posts
+ * plain rows back. When no sheet is named it first posts the first 15 rows of every sheet and
+ * waits for the main thread to pick one (the header detection lives in TypeScript).
+ */
+const XLSX_WORKER_SOURCE = String.raw`
+const { parentPort, workerData } = require('node:worker_threads');
+const { Workbook } = require(workerData.exceljsPath);
+function plain(v) {
   if (v === null || v === undefined) return null;
-  if (v instanceof Date) return v;
+  // Dates cross the thread boundary as epoch milliseconds (revived in denseRows).
+  if (v instanceof Date) return { $date: v.getTime() };
   if (typeof v === 'object') {
-    const o = v as unknown as Record<string, unknown>;
-    if ('result' in o) return plainCellValue(o.result as CellValue);
-    if ('richText' in o && Array.isArray(o.richText)) return (o.richText as Array<{ text: string }>).map((r) => r.text).join('');
-    if ('text' in o) return o.text;
-    if ('error' in o) return null;
+    if ('result' in v) return plain(v.result);
+    if ('richText' in v && Array.isArray(v.richText)) return v.richText.map((r) => r.text).join('');
+    if ('text' in v) return v.text;
     return null;
   }
   return v;
 }
-
-export async function readXlsx(buf: Buffer, sheetName?: string): Promise<{ rows: TableRow[]; sheet: string }> {
+function rowsOf(ws, maxRows) {
+  const rows = [];
+  let truncated = false;
+  ws.eachRow({ includeEmpty: false }, (row, r) => {
+    if (truncated || r > workerData.maxRowNumber) return;
+    if (rows.length >= maxRows) { truncated = true; return; }
+    const cells = [];
+    row.eachCell({ includeEmpty: false }, (cell, c) => {
+      if (c > workerData.maxCols) return;
+      while (cells.length < c - 1) cells.push({ v: null, indent: 0, percent: false });
+      const fmt = cell.numFmt || '';
+      cells.push({ v: plain(cell.value), indent: (cell.alignment && cell.alignment.indent) || 0, percent: fmt.includes('%') });
+    });
+    rows.push({ r, cells });
+  });
+  return { rows, truncated };
+}
+(async () => {
   const wb = new Workbook();
   try {
-    await wb.xlsx.load(buf as unknown as ArrayBuffer);
-  } catch {
-    throw new AppError('IMPORT_FILE_INVALID', { reason: 'xlsx' });
+    await wb.xlsx.load(workerData.bytes);
+  } catch (e) {
+    parentPort.postMessage({ type: 'invalid' });
+    return;
   }
   const sheets = wb.worksheets;
-  if (!sheets.length) throw new AppError('IMPORT_NO_TASKS');
-  let ws: Worksheet | undefined;
-  if (sheetName) ws = wb.getWorksheet(sheetName);
-  if (!ws) {
-    // The first sheet with a task-name header in its first 15 rows.
-    ws = sheets.find((s) => headerRowIndex(sheetRows(s, 15)) >= 0) ?? sheets[0];
+  if (!sheets.length) { parentPort.postMessage({ type: 'empty' }); return; }
+  let idx = workerData.sheetName ? sheets.findIndex((s) => s.name === workerData.sheetName) : -1;
+  if (idx < 0) {
+    parentPort.postMessage({ type: 'heads', heads: sheets.map((s) => rowsOf(s, 15).rows) });
+    idx = await new Promise((res) => parentPort.once('message', (m) => res(m.pick)));
   }
-  return { rows: sheetRows(ws!, 100_000), sheet: ws!.name };
+  const ws = sheets[idx] || sheets[0];
+  const out = rowsOf(ws, workerData.maxRows);
+  parentPort.postMessage({ type: 'rows', sheet: ws.name, rows: out.rows, truncated: out.truncated });
+})();
+`;
+
+type SparseRow = { r: number; cells: TableRow };
+type WorkerMsg =
+  | { type: 'invalid' }
+  | { type: 'empty' }
+  | { type: 'heads'; heads: SparseRow[][] }
+  | { type: 'rows'; sheet: string; rows: SparseRow[]; truncated: boolean };
+
+/** Sparse worker rows → the dense table the mapper expects (index i = spreadsheet row i + 1). */
+export function denseRows(rows: SparseRow[]): TableRow[] {
+  const last = rows.reduce((m, x) => Math.max(m, x.r), 0);
+  const out: TableRow[] = Array.from({ length: last }, () => []);
+  for (const x of rows) {
+    out[x.r - 1] = x.cells.map((c) => {
+      const v = c.v as { $date?: unknown } | null;
+      return v && typeof v === 'object' && typeof v.$date === 'number' ? { ...c, v: new Date(v.$date) } : c;
+    });
+  }
+  return out;
 }
 
-function sheetRows(ws: Worksheet, max: number): TableRow[] {
-  const rows: TableRow[] = [];
-  const last = Math.min(ws.rowCount, max);
-  for (let r = 1; r <= last; r++) {
-    const row = ws.getRow(r);
-    const cells: TableRow = [];
-    const count = Math.max(row.cellCount, 0);
-    for (let c = 1; c <= count; c++) {
-      const cell = row.getCell(c);
-      const fmt = cell.numFmt ?? '';
-      cells.push({ v: plainCellValue(cell.value), indent: cell.alignment?.indent ?? 0, percent: fmt.includes('%') });
-    }
-    rows.push(cells);
+/**
+ * .xlsx → rows. Security review A9 M2/M3 (ADR-119): the ZIP is checked first (`inspectZip`:
+ * at most 100 MB uncompressed and 2,000 entries, ratio at most 100, declared sizes verified), then
+ * exceljs runs in a `worker_threads` worker with a heap limit and a deadline, so a hostile file
+ * kills the worker, never the API process.
+ */
+export async function readXlsx(buf: Buffer, sheetName?: string, opts: XlsxReadOptions = {}): Promise<{ rows: TableRow[]; sheet: string }> {
+  const verdict = inspectZip(buf);
+  if (!verdict.ok) throw new AppError('IMPORT_FILE_INVALID', { reason: 'xlsx-limits', detail: verdict.reason });
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const bytes = new Uint8Array(buf.byteLength);
+  bytes.set(buf);
+  const worker = new Worker(XLSX_WORKER_SOURCE, {
+    eval: true,
+    workerData: {
+      exceljsPath: require.resolve('exceljs'),
+      bytes,
+      sheetName: sheetName ?? null,
+      maxRows: opts.maxRows ?? MAX_IMPORT_ROWS,
+      maxCols: MAX_IMPORT_COLUMNS,
+      maxRowNumber: MAX_IMPORT_ROW_NUMBER,
+    },
+    transferList: [bytes.buffer],
+    resourceLimits: { maxOldGenerationSizeMb: opts.maxOldGenerationSizeMb ?? 256, maxYoungGenerationSizeMb: 32, stackSizeMb: 4 },
+    stdout: true,
+    stderr: true,
+  });
+  const invalid = (reason: string) => new AppError('IMPORT_FILE_INVALID', { reason });
+  try {
+    const result = await new Promise<{ sheet: string; rows: SparseRow[]; truncated: boolean }>((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => finish(() => reject(invalid('xlsx-timeout'))), timeoutMs);
+      function finish(fn: () => void): void {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      }
+      worker.on('message', (m: WorkerMsg) => {
+        if (m.type === 'invalid') finish(() => reject(invalid('xlsx')));
+        else if (m.type === 'empty') finish(() => reject(new AppError('IMPORT_NO_TASKS')));
+        else if (m.type === 'heads') {
+          // The first sheet with a task-name header in its first 15 rows.
+          const pick = m.heads.findIndex((h) => headerRowIndex(denseRows(h)) >= 0);
+          worker.postMessage({ pick: pick < 0 ? 0 : pick });
+        } else finish(() => resolve(m));
+      });
+      // ERR_WORKER_OUT_OF_MEMORY, a stack overflow or any other crash of the parser.
+      worker.on('error', () => finish(() => reject(invalid('xlsx-limits'))));
+      worker.on('exit', (code) => finish(() => reject(invalid(code === 0 ? 'xlsx' : 'xlsx-limits'))));
+    });
+    if (result.truncated) throw new AppError('IMPORT_TOO_MANY_TASKS', { max: MAX_IMPORT_TASKS });
+    return { rows: denseRows(result.rows), sheet: result.sheet };
+  } finally {
+    await worker.terminate().catch(() => undefined);
   }
-  return rows;
 }
 
 /** CSV text (UTF-8 with or without BOM, or UTF-16 with a BOM); delimiter detected (`,` `;` tab). */
@@ -159,8 +265,10 @@ export function readCsv(buf: Buffer): TableRow[] {
   const text = decodeText(buf);
   const parsed = Papa.parse<string[]>(text, { skipEmptyLines: 'greedy', delimitersToGuess: [',', ';', '\t', '|'] });
   if (parsed.errors.some((e) => e.type === 'Delimiter') && !parsed.data.length) throw new AppError('IMPORT_FILE_INVALID', { reason: 'csv' });
-  return parsed.data.slice(0, 100_000).map((r) =>
-    r.map((raw) => {
+  // Security review A9 M3: rows capped at the task limit, columns at MAX_IMPORT_COLUMNS.
+  if (parsed.data.length > MAX_IMPORT_ROWS) throw new AppError('IMPORT_TOO_MANY_TASKS', { max: MAX_IMPORT_TASKS });
+  return parsed.data.map((r) =>
+    r.slice(0, MAX_IMPORT_COLUMNS).map((raw) => {
       const lead = /^[ \t ]*/.exec(raw)?.[0] ?? '';
       const indent = lead.includes('\t') ? lead.split('\t').length - 1 : Math.floor(lead.length / 2);
       return { v: raw, indent };

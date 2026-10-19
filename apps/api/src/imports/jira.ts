@@ -211,13 +211,46 @@ export function isPrivateAddress(ip: string): boolean {
     );
   }
   if (v === 6) {
-    const s = ip.toLowerCase();
-    if (s === '::' || s === '::1') return true;
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(s);
-    if (mapped) return isPrivateAddress(mapped[1]!);
-    return /^(fc|fd|fe8|fe9|fea|feb|ff)/.test(s) || s.startsWith('64:ff9b:') || s.startsWith('2001:db8');
+    const g = parseIPv6(ip);
+    if (!g) return true;
+    // IPv4-mapped (::ffff:a.b.c.d, also written in hex): judge the embedded IPv4 address.
+    if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {
+      return isPrivateAddress(`${g[6]! >> 8}.${g[6]! & 0xff}.${g[7]! >> 8}.${g[7]! & 0xff}`);
+    }
+    // Security review A9 L5: an allow-list. Only global unicast (2000::/3) can be public; that
+    // already excludes ::, ::1, IPv4-compatible ::a.b.c.d, 100::/64, 64:ff9b::/96, fc00::/7,
+    // fe80::/10, fec0::/10 and ff00::/8.
+    if (g[0]! < 0x2000 || g[0]! > 0x3fff) return true;
+    if (g[0] === 0x2002) return true; // 6to4 (may embed a private IPv4)
+    if (g[0] === 0x2001 && g[1]! < 0x0200) return true; // 2001::/23 IETF special purpose (Teredo, ORCHID, benchmarking…)
+    if (g[0] === 0x2001 && g[1] === 0x0db8) return true; // documentation
+    if (g[0] === 0x3fff && g[1]! < 0x1000) return true; // 3fff::/20 documentation (RFC 9637)
+    return false;
   }
   return true;
+}
+
+/** Eight 16-bit groups of an IPv6 address (zone id ignored, embedded IPv4 tail accepted), or null. */
+export function parseIPv6(ip: string): number[] | null {
+  let s = ip.toLowerCase().replace(/%.*$/, '');
+  if (s.startsWith('[') && s.endsWith(']')) s = s.slice(1, -1);
+  // A dotted IPv4 tail becomes the last two groups.
+  const v4 = /:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);
+  if (v4) {
+    const b = v4.slice(1).map(Number);
+    if (b.some((x) => x > 255)) return null;
+    s = `${s.slice(0, v4.index)}:${((b[0]! << 8) | b[1]!).toString(16)}:${((b[2]! << 8) | b[3]!).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const part = (x: string) => (x === '' ? [] : x.split(':'));
+  const head = part(halves[0]!);
+  const rest = halves.length === 2 ? part(halves[1]!) : [];
+  if ([...head, ...rest].some((x) => !/^[0-9a-f]{1,4}$/.test(x))) return null;
+  if (halves.length === 1 && head.length !== 8) return null;
+  if (halves.length === 2 && head.length + rest.length > 7) return null;
+  const fill = halves.length === 2 ? new Array<string>(8 - head.length - rest.length).fill('0') : [];
+  return [...head, ...fill, ...rest].map((x) => parseInt(x, 16));
 }
 
 /**
@@ -263,14 +296,20 @@ export interface HttpResult {
   body: string;
 }
 
-export type HttpGet = (url: URL, headers: Record<string, string>) => Promise<HttpResult>;
+export type HttpGet = (url: URL, headers: Record<string, string>, signal?: AbortSignal) => Promise<HttpResult>;
 
-/** GET over https with the guarded lookup, no redirects followed, 15 s timeout, 5 MB cap. */
-export const guardedGet: HttpGet = (url, headers) =>
+/** Overall deadline of one Jira import, across every page (security review A9 L5). */
+export const JIRA_TOTAL_DEADLINE_MS = 60_000;
+
+/**
+ * GET over https with the guarded lookup, no redirects followed, 15 s idle timeout, 5 MB cap.
+ * The signal (the overall deadline) destroys the request whatever the server trickles.
+ */
+export const guardedGet: HttpGet = (url, headers, signal) =>
   new Promise((resolve, reject) => {
     const req = httpsRequest(
       url,
-      { method: 'GET', headers, lookup: guardedLookup() as never, timeout: 15_000 },
+      { method: 'GET', headers, lookup: guardedLookup() as never, timeout: 15_000, ...(signal ? { signal } : {}) },
       (res) => {
         const chunks: Buffer[] = [];
         let size = 0;
@@ -311,10 +350,11 @@ const FIELDS = ['summary', 'issuetype', 'parent', 'status', 'assignee', 'created
  */
 export async function fetchJiraIssues(
   input: JiraRestInput,
-  opts: { allowedHosts?: readonly string[]; get?: HttpGet } = {},
+  opts: { allowedHosts?: readonly string[]; get?: HttpGet; deadlineMs?: number } = {},
 ): Promise<{ issues: JiraIssue[]; truncated: boolean; projectName: string | null }> {
   const origin = assertJiraSite(input.siteUrl, opts.allowedHosts ?? []);
   const get = opts.get ?? guardedGet;
+  const deadline = AbortSignal.timeout(opts.deadlineMs ?? JIRA_TOTAL_DEADLINE_MS);
   const jql = input.jql ?? `project = "${input.projectKey}" ORDER BY created ASC`;
   const headers = {
     Authorization: `Basic ${Buffer.from(`${input.email}:${input.apiToken}`).toString('base64')}`,
@@ -330,12 +370,13 @@ export async function fetchJiraIssues(
     url.searchParams.set('maxResults', '100');
     url.searchParams.set('fields', FIELDS.join(','));
     if (token) url.searchParams.set('nextPageToken', token);
+    if (deadline.aborted) throw new AppError('JIRA_REQUEST_FAILED', { reason: 'timeout' });
     let res: HttpResult;
     try {
-      res = await get(url, headers);
+      res = await raceDeadline(get(url, headers, deadline), deadline);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EJIRAPRIVATE') throw new AppError('JIRA_URL_NOT_ALLOWED');
-      throw new AppError('JIRA_REQUEST_FAILED');
+      throw new AppError('JIRA_REQUEST_FAILED', deadline.aborted ? { reason: 'timeout' } : undefined);
     }
     if (res.status === 401 || res.status === 403) throw new AppError('JIRA_AUTH_FAILED');
     if (res.status >= 300 && res.status < 400) throw new AppError('JIRA_URL_NOT_ALLOWED');
@@ -362,6 +403,25 @@ export async function fetchJiraIssues(
     token = body.nextPageToken;
   }
   return { issues, truncated, projectName: input.projectKey ?? null };
+}
+
+/** Rejects as soon as the deadline fires, even if the request ignores the signal. */
+function raceDeadline<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error('JIRA_TIMEOUT'));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error('JIRA_TIMEOUT'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    p.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      (e: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(e);
+      },
+    );
+  });
 }
 
 type J = Record<string, unknown>;

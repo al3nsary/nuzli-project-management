@@ -1,4 +1,5 @@
 import { Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   attachmentBrowseQuerySchema,
@@ -526,6 +527,7 @@ export class ProjectsOverviewController {
   }
 
   @Get('hub')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } }) // security review A9 L4
   @RequirePermission('tasks.comment')
   @ApiOperation({ summary: 'مركز التواصل: كل محادثات المهام التي تراها مع غير المقروء والتصفية والبحث' })
   hubPage(@ZodQuery(hubQuerySchema) q: z.output<typeof hubQuerySchema>, @CurrentUser() viewer: AuthUser): Promise<HubPageDto> {
@@ -533,6 +535,7 @@ export class ProjectsOverviewController {
   }
 
   @Get('attachments')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } }) // security review A9 L4
   @RequireAnyPermission(...TASK_READ)
   @ApiOperation({ summary: 'متصفح المرفقات (المدير الكل؛ المشرف مرفقات مهامه)' })
   attachments(

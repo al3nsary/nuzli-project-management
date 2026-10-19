@@ -37,6 +37,17 @@ function toEntryDto(e: EntryRow): TimeEntryDto {
   };
 }
 
+/** Security review A9 L3: an entry date lies within a year back and a week ahead (Riyadh days). */
+export const TIME_ENTRY_PAST_DAYS = 366;
+export const TIME_ENTRY_FUTURE_DAYS = 7;
+
+export function assertEntryDate(date: string, now = new Date()): void {
+  const today = riyadhToday(now);
+  if (date < addCalendarDaysIso(today, -TIME_ENTRY_PAST_DAYS) || date > addCalendarDaysIso(today, TIME_ENTRY_FUTURE_DAYS)) {
+    throw new AppError('VALIDATION_FAILED', { fieldErrors: { date: ['التاريخ خارج المدى المسموح: من سنة مضت إلى أسبوع قادم.'] } });
+  }
+}
+
 /**
  * A9 time log (ADR-096). A supervisor logs time on tasks assigned to them and edits or deletes
  * only their own entries; an admin logs on any task (also for another active user) and edits
@@ -58,6 +69,7 @@ export class TimeEntriesService {
   }
 
   async create(taskId: string, input: z.output<typeof timeEntrySchema>, viewer: Viewer, ctx: RequestContext): Promise<TimeEntryDto> {
+    assertEntryDate(input.date);
     const task = await this.store.visibleTask(taskId, viewer);
     if (task.project.archivedAt) throw new AppError('PROJECT_ARCHIVED');
     const admin = can(viewer, 'tasks.manage');
@@ -81,14 +93,22 @@ export class TimeEntriesService {
   }
 
   private async own(id: string, viewer: Viewer) {
-    const e = await this.prisma.timeEntry.findUnique({ where: { id }, select: { ...ENTRY_SELECT, task: { select: { ...ENTRY_SELECT.task.select, archivedAt: true, project: { select: { name: true, archivedAt: true } } } } } });
-    // Someone else's entry is not revealed to a supervisor (404).
-    if (!e || (!can(viewer, 'tasks.manage') && e.userId !== viewer.id)) throw new AppError('NOT_FOUND');
+    const e = await this.prisma.timeEntry.findUnique({
+      where: { id },
+      select: { ...ENTRY_SELECT, task: { select: { ...ENTRY_SELECT.task.select, assigneeId: true, archivedAt: true, project: { select: { name: true, archivedAt: true } } } } },
+    });
+    if (!e) throw new AppError('NOT_FOUND');
+    if (!can(viewer, 'tasks.manage')) {
+      // Someone else's entry is not revealed to a supervisor (404). Security review A9 L3: nor is
+      // their own entry once the task is no longer assigned to them or is archived (ADR-092).
+      if (e.userId !== viewer.id || e.task.assigneeId !== viewer.id || e.task.archivedAt) throw new AppError('NOT_FOUND');
+    }
     if (e.task.project.archivedAt) throw new AppError('PROJECT_ARCHIVED');
     return e;
   }
 
   async update(id: string, input: z.output<typeof updateTimeEntrySchema>, viewer: Viewer, ctx: RequestContext): Promise<TimeEntryDto> {
+    if (input.date !== undefined) assertEntryDate(input.date);
     const cur = await this.own(id, viewer);
     const data: Prisma.TimeEntryUpdateInput = {};
     if (input.date !== undefined) data.date = dateOf(input.date);

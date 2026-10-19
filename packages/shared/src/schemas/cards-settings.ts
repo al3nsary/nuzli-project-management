@@ -206,6 +206,11 @@ export const SETTINGS_SCHEMA = z.object({
   PRESIGNED_URL_TTL_SECONDS: z.number().int().min(60).max(3600).default(300),
   VIOLATION_PHOTO_RETENTION_DAYS: z.number().int().min(0).max(36500).default(0),
   GPS_ACCURACY_WARN_METERS: z.number().int().min(5).max(5000).default(50),
+  /**
+   * Security review A9 M1 (ADR-118): registering a member from a violation starts the membership
+   * at captured_at, so it is refused when captured_at is older than this many days (or in the future).
+   */
+  VIOLATION_REGISTER_MAX_AGE_DAYS: z.number().int().min(1).max(365).default(30),
 });
 export type Settings = z.infer<typeof SETTINGS_SCHEMA>;
 export type SettingKey = keyof Settings;

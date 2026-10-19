@@ -103,4 +103,31 @@ describeInt('A9 — budget, duplicate, hub and supervisor scope', () => {
     const notes = await ctx.prisma.notification.findMany({ where: { type: 'TASK_COMMENTED' } });
     expect(notes.map((n) => n.userId).sort()).toEqual(expect.arrayContaining([supId]));
   });
+
+  it('security review A9 H1/L4: a supervisor update returns only their task; the hub hides parent names; SQL search escapes wildcards', async () => {
+    const p: ProjectDto = (await ctx.http().post(api('/projects')).set(bearer(admin)).send({ name: 'مشروع النطاق', startDate: '2026-10-11' }).expect(201)).body;
+    const g = await task(p.id, { name: 'مجموعة سرية', startDate: '2026-10-11', type: 'GROUP' });
+    const mine = await task(p.id, { name: 'مهمة 100%_x', startDate: '2026-10-11', durationDays: 2, parentId: g.id, assigneeId: supId, plannedCost: 300 });
+    await task(p.id, { name: 'أخرى', startDate: '2026-10-11', durationDays: 2, parentId: g.id, plannedCost: 900 });
+
+    const res = (await ctx.http().patch(api(`/tasks/${mine.id}`)).set(bearer(sup)).send({ version: mine.version, progress: 50 }).expect(200)).body;
+    expect(res.task.id).toBe(mine.id);
+    expect(res.affected).toEqual([]);
+    expect(Object.keys(res.previous ?? {})).toEqual([mine.id]);
+    expect(JSON.stringify(res)).not.toContain('مجموعة سرية');
+    // The roll-up still happened.
+    const stored = await ctx.prisma.task.findUniqueOrThrow({ where: { id: g.id }, select: { progress: true } });
+    expect(Number(stored.progress)).toBeGreaterThan(0);
+
+    await ctx.http().post(api(`/tasks/${mine.id}/comments`)).set(bearer(admin)).send({ body: 'خصم 50% اليوم' }).expect(201);
+    const hub: HubPageDto = (await ctx.http().get(api(`/hub?q=${encodeURIComponent('100%_x')}`)).set(bearer(sup)).expect(200)).body;
+    expect(hub.items.map((i) => i.task.id)).toEqual([mine.id]);
+    expect(hub.items[0]!.path).toEqual([]);
+    expect((await ctx.http().get(api(`/hub?q=${encodeURIComponent('%')}`)).set(bearer(sup)).expect(200)).body.items.map((i: { task: { id: string } }) => i.task.id)).toEqual([mine.id]);
+    expect((await ctx.http().get(api(`/hub?q=${encodeURIComponent('1_0')}`)).set(bearer(sup)).expect(200)).body.items).toEqual([]);
+    const adminHub: HubPageDto = (await ctx.http().get(api(`/hub?projectId=${p.id}`)).set(bearer(admin)).expect(200)).body;
+    expect(adminHub.items[0]!.path).toEqual(['مجموعة سرية']);
+    const att = (await ctx.http().get(api(`/attachments?projectId=${p.id}`)).set(bearer(sup)).expect(200)).body;
+    expect(att).toMatchObject({ total: 0, items: [] });
+  });
 });

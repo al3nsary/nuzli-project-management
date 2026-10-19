@@ -18,6 +18,7 @@ import type { RequestContext } from '../common/request';
 import { CryptoService } from '../crypto/crypto.service';
 import { assertReferencesExist, hideDuplicateNationalId } from '../members/member-writes';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import { buildObjectKey } from '../storage/files.service';
 import { EXTENSIONS, type DetectedType } from '../storage/magic-bytes';
 import { StorageService } from '../storage/storage.service';
@@ -71,6 +72,7 @@ export class ViolationAssignService {
     private readonly crypto: CryptoService,
     private readonly storage: StorageService,
     private readonly ocr: OcrQueueService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** The recorder or an admin; anyone else → 404 (existence not revealed). */
@@ -192,9 +194,11 @@ export class ViolationAssignService {
   }
 
   /** Admin: run the OCR again (after a FAILED job or a poor read). */
-  async retryOcr(id: string, viewer: Viewer): Promise<void> {
+  async retryOcr(id: string, viewer: Viewer, ctx: RequestContext): Promise<void> {
     await this.violations.findScoped(id, viewer);
     await this.ocr.retry(id);
+    // Security review A9 L7: a new read yields new national-ID data, so the retry is audited.
+    await this.audit.logCtx(ctx, { action: AuditAction.VIOLATION_OCR_RETRIED, entityType: 'violation', entityId: id });
   }
 
   // ─────────────────────────────────────────── assign / unassign
@@ -308,7 +312,12 @@ export class ViolationAssignService {
    * Creates the member from the (OCR-confirmed) card data, copies the violation's PERSON photo to
    * a new member-photo object, then assigns the violation. With `teamId` the membership starts at
    * captured_at (the person was evidently on that team when recorded), so the snapshot resolves
-   * to that team; without one the member is created unassigned (admins only).
+   * to that team; without one the member is created unassigned.
+   *
+   * Security review A9 M1 (ADR-118): admins only (the route requires `members.manage`, and the
+   * service checks it again), so only an admin ever copies a PERSON photo into a member photo.
+   * The backdated membership is bounded: with a team, captured_at must lie within the last
+   * `VIOLATION_REGISTER_MAX_AGE_DAYS` days and not in the future (beyond the clock-drift threshold).
    */
   async registerMember(
     id: string,
@@ -316,15 +325,10 @@ export class ViolationAssignService {
     viewer: Viewer,
     ctx: RequestContext,
   ): Promise<RegisterViolationMemberResultDto> {
-    const isAdmin = can(viewer, 'members.manage');
-    // A supervisor cannot see an unassigned violation; their right comes from the team they lead.
-    const v = isAdmin
-      ? await this.violations.findScoped(id, viewer)
-      : await this.prisma.violation.findUnique({ where: { id }, select: VIOLATION_SELECT });
-    if (!v) throw new AppError('NOT_FOUND');
-    // A supervisor learns nothing about violations outside their reach (assigned ones included).
-    if (v.memberId) throw new AppError(isAdmin ? 'VIOLATION_ALREADY_ASSIGNED' : 'NOT_FOUND');
-    if (!input.teamId && !isAdmin) throw new AppError('FORBIDDEN', { field: 'teamId' });
+    if (!can(viewer, 'members.manage')) throw new AppError('FORBIDDEN');
+    const v = await this.violations.findScoped(id, viewer);
+    if (v.memberId) throw new AppError('VIOLATION_ALREADY_ASSIGNED');
+    if (input.teamId) await this.assertRegisterWindow(v.capturedAt);
 
     // The person photo is copied before the transaction (S3 is not transactional); a failed
     // transaction deletes the copy again.
@@ -339,17 +343,17 @@ export class ViolationAssignService {
                 select: { status: true, supervisors: OPEN_LEADERS },
               });
               if (!team) throw new AppError('NOT_FOUND', { field: 'teamId' });
-              if (!canManageMemberIn(viewer, team)) throw new AppError(isAdmin ? 'FORBIDDEN' : 'NOT_FOUND');
+              if (!canManageMemberIn(viewer, team)) throw new AppError('FORBIDDEN');
               if (team.status === 'ARCHIVED') throw new AppError('TEAM_ARCHIVED');
             }
             await assertReferencesExist(tx, [input]);
             const p = this.crypto.protectNationalId(input.nationalId);
             const dup = await tx.teamMember.findUnique({ where: { nationalIdHash: p.hash }, select: { id: true } });
             if (dup) {
-              // Admins learn which member holds the ID (assign that one instead); others get the generic answer.
+              // Admins learn which member holds the ID (assign that one instead).
               throw new AppError('NATIONAL_ID_TAKEN', {
                 fieldErrors: { nationalId: ['رقم الهوية مسجّل لعضو آخر'] },
-                ...(isAdmin ? { existingMemberId: dup.id } : {}),
+                existingMemberId: dup.id,
               });
             }
             const now = new Date();
@@ -446,6 +450,22 @@ export class ViolationAssignService {
     } catch (err) {
       if (photo) await this.storage.delete(photo.key).catch(() => undefined);
       throw err;
+    }
+  }
+
+  /**
+   * M1: a membership backdated to captured_at is allowed only for a recent capture. Older (or
+   * future-dated, beyond the drift threshold) captures are refused: register the member from the
+   * team page (membership from today) and assign the violation afterwards.
+   */
+  private async assertRegisterWindow(capturedAt: Date, now = new Date()): Promise<void> {
+    const [maxAgeDays, driftMinutes] = await Promise.all([
+      this.settings.get('VIOLATION_REGISTER_MAX_AGE_DAYS'),
+      this.settings.get('CLOCK_DRIFT_THRESHOLD_MINUTES'),
+    ]);
+    const age = now.getTime() - capturedAt.getTime();
+    if (age > maxAgeDays * 86_400_000 || age < -driftMinutes * 60_000) {
+      throw new AppError('VIOLATION_TOO_OLD_TO_REGISTER', { maxAgeDays, capturedAt: capturedAt.toISOString() });
     }
   }
 

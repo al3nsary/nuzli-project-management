@@ -25,7 +25,12 @@ interface Job {
 }
 
 /** In-memory violation_ocr with the subset of Prisma the queue uses. */
-function setup(opts: { engine?: Partial<OcrEngine>; enabled?: boolean; file?: Record<string, unknown> | null; maxAttempts?: number } = {}) {
+/** A minimal JPEG header (SOI + SOF0) of the given size; enough for the dimension check. */
+function jpegHeader(width: number, height: number): Uint8Array {
+  return new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 0xff, width >> 8, width & 0xff, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+}
+
+function setup(opts: { bytes?: Uint8Array; engine?: Partial<OcrEngine>; enabled?: boolean; file?: Record<string, unknown> | null; maxAttempts?: number } = {}) {
   const jobs = new Map<string, Job>();
   const match = (j: Job, where: Record<string, unknown>): boolean =>
     Object.entries(where).every(([k, v]) => {
@@ -70,7 +75,7 @@ function setup(opts: { engine?: Partial<OcrEngine>; enabled?: boolean; file?: Re
     },
     violationFile: { findFirst: jest.fn().mockResolvedValue({ fileId: F }) },
   };
-  const storage = { readAll: jest.fn().mockResolvedValue(new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3])) };
+  const storage = { readAll: jest.fn().mockResolvedValue(opts.bytes ?? jpegHeader(1600, 1000)) };
   const engine: OcrEngine = {
     recognize: jest.fn().mockResolvedValue({
       text: `الاسم: راجيش كومار\nرقم الإقامة ${RESIDENT}\nالجنسية: هندي`,
@@ -187,6 +192,24 @@ describe('OCR queue (A9, ADR-104)', () => {
     await s.svc.enqueue(V, F);
     for (let i = 0; i < 20 && s.jobs.get(V)!.status !== 'DONE'; i++) await new Promise((r) => setImmediate(r));
     expect(s.jobs.get(V)!.status).toBe('DONE');
+  });
+
+  it('security review A9: an image bomb (or a non-image) fails permanently without reaching the engine', async () => {
+    for (const [bytes, error] of [
+      [jpegHeader(30_000, 30_000), 'IMAGE_TOO_LARGE'],
+      [jpegHeader(6_000, 5_000), 'IMAGE_TOO_LARGE'],
+      [new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3]), 'NOT_AN_IMAGE'],
+    ] as const) {
+      const s = setup({ bytes });
+      await s.svc.enqueue(V, F);
+      await s.svc.runPending();
+      expect(s.engine.recognize).not.toHaveBeenCalled();
+      expect(s.jobs.get(V)).toMatchObject({ status: 'FAILED', error });
+    }
+    const ok = setup({ bytes: jpegHeader(5_000, 5_000) });
+    await ok.svc.enqueue(V, F);
+    await ok.svc.runPending();
+    expect(ok.jobs.get(V)!.status).toBe('DONE');
   });
 
   it('back-off grows ×4 from 30 s and is capped at one hour', () => {

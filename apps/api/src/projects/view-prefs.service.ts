@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { VIEW_PREF_MAX_BYTES, type PermissionSubject, type ViewPrefDto } from '@nuzli/shared';
+import { VIEW_PREF_MAX_BYTES, VIEW_PREF_MAX_COUNT, type PermissionSubject, type ViewPrefDto } from '@nuzli/shared';
 import { AppError } from '../common/app-error';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectStore } from './project-store';
@@ -18,7 +18,7 @@ function toDto(r: { projectId: string | null; key: string; value: Prisma.JsonVal
 
 /**
  * A9 per-user view preferences (columns, saved views): `(user, project | null, key) → value`,
- * at most 32 KB of JSON each. Personal UI state, so it is not audited (ADR-097). A project
+ * at most 32 KB of JSON each and at most VIEW_PREF_MAX_COUNT (200) per user. Personal UI state, so it is not audited (ADR-097). A project
  * preference needs a project the user can see.
  */
 @Injectable()
@@ -48,9 +48,11 @@ export class ViewPrefsService {
     const select = { projectId: true, key: true, value: true, updatedAt: true } as const;
     const write = async () => {
       const cur = await this.prisma.userViewPref.findFirst({ where, select: { id: true } });
-      return cur
-        ? this.prisma.userViewPref.update({ where: { id: cur.id }, data: { value }, select })
-        : this.prisma.userViewPref.create({ data: { ...where, value }, select });
+      if (cur) return this.prisma.userViewPref.update({ where: { id: cur.id }, data: { value }, select });
+      // Security review A9 L1: a bounded number of stored preferences per user.
+      const count = await this.prisma.userViewPref.count({ where: { userId: viewer.id } });
+      if (count >= VIEW_PREF_MAX_COUNT) throw new AppError('VIEW_PREF_LIMIT', { max: VIEW_PREF_MAX_COUNT });
+      return this.prisma.userViewPref.create({ data: { ...where, value }, select });
     };
     try {
       return toDto(await write());

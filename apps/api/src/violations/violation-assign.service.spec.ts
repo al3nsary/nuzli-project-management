@@ -17,7 +17,7 @@ const OTHER_MONITOR = { id: 'mon-2', role: 'MONITOR' as const, status: 'ACTIVE' 
 const SUP = { id: 'sup-1', role: 'SUPERVISOR' as const, status: 'ACTIVE' };
 const V = 'v1';
 const TEAM = 'team-a';
-const CAPTURED = new Date('2026-10-01T06:30:00Z');
+const CAPTURED = new Date(Date.now() - 3 * 86_400_000); // within the 30-day registration window (M1)
 const RESIDENT = '2345678904';
 
 async function expectCode(p: Promise<unknown>, code: string) {
@@ -45,7 +45,7 @@ const memberRow = (id: string, fullName: string) => ({
   ],
 });
 
-function setup(opts: { violation?: Record<string, unknown>; lockedMember?: string | null; ocr?: Record<string, unknown> | null; stored?: unknown; leads?: boolean; teamStatus?: string; dup?: boolean; personPhoto?: boolean } = {}) {
+function setup(opts: { settings?: Record<string, number>; violation?: Record<string, unknown>; lockedMember?: string | null; ocr?: Record<string, unknown> | null; stored?: unknown; leads?: boolean; teamStatus?: string; dup?: boolean; personPhoto?: boolean } = {}) {
   const violation = {
     id: V,
     memberId: null,
@@ -110,7 +110,9 @@ function setup(opts: { violation?: Record<string, unknown>; lockedMember?: strin
   const audit = new AuditService(prisma as never);
   const storage = { bucket: 'b', copy: jest.fn().mockResolvedValue(undefined), delete: jest.fn().mockResolvedValue(undefined) };
   const ocr = { read: jest.fn(() => opts.stored ?? null), retry: jest.fn() };
-  const svc = new ViolationAssignService(prisma as never, violations as never, audit, crypto, storage as never, ocr as never);
+  const settingsValues: Record<string, number> = { VIOLATION_REGISTER_MAX_AGE_DAYS: 30, CLOCK_DRIFT_THRESHOLD_MINUTES: 10, ...opts.settings };
+  const settings = { get: jest.fn(async (k: string) => settingsValues[k]) };
+  const svc = new ViolationAssignService(prisma as never, violations as never, audit, crypto, storage as never, ocr as never, settings as never);
   const actions = () => tx.auditLog.create.mock.calls.map((c) => (c[0] as { data: { action: string } }).data.action);
   const entry = (action: string) =>
     tx.auditLog.create.mock.calls.map((c) => (c[0] as { data: { action: string; after: Record<string, unknown> } }).data).find((d) => d.action === action);
@@ -196,26 +198,52 @@ describe('register a member from the card (A9, ADR-103)', () => {
     expect(out.member).toMatchObject({ id: 'new-m', nationalId: RESIDENT }); // admins see the full ID
   });
 
-  it('a supervisor leading the team may register (the unassigned violation is outside their scope otherwise)', async () => {
-    const s = setup();
-    await s.svc.registerMember(V, body, SUP, ctx);
-    expect(s.prisma.violation.findUnique).toHaveBeenCalled();
-    expect(s.violations.findScoped).toHaveBeenCalledTimes(1); // only for the answer, which they may not see
-    expect(s.actions()).toContain('violation.assigned');
+  it('security review A9 M1: supervisors and monitors are refused (403) before anything is read, copied or written', async () => {
+    for (const who of [SUP, MONITOR]) {
+      const s = setup();
+      await expectCode(s.svc.registerMember(V, body, who, ctx), 'FORBIDDEN');
+      expect(s.prisma.violation.findUnique).not.toHaveBeenCalled();
+      expect(s.violations.findScoped).not.toHaveBeenCalled();
+      expect(s.storage.copy).not.toHaveBeenCalled();
+      expect(s.tx.teamMember.create).not.toHaveBeenCalled();
+    }
   });
 
-  it('a supervisor not leading the team → 404 and the copied photo is removed; without a team → 403', async () => {
-    const s = setup({ leads: false });
-    await expectCode(s.svc.registerMember(V, body, SUP, ctx), 'NOT_FOUND');
+  it('M1: the backdated membership is bounded — captured_at older than the setting, or in the future, is refused', async () => {
+    const day = 86_400_000;
+    const old = setup({ violation: { capturedAt: new Date(Date.now() - 31 * day) } });
+    await expectCode(old.svc.registerMember(V, body, ADMIN, ctx), 'VIOLATION_TOO_OLD_TO_REGISTER');
+    expect(old.storage.copy).not.toHaveBeenCalled();
+    expect(old.tx.teamMembership.create).not.toHaveBeenCalled();
+    const future = setup({ violation: { capturedAt: new Date(Date.now() + 60 * 60_000) } });
+    await expectCode(future.svc.registerMember(V, body, ADMIN, ctx), 'VIOLATION_TOO_OLD_TO_REGISTER');
+    // Small clock drift is tolerated (CLOCK_DRIFT_THRESHOLD_MINUTES), and the setting is honoured.
+    await expect(setup({ violation: { capturedAt: new Date(Date.now() + 60_000) } }).svc.registerMember(V, body, ADMIN, ctx)).resolves.toBeDefined();
+    const wide = setup({ violation: { capturedAt: new Date(Date.now() - 31 * day) }, settings: { VIOLATION_REGISTER_MAX_AGE_DAYS: 60 } });
+    await expect(wide.svc.registerMember(V, body, ADMIN, ctx)).resolves.toBeDefined();
+    // Without a team there is no backdated membership, so an old violation may still be registered.
+    const noTeam = setup({ violation: { capturedAt: new Date(Date.now() - 400 * day) } });
+    noTeam.violations.resolveSnapshot.mockResolvedValueOnce({ teamId: null, supervisorId: null, supervisorIds: [] });
+    await expect(noTeam.svc.registerMember(V, { ...body, teamId: undefined }, ADMIN, ctx)).resolves.toBeDefined();
+  });
+
+  it('a failed transaction removes the copied photo again', async () => {
+    const s = setup({ teamStatus: 'ARCHIVED' });
+    await expectCode(s.svc.registerMember(V, body, ADMIN, ctx), 'TEAM_ARCHIVED');
     expect(s.storage.delete).toHaveBeenCalledWith(expect.stringMatching(/^member-photos\//));
     expect(s.tx.teamMember.create).not.toHaveBeenCalled();
-    await expectCode(setup().svc.registerMember(V, { ...body, teamId: undefined }, SUP, ctx), 'FORBIDDEN');
   });
 
-  it('a national ID already registered: the admin learns which member, the supervisor gets the generic answer', async () => {
+  it('a national ID already registered: the admin learns which member', async () => {
     const a = await setup({ dup: true }).svc.registerMember(V, body, ADMIN, ctx).catch((e: AppError) => e);
     expect(a).toMatchObject({ code: 'NATIONAL_ID_TAKEN', details: expect.objectContaining({ existingMemberId: 'existing-member' }) });
-    await expectCode(setup({ dup: true }).svc.registerMember(V, body, SUP, ctx), 'NATIONAL_ID_NOT_ACCEPTED');
+  });
+
+  it('security review A9 L7: an OCR retry is audited', async () => {
+    const s = setup();
+    await s.svc.retryOcr(V, ADMIN, ctx);
+    expect(s.ocr.retry).toHaveBeenCalledWith(V);
+    expect(s.prisma.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: 'violation.ocr_retried', entityId: V }) });
   });
 
   it('an already assigned violation or an archived team is refused; no PERSON photo → member without photo', async () => {

@@ -36,6 +36,12 @@ type ImportCommit = z.output<typeof importCommitSchema>;
 /** A preview lives one hour (owner brief), then it and its upload are deleted. */
 export const PREVIEW_TTL_MS = 60 * 60 * 1000;
 
+/** Security review A9 L2: previews kept per admin; creating one more drops the oldest. */
+export const MAX_PREVIEWS_PER_USER = 5;
+
+/** Rows deleted per cleanup batch; the cron loops until nothing expired is left. */
+export const CLEANUP_BATCH = 500;
+
 /** The upload content types each format accepts. */
 const FORMAT_TYPES: Record<ImportFile['format'], string[]> = {
   xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
@@ -124,6 +130,7 @@ export class ImportsService {
     (payload as PreviewPayload & { calendarFromFile?: boolean }).calendarFromFile = !!draft.calendar;
     const id = randomUUID();
     const expiresAt = new Date(Date.now() + PREVIEW_TTL_MS);
+    await this.evictOldPreviews(viewer.id, meta.fileId);
     await this.prisma.importPreview.create({
       data: { id, createdById: viewer.id, format: meta.format, fileId: meta.fileId, payload: payload as unknown as Prisma.InputJsonValue, expiresAt },
     });
@@ -307,14 +314,39 @@ export class ImportsService {
     await this.prisma.file.update({ where: { id: fileId }, data: { deletedAt: new Date() } });
   }
 
-  /** Expired previews and their uploads are deleted every hour. */
+  /**
+   * L2: at most MAX_PREVIEWS_PER_USER previews per admin (expired ones included); the oldest go
+   * first, with their uploads unless the new preview reads the same upload.
+   */
+  private async evictOldPreviews(userId: string, keepFileId: string | null): Promise<void> {
+    const mine = await this.prisma.importPreview.findMany({
+      where: { createdById: userId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, fileId: true },
+    });
+    const drop = mine.slice(0, Math.max(0, mine.length - (MAX_PREVIEWS_PER_USER - 1)));
+    if (!drop.length) return;
+    await this.prisma.importPreview.deleteMany({ where: { id: { in: drop.map((p) => p.id) } } });
+    for (const p of drop) if (p.fileId && p.fileId !== keepFileId) await this.deleteUpload(p.fileId).catch(() => undefined);
+  }
+
+  /** Expired previews and their uploads are deleted every hour, in batches until none is left (L2). */
   @Cron(CronExpression.EVERY_HOUR, { name: 'import-previews-cleanup' })
   async cleanupExpired(now = new Date()): Promise<number> {
-    const stale = await this.prisma.importPreview.findMany({ where: { expiresAt: { lt: now } }, select: { id: true, fileId: true }, take: 500 });
-    for (const p of stale) {
-      await this.prisma.importPreview.deleteMany({ where: { id: p.id } });
-      if (p.fileId) await this.deleteUpload(p.fileId).catch(() => undefined);
+    let total = 0;
+    for (;;) {
+      const stale = await this.prisma.importPreview.findMany({
+        where: { expiresAt: { lt: now } },
+        select: { id: true, fileId: true },
+        orderBy: { expiresAt: 'asc' },
+        take: CLEANUP_BATCH,
+      });
+      if (!stale.length) break;
+      await this.prisma.importPreview.deleteMany({ where: { id: { in: stale.map((p) => p.id) } } });
+      for (const p of stale) if (p.fileId) await this.deleteUpload(p.fileId).catch(() => undefined);
+      total += stale.length;
+      if (stale.length < CLEANUP_BATCH) break;
     }
-    return stale.length;
+    return total;
   }
 }

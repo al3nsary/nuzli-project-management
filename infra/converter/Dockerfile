@@ -33,7 +33,9 @@ COPY --from=build /build/mpxj/mpxj.jar /app/lib/mpxj.jar
 COPY --from=build /build/mpxj/lib/ /app/lib/
 COPY --from=build /build/classes/ /app/classes/
 USER converter
+# Security review A9 L6 (ADR-120): the HTTP parent is small; every conversion runs in its own
+# child JVM (heap CONVERTER_CHILD_HEAP, default 256m) that is killed at the timeout.
 ENV PORT=8080 \
-    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -Djava.io.tmpdir=/tmp -Djava.awt.headless=true"
+    JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=/tmp -Djava.awt.headless=true"
 EXPOSE 8080
-ENTRYPOINT ["java", "-cp", "/app/classes:/app/lib/*", "ConverterServer"]
+ENTRYPOINT ["java", "-Xmx96m", "-XX:+ExitOnOutOfMemoryError", "-cp", "/app/classes:/app/lib/*", "ConverterServer"]

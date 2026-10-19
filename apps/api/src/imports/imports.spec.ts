@@ -33,7 +33,7 @@ import {
   type PreviewPayload,
 } from './import-model';
 import { ImportsService } from './imports.service';
-import { assertJiraSite, fetchJiraIssues, guardedLookup, isPrivateAddress, issuesToDraft, parseJiraCsv, restIssue, type HttpGet } from './jira';
+import { assertJiraSite, fetchJiraIssues, guardedLookup, isPrivateAddress, issuesToDraft, parseIPv6, parseJiraCsv, restIssue, type HttpGet } from './jira';
 import { parseMspdi, writeMspdi } from './mspdi';
 import { decodeText, readCsv, readXlsx, tableToDraft } from './tabular';
 
@@ -316,6 +316,27 @@ describe('Jira', () => {
     }
   });
 
+  it('security review A9 L5: one overall deadline across every page, even when the server trickles or ignores the signal', async () => {
+    const input = { siteUrl: 'https://acme.atlassian.net', email: 'a@b.sa', apiToken: 't', projectKey: 'OPS' };
+    let calls = 0;
+    const signals: Array<AbortSignal | undefined> = [];
+    // Every page answers after 30 ms with a next page; the deadline (80 ms) ends the loop.
+    const slow: HttpGet = (_u, _h, signal) => {
+      calls++;
+      signals.push(signal);
+      return new Promise((resolve) => setTimeout(() => resolve({ status: 200, body: JSON.stringify({ issues: [{ key: `OPS-${calls}`, fields: { summary: 'x' } }], nextPageToken: `p${calls}` }) }), 30));
+    };
+    const started = Date.now();
+    const err = await fetchJiraIssues(input, { get: slow, deadlineMs: 80 }).catch((e: unknown) => e as AppError);
+    expect(err).toMatchObject({ code: 'JIRA_REQUEST_FAILED', details: { reason: 'timeout' } });
+    expect(calls).toBeLessThan(6);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(signals[0]).toBeDefined();
+    // A request that never answers is cut at the deadline too.
+    const hang: HttpGet = () => new Promise(() => undefined);
+    expect(await fetchJiraIssues(input, { get: hang, deadlineMs: 50 }).catch((e: unknown) => (e as AppError).details)).toEqual({ reason: 'timeout' });
+  });
+
   it('SSRF guard: https *.atlassian.net or the allowlist only; no IPs, ports, credentials; private addresses refused at DNS', async () => {
     expect(assertJiraSite('https://acme.atlassian.net/jira/software').origin).toBe('https://acme.atlassian.net');
     for (const bad of ['http://acme.atlassian.net', 'https://169.254.169.254', 'https://acme.atlassian.net.evil.com', 'https://evil.com', 'https://acme.atlassian.net:8443', 'https://u:p@acme.atlassian.net', 'https://[::1]', 'ftp://acme.atlassian.net', 'not a url']) {
@@ -326,6 +347,13 @@ describe('Jira', () => {
       expect(isPrivateAddress(ip)).toBe(true);
     }
     for (const ip of ['104.192.141.1', '8.8.8.8', '2606:4700::1111']) expect(isPrivateAddress(ip)).toBe(false);
+    // Security review A9 L5: the IPv6 gaps (site-local, 6to4, hex-mapped, IPv4-compatible, discard, Teredo, NAT64, junk).
+    for (const ip of ['fec0::1', '2002:a00:1::1', '2002:c0a8:101::', '::ffff:7f00:1', '::ffff:a00:1', '::127.0.0.1', '::a.b.c.d', '100::1', '2001::1', '2001:db8::1', '64:ff9b::a00:1', '3fff::1', 'fe80::1%eth0', '::', '1::', 'zz::1']) {
+      expect([ip, isPrivateAddress(ip)]).toEqual([ip, true]);
+    }
+    for (const ip of ['2a00:1450:4001::200e', '::ffff:8.8.8.8', '2001:4860:4860::8888']) expect([ip, isPrivateAddress(ip)]).toEqual([ip, false]);
+    expect(parseIPv6('::ffff:10.0.0.1')).toEqual([0, 0, 0, 0, 0, 0xffff, 0x0a00, 0x0001]);
+    expect(parseIPv6('1:2:3:4:5:6:7:8:9')).toBeNull();
     const lookup = guardedLookup((_h, _o, cb) => cb(null, [{ address: '104.192.141.1', family: 4 }, { address: '10.0.0.5', family: 4 }]));
     const err = await new Promise<NodeJS.ErrnoException | null>((resolve) => lookup('acme.atlassian.net', {}, (e) => resolve(e)));
     expect(err?.code).toBe('EJIRAPRIVATE');
@@ -362,6 +390,28 @@ describe('MS Project .mpp converter client', () => {
     expect(await codeOf(() => convertMpp(new Uint8Array([1]), { url: 'http://c', timeoutMs: 1000 }, status(422) as never))).toBe('IMPORT_FILE_INVALID');
     expect(await codeOf(() => convertMpp(new Uint8Array([1]), { url: 'http://c', timeoutMs: 1000 }, status(503) as never))).toBe('MPP_CONVERSION_FAILED');
     expect(await codeOf(() => convertMpp(new Uint8Array([1]), { url: 'http://c', timeoutMs: 1000 }, (async () => { throw new Error('ECONNREFUSED'); }) as never))).toBe('MPP_CONVERSION_FAILED');
+  });
+
+  it('the converter output is streamed under a size cap: the stream is cancelled once the cap is passed', async () => {
+    let pulled = 0;
+    let cancelled = false;
+    const endless = () =>
+      new ReadableStream<Uint8Array>({
+        pull(ctrl) {
+          pulled++;
+          ctrl.enqueue(new TextEncoder().encode('<x>'.padEnd(1024, ' ')));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+    const fetchStream = async () => ({ ok: true, status: 200, body: endless(), arrayBuffer: async () => { throw new Error('must not buffer'); } });
+    const err = await convertMpp(new Uint8Array([1]), { url: 'http://c', timeoutMs: 1000, maxBytes: 10 * 1024 }, fetchStream as never).catch((e: unknown) => e as AppError);
+    expect(err).toMatchObject({ code: 'MPP_CONVERSION_FAILED', details: { reason: 'too large' } });
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(20);
+    const small = async () => ({ ok: true, status: 200, body: new Blob(['<Project/>']).stream(), arrayBuffer: async () => new ArrayBuffer(0) });
+    expect(await convertMpp(new Uint8Array([1]), { url: 'http://c', timeoutMs: 1000 }, small as never)).toBe('<Project/>');
   });
 });
 
@@ -466,6 +516,25 @@ describe('ImportsService — preview and commit', () => {
     expect(await codeOf(() => service.commit({ previewId: pv2.previewId, assigneeMap: {} }, ADMIN, ctx))).toBe('IMPORT_PREVIEW_EXPIRED');
     expect(await service.cleanupExpired()).toBe(1);
     expect(fake.data.importPreviews).toHaveLength(0);
+  });
+
+  it('security review A9 L2: at most 5 previews per admin (the oldest go first); the cleanup loops over every batch', async () => {
+    const { fake, service } = serviceSetup('tasks-ar.csv', 'text/csv');
+    const ids: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      ids.push((await service.previewFile({ fileId: FILE, format: 'csv', options: { dateOrder: 'DMY' } }, ADMIN, ctx)).previewId);
+      fake.data.importPreviews.at(-1)!.createdAt = new Date(Date.UTC(2026, 9, 19, 8, i));
+    }
+    expect(fake.data.importPreviews.map((p) => p.id).sort()).toEqual(ids.slice(2).sort());
+    // The upload the newest preview reads is kept.
+    expect(fake.data.files[0]!.deletedAt).toBeNull();
+    // Another admin's previews are not touched.
+    fake.data.importPreviews.push({ id: 'other', createdById: 'admin-2', format: 'csv', fileId: null, payload: {}, expiresAt: new Date(Date.now() - 1), createdAt: new Date() });
+    for (let i = 0; i < 1_201; i++) {
+      fake.data.importPreviews.push({ id: `old-${i}`, createdById: 'admin-3', format: 'csv', fileId: null, payload: {}, expiresAt: new Date(Date.now() - 1000), createdAt: new Date() });
+    }
+    expect(await service.cleanupExpired()).toBe(1_202);
+    expect(fake.data.importPreviews).toHaveLength(5);
   });
 
   it('format must match the upload; someone else\'s upload is 404; .mpp without a converter is 501', async () => {

@@ -226,6 +226,8 @@ export interface TaskRestoreResult {
 // ───────────────────────────── view preferences
 
 export const VIEW_PREF_MAX_BYTES = 32 * 1024;
+/** Security review A9 L1: stored view preferences per user (all projects and keys together). */
+export const VIEW_PREF_MAX_COUNT = 200;
 export const viewPrefKey = z
   .string()
   .regex(/^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9_-]+){0,4}$/, { message: 'مفتاح غير صالح' })

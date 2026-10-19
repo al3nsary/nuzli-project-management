@@ -60,7 +60,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks: [backend]
+    # `converter`: the internal link to the .mpp converter (ADR-120).
+    networks: [backend, converter]
 
   # ───────────────────────────── PostgreSQL 16
   db:
@@ -82,8 +83,9 @@ services:
     networks: [backend]
 
   # ───────────────────────────── MS Project .mpp → MSPDI converter (A9, ADR-111)
-  # MPXJ behind a tiny Java HTTP server (infra/converter). Internal `backend` network only,
-  # never published; every request must carry X-Converter-Token (env/converter.env, the same
+  # MPXJ behind a tiny Java HTTP server (infra/converter). Only on the `converter` network,
+  # which is internal (no internet egress, ADR-120) and shared with the API alone; never
+  # published; every request must carry X-Converter-Token (env/converter.env, the same
   # value as CONVERTER_TOKEN in env/api.env). The API calls it only when CONVERTER_URL is set.
   converter:
     <<: *hardened
@@ -101,7 +103,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    networks: [backend]
+    networks: [converter]
 
   # ───────────────────────────── Encrypted daily pg_dump (infra/backup, docs/backup-restore.md)
   backup:
@@ -127,6 +129,11 @@ volumes:
 
 networks:
   edge:
-  # Internal services only. An optional PDF renderer (ADR-024/073) and the .mpp converter
-  # (ADR-111) join this network and nothing else, and check their token on every request.
+  # Internal services. An optional PDF renderer (ADR-024/073) joins this network and nothing
+  # else, and checks its token on every request. The API reaches S3/OCI, SMTP and Jira from
+  # here, so this network cannot be internal.
   backend:
+  # Security review A9 L6 (ADR-120): the API ↔ .mpp converter link. `internal: true` gives the
+  # converter no route out, so a compromised parser cannot reach anything else.
+  converter:
+    internal: true
