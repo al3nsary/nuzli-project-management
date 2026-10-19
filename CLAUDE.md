@@ -24,7 +24,7 @@
 7. **لا تبدأ مرحلة والاختبارات حمراء.**
 8. **نشر GitHub:** لا يبقى رمز الوصول في `.git/config` بعد الدفع (`grep -c '@github' .git/config` = 0). الدفع بالسكربتين فقط:
    - `GH_TOKEN=… scripts/publish-source.sh <dir>`: يدفع `main` بعد حذف `.github/workflows` من التاريخ، لأنّ الرمز بلا نطاق `workflow`.
-   - `GH_TOKEN=… scripts/publish-pages.sh <dir>`: يبني نسخة العرض ويدفعها إلى `gh-pages`.
+   - `GH_TOKEN=… scripts/publish-pages.sh <dir>`: يبني نسخة العرض ويدفعها إلى `gh-pages`. يرفض النشر إن لم يكن `HEAD` هو `main` الحالي على GitHub، فلا تطغى جلسةٌ بنسخة قديمة أو غير مدفوعة على العرض.
 
    ملفات CI غير مفعّلة، ومكانها `infra/github-workflows/`.
 9. **الوكلاء:** إن لم تُحمَّل أنواع `.claude/agents/` في الجلسة، يُشغَّل وكيلٌ عامّ ويُطلب منه قراءة ملفّ دوره أولًا.

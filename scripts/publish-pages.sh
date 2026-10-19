@@ -6,6 +6,13 @@ set -eu
 : "${GH_TOKEN:?GH_TOKEN is required}"
 REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/al3nsary/nuzli-project-management.git"
 ROOT=$(git rev-parse --show-toplevel)
+# Publish only what is on main: a session with an older or unpushed HEAD must not overwrite the demo
+# (A11: two sessions published at once and an unpushed build queued over the merged one).
+git -C "$ROOT" fetch -q "$REPO_URL" main 2>&1 | sed "s/${GH_TOKEN}/***/g"
+if [ "$(git -C "$ROOT" rev-parse HEAD)" != "$(git -C "$ROOT" rev-parse FETCH_HEAD)" ]; then
+  echo "pages: HEAD is not the current main on GitHub — pull main (and push your work) first" >&2
+  exit 1
+fi
 WORK=${1:?work dir required}
 WT="$ROOT/.publish"   # inside the repo so node resolves the root node_modules
 rm -rf "$WT"; git -C "$ROOT" worktree prune
