@@ -15,6 +15,18 @@ export function t(key: MessageKey, vars?: MessageVars): string {
 }
 
 /**
+ * A count with its noun in correct Arabic agreement (A9 QA: «9 مهمة» → «9 مهام»): the CLDR
+ * plural category of `count` (zero · one · two · few · many · other) picks `key.zero`, `key.one`…
+ * when that form exists, otherwise `key` itself. `{count}` is filled with the formatted number.
+ */
+const arPlural = new Intl.PluralRules('ar');
+export function tCount(key: MessageKey, count: number, vars?: MessageVars): string {
+  const form = `${key}.${arPlural.select(count)}`;
+  const template = (ar as Record<string, string>)[form] ?? ar[key];
+  return interpolate(template, { ...vars, count });
+}
+
+/**
  * For keys built at runtime (`role.${role}`, `audit.action.${action}`). Falls back to
  * `fallback` so a code we have no label for never shows a raw (Latin) identifier.
  */

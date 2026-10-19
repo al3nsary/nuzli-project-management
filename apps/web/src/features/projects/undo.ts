@@ -87,6 +87,68 @@ export function archiveOp(created: readonly Pick<TaskDto, 'id' | 'parentId' | 'v
   return { kind: 'archive', ids: roots, versions };
 }
 
+/** A task version moved by one of this user's own writes (from → to). */
+export type VersionMoves = Record<string, { from: number; to: number }>;
+
+/**
+ * The version moves of a write: the versions read before it against the tasks it answered.
+ * Only tasks whose version actually changed are kept.
+ */
+export function versionMoves(before: ReadonlyMap<string, number>, tasks: readonly Pick<TaskDto, 'id' | 'version'>[]): VersionMoves {
+  const out: VersionMoves = {};
+  for (const x of tasks) {
+    const from = before.get(x.id);
+    if (from !== undefined && from !== x.version) out[x.id] = { from, to: x.version };
+  }
+  return out;
+}
+
+/**
+ * Re-bases a stacked operation over the user's own later writes: a change that expects exactly
+ * the version this user's write moved away from now expects the version it moved to. Any other
+ * version (somebody else's edit in between) is left alone, so the server still answers 409.
+ */
+export function rebaseOp(op: UndoOp, moves: VersionMoves): UndoOp {
+  if (op.kind === 'batch') {
+    let changed = false;
+    const changes = op.changes.map((c) => {
+      const m = moves[c.id];
+      if (m && c.version === m.from) {
+        changed = true;
+        return { ...c, version: m.to };
+      }
+      return c;
+    });
+    return changed ? { ...op, changes } : op;
+  }
+  if (op.kind === 'archive') {
+    let changed = false;
+    const versions = { ...op.versions };
+    for (const [id, v] of Object.entries(op.versions)) {
+      const m = moves[id];
+      if (m && v === m.from) {
+        versions[id] = m.to;
+        changed = true;
+      }
+    }
+    return changed ? { ...op, versions } : op;
+  }
+  return op;
+}
+
+/** Tasks carried by a write's answer (`task`, `affected`, `tasks`, `restored`), for `versionMoves`. */
+export function tasksOfResult(res: unknown): Array<Pick<TaskDto, 'id' | 'version'>> {
+  if (!res || typeof res !== 'object') return [];
+  const r = res as { task?: unknown; affected?: unknown; tasks?: unknown; restored?: unknown };
+  const out: Array<Pick<TaskDto, 'id' | 'version'>> = [];
+  const take = (x: unknown) => {
+    if (x && typeof x === 'object' && typeof (x as TaskDto).id === 'string' && typeof (x as TaskDto).version === 'number') out.push(x as TaskDto);
+  };
+  take(r.task);
+  for (const list of [r.affected, r.tasks, r.restored]) if (Array.isArray(list)) list.forEach(take);
+  return out;
+}
+
 // ---------------------------------------------------------------- the per-project stacks
 
 const LIMIT = 50;
@@ -107,6 +169,8 @@ interface UndoState {
   pushRedo(projectId: string, entry: UndoEntry): void;
   /** A 409 (or any failure) ends the chain. */
   clearRedo(projectId: string): void;
+  /** Applies the version moves of this user's own write to every stacked entry (`rebaseOp`). */
+  rebase(projectId: string, moves: VersionMoves): void;
   clear(projectId: string): void;
 }
 
@@ -134,6 +198,16 @@ export const useUndoStore = create<UndoState>((set, get) => {
     pushUndo: (id, entry) => put(id, { ...of(id), undo: cap([...of(id).undo, entry]) }),
     pushRedo: (id, entry) => put(id, { ...of(id), redo: cap([...of(id).redo, entry]) }),
     clearRedo: (id) => put(id, { ...of(id), redo: [] }),
+    rebase: (id, moves) => {
+      if (!Object.keys(moves).length) return;
+      const s = of(id);
+      if (!s.undo.length && !s.redo.length) return;
+      const re = (e: UndoEntry) => {
+        const op = rebaseOp(e.op, moves);
+        return op === e.op ? e : { ...e, op };
+      };
+      put(id, { undo: s.undo.map(re), redo: s.redo.map(re) });
+    },
     clear: (id) => put(id, { undo: [], redo: [] }),
   };
 });

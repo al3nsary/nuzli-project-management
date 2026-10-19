@@ -36,7 +36,7 @@ import {
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, FormError, LoadingBlock, PageHeader } from '../../components/ui';
 import { TeamBadge } from '../../theme/TeamBadge';
-import { formatNumber, t, tKey } from '../../i18n';
+import { formatNumber, t, tKey, tCount } from '../../i18n';
 import { CardEditor, type EditableCard } from './CardEditor';
 import { CardStyles, FitCard, SAMPLE_CARD, logoFor, toTemplateLike } from './cardUtils';
 import { putPrintRun } from '../../features/cards/printRun';
@@ -262,7 +262,7 @@ export function CardsPage() {
                         <Checkbox.Indicator />
                         <TeamBadge name={tm.name} color={tm.color.hex} size="sm" />
                         <Text size="xs" c="dimmed" ms="auto" className="num" style={{ flex: 'none' }}>
-                          {t('teams.memberCount', { count: tm.memberCount })}
+                          {tCount('teams.memberCount', tm.memberCount)}
                         </Text>
                       </Group>
                     </Checkbox.Card>

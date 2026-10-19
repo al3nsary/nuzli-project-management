@@ -114,15 +114,16 @@ export function LogoRow({
 
 /** Photo frame: 3:4 portrait (height = width × 4/3). */
 export const PHOTO_ASPECT = 4 / 3;
-export const PHOTO_BORDER = '#DDE9E1';
-export const PHOTO_FILL = '#F2F9F4';
-export const PHOTO_INK = '#14593F';
+// A9 identity (QA): the placeholder takes the Nozoly indigo tints instead of the old Muhsen green.
+export const PHOTO_BORDER = '#C5CAE9';
+export const PHOTO_FILL = '#E8EAF6';
+export const PHOTO_INK = '#303F9F';
 export const PHOTO_RADIUS_MM = 1;
 export const PHOTO_BORDER_MM = 0.25;
 
 /**
  * The photo area: the photo (`object-fit: cover`) in a thin framed box, or — without a photo —
- * the initials on a pale green field over a faint silhouette, never an empty hole.
+ * the initials on a pale indigo field over a faint silhouette, never an empty hole.
  * `data-photo-mm` carries the box size for tests and print checks.
  */
 export function PhotoArea({ model, widthMm, heightMm }: { model: CardModel; widthMm: number; heightMm: number }) {

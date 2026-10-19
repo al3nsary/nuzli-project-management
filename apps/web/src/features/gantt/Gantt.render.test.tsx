@@ -71,3 +71,43 @@ describe('Gantt virtualisation (brief §6.4: smooth at 2,000 tasks)', () => {
     expect(changes.find((c) => c.id === 't1')!.startDate > t1.startDate).toBe(true);
   });
 });
+
+describe('task name click vs double-click (A9 QA)', () => {
+  const small = makeGantt(1, 3);
+  const leaf = small.tasks.find((x) => x.parentId)!;
+  const setup = () => {
+    const open = vi.fn();
+    const rename = vi.fn();
+    const utils = render(
+      <Gantt data={small} zoom="week" showHijri={false} digits="latn" editable gridMode="full" viewport={{ width: 900, height: 600 }} onOpenTask={open} onRename={rename} onCommit={() => {}} onLink={() => {}} onLinkRefused={() => {}} />,
+    );
+    const name = [...utils.container.querySelectorAll('button[title]')].find((b) => b.getAttribute('title') === leaf.name) as HTMLElement;
+    return { ...utils, open, rename, name };
+  };
+
+  it('a single click opens the task after the double-click window', async () => {
+    vi.useFakeTimers();
+    const { open, name } = setup();
+    fireEvent.click(name, { detail: 1 });
+    expect(open).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(400);
+    expect(open).toHaveBeenCalledWith(leaf.id);
+    vi.useRealTimers();
+  });
+
+  it('a double-click renames instead of opening', () => {
+    vi.useFakeTimers();
+    const { open, rename, name, container } = setup();
+    fireEvent.click(name, { detail: 1 });
+    fireEvent.click(name, { detail: 2 });
+    fireEvent.doubleClick(name);
+    vi.advanceTimersByTime(400);
+    expect(open).not.toHaveBeenCalled();
+    const input = container.querySelector('input[aria-label]') as HTMLInputElement;
+    expect(input.value).toBe(leaf.name);
+    fireEvent.change(input, { target: { value: 'اسم جديد' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(rename).toHaveBeenCalledWith(leaf.id, 'اسم جديد');
+    vi.useRealTimers();
+  });
+});

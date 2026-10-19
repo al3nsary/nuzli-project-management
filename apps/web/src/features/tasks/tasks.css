@@ -356,6 +356,16 @@
   flex: 1 1 auto;
 }
 
+/* A9 QA: on a phone the details view used to scroll inside a ~220 px box under the header; it now
+   flows with the page (only the chat view keeps the full-height layout for its composer). */
+.nz-mt-page[data-view='details'] {
+  height: auto;
+  min-height: 0;
+}
+.nz-mt-page[data-view='details'] .nz-mt-side--phone {
+  overflow: visible;
+}
+
 .nz-mt-acc .mantine-Accordion-control {
   min-height: 48px;
 }
@@ -545,7 +555,9 @@
   overflow-y: hidden;
   scrollbar-width: thin;
   position: sticky;
-  top: 0;
+  /* Under the drawer header (itself sticky at 0, 60 px: one ellipsised title line); at top: 0 the
+     tabs slid behind it and vanished once the details were scrolled (A9 QA). */
+  top: 60px;
   z-index: 3;
   background: var(--mantine-color-body, var(--panel));
 }
@@ -554,6 +566,19 @@
   flex: 0 0 auto;
   min-height: 44px;
   white-space: nowrap;
+}
+
+/* A9 QA: on a desktop drawer the seven tabs wrap instead of hiding «سجل الوقت» and «النشاط»
+   behind a horizontal scroll; the phone keeps the swipeable single row. */
+@media (min-width: 768px) {
+  .nz-drawer-tabs {
+    flex-wrap: wrap;
+    overflow: visible;
+    position: static;
+  }
+  .nz-drawer-tabs .mantine-Tabs-tab {
+    min-height: 40px;
+  }
 }
 
 .nz-drawer-chat {

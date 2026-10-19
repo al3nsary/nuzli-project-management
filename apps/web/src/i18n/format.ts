@@ -100,7 +100,10 @@ export function formatDateTime(
     ...DATE_OPTS,
     month: 'short',
     ...TIME_OPTS,
-  }).format(d);
+  })
+    .format(d)
+    // A9 QA: a no-break space keeps «ص/م» with its clock instead of wrapping onto a line alone.
+    .replace(/ (ص|م)$/u, '\u00A0$1');
   if (!p.showHijri) return greg;
   return `${greg} (${formatHijri(d, p)})`;
 }
@@ -166,7 +169,7 @@ export function formatClock(hm: string, prefs: Partial<DisplayPrefs> = {}): stri
   const h12 = h % 12 === 0 ? 12 : h % 12;
   const digits = prefs.digits ?? current.digits;
   const mm = numberFormat(digits, { minimumIntegerDigits: 2 }).format(m);
-  return `${numberFormat(digits).format(h12)}:${mm} ${pm ? ar['time.pm'] : ar['time.am']}`;
+  return `${numberFormat(digits).format(h12)}:${mm}\u00A0${pm ? ar['time.pm'] : ar['time.am']}`;
 }
 
 /** The clock part of a local `YYYY-MM-DDTHH:MM` (HOUR projects). */

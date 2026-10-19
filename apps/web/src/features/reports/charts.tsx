@@ -207,7 +207,8 @@ export function HBars({
     const single = series.length === 1;
     return {
       ...base(p),
-      grid: { top: 8, bottom: 8, left: showValues ? 56 : 12, right: 8, containLabel: true },
+      // right: 20 — ECharts measures Arabic labels a few pixels short, so the first letter was clipped (A9 QA).
+      grid: { top: 8, bottom: 8, left: showValues ? 56 : 12, right: 20, containLabel: true },
       xAxis: {
         type: 'value',
         inverse: true,

@@ -318,7 +318,10 @@ export function Gantt(props: GanttProps) {
     const reanchor = prev && prev.zoom === zoom && !userScrolled.current;
     let left: number;
     if (prev && !reanchor && prev.project === data.project.id && centerDay.current !== null) {
-      left = Math.max(0, Math.min(scale.width - vw, dayStartX(scale, centerDay.current) - vw / 2));
+      // In the hour zoom a day is ~24 columns wide: centre on its working midday, not on midnight
+      // (A9 QA: switching to «ساعة» used to show only the shaded night hours).
+      const centreX = zoom === 'hour' ? xOfPos(scale, centerDay.current + 13 / 24) : dayStartX(scale, centerDay.current);
+      left = Math.max(0, Math.min(scale.width - vw, centreX - vw / 2));
     } else {
       const anchor = Math.max(toDayNumber(data.project.startDate), Math.min(today, scale.endDay));
       left = unit === 'HOUR' ? Math.max(0, Math.min(scale.width - vw, xOfPos(scale, anchor + 9 / 24) - vw * 0.8)) : scrollLeftFor(scale, anchor, vw);
@@ -1030,6 +1033,9 @@ function customValueText(field: CustomFieldDto | undefined, value: unknown, digi
   }
 }
 
+/** How long a click on a task name waits for a second click (rename) before opening the task. */
+export const DOUBLE_CLICK_MS = 260;
+
 const GridRow = memo(function GridRow(p: {
   row: GanttRow;
   task: TaskDto & { durationHours?: number };
@@ -1063,6 +1069,13 @@ const GridRow = memo(function GridRow(p: {
   const { row, task } = p;
   const late = overdueDays(task, p.today) > 0;
   const isGroup = row.hasChildren;
+  // A9 QA: the first click of a double-click used to open the drawer, whose overlay then took the
+  // second click, so «نقر مزدوج لتغيير الاسم» never worked. When renaming is possible the open waits
+  // for the double-click window and a double-click cancels it.
+  const openTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (openTimer.current !== null) window.clearTimeout(openTimer.current);
+  }, []);
   const cell = (c: ColumnPref, children: ReactNode, cls = '') => (
     <div key={c.id} role="gridcell" className={`${classes.cell} ${cls}`} style={p.narrow ? { flex: 1, minWidth: 0 } : { width: c.width }}>
       {children}
@@ -1150,10 +1163,21 @@ const GridRow = memo(function GridRow(p: {
                       e.stopPropagation();
                       p.onFocusRow(row.index);
                       if (p.onSelect(row, e)) return;
-                      p.onOpen(task.id);
+                      if (!(p.editable && p.onStartRename)) {
+                        p.onOpen(task.id);
+                        return;
+                      }
+                      if (e.detail > 1) return; // the second click of a double-click
+                      if (openTimer.current !== null) window.clearTimeout(openTimer.current);
+                      openTimer.current = window.setTimeout(() => {
+                        openTimer.current = null;
+                        p.onOpen(task.id);
+                      }, DOUBLE_CLICK_MS);
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
+                      if (openTimer.current !== null) window.clearTimeout(openTimer.current);
+                      openTimer.current = null;
                       if (p.editable && p.onStartRename) p.onStartRename(task.id);
                     }}
                   >

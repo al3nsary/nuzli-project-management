@@ -86,7 +86,7 @@ describe('import wizard /projects/import', () => {
     fireEvent.click(screen.getByRole('textbox', { name: 'المشرف المسؤول عن «علي»' }));
     fireEvent.click(await screen.findByRole('option', { name: 'فهد بن خالد الدوسري' }, T));
 
-    fireEvent.click(screen.getByRole('button', { name: 'إنشاء المشروع (5 مهمة)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'إنشاء المشروع (5 مهام)' }));
     await waitFor(
       () => expect(router.state.location.pathname).toMatch(/^\/projects\/[0-9a-f-]{36}$/),
       T,

@@ -66,7 +66,7 @@ import {
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, FormError, Ltr, LoadingBlock } from '../../components/ui';
 import { VestBand } from '../../theme/VestBand';
-import { formatDate, formatDateTime, formatNumber, localizeDigits, t } from '../../i18n';
+import { formatDate, formatDateTime, formatNumber, localizeDigits, t, tCount } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
 import { MemberAvatar, PhotoAvatar } from '../../components/UserAvatar';
 import {
@@ -815,7 +815,7 @@ export function TeamDetailPage() {
                   <Text size="sm">{tm.orgUnit.name}</Text>
                 </Group>
               ) : null}
-              <Text className="num">{t('teams.memberCount', { count: tm.memberCount })}</Text>
+              <Text className="num">{tCount('teams.memberCount', tm.memberCount)}</Text>
               <Text c="dimmed" size="sm">
                 {t('teams.createdAt', { date: formatDate(tm.createdAt) })}
               </Text>

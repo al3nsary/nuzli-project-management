@@ -156,7 +156,12 @@ describe('nav registry → breadcrumbs and titles (rules 1–4)', () => {
       const palette = paletteItems(SUPERVISOR, top, []);
       expect(palette.some((i) => i.to === '/projects' || i.to === '/portfolios' || i.to === '/reports' || i.to === '/workload')).toBe(false);
       expect(shortcutTargets(top).get('p')).toBeUndefined();
+      // A9 QA: not even the «المشاريع» group caption (it labelled «سجل وقتي» in the palette).
+      expect(navLeaves(top).filter((n) => n.group === 'projects').map((n) => n.id)).toEqual([]);
+      expect(navLeaves(top).find((n) => n.id === 'timeLog')?.group).toBe('home');
     }
+    expect(trailFor('/time-log', { user: SUPERVISOR, ctx, translate: t }).group).toBe('الرئيسية');
+    expect(trailFor('/time-log', { user: ADMIN, ctx, translate: t }).group).toBe(t('navGroup.projects'));
     expect(trailFor('/projects', { user: SUPERVISOR, ctx, translate: t }).status).toBe('forbidden');
     expect(trailFor('/my-tasks', { user: SUPERVISOR, ctx, translate: t }).group).toBe('الرئيسية');
   });

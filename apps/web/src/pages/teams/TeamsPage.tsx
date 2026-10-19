@@ -23,7 +23,7 @@ import { useTeams } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { VestBand } from '../../theme/VestBand';
-import { formatDate, formatNumber, t } from '../../i18n';
+import { formatDate, formatNumber, t, tCount } from '../../i18n';
 import { SupervisorAvatars, TeamStatusBadge, supervisorsOf } from './shared';
 import { CreateTeamDialog } from './CreateTeamDialog';
 import { useOverlayParam } from '../../lib/useUrlState';
@@ -63,7 +63,7 @@ export function TeamCard({ team }: { team: TeamDto }) {
           <Group gap={4} wrap="nowrap" c="dimmed">
             <IconUsersGroup size={16} aria-hidden />
             <Text size="sm" className="num">
-              {t('teams.memberCount', { count: team.memberCount })}
+              {tCount('teams.memberCount', team.memberCount)}
             </Text>
             <IconChevronRight size={16} className="mirror-rtl" aria-hidden />
           </Group>

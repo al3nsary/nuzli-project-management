@@ -40,7 +40,8 @@ export function PriorityText({ priority }: { priority: Priority }) {
 export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
   const color = status === 'ACTIVE' ? 'field' : status === 'COMPLETED' ? 'ok' : status === 'ON_HOLD' ? 'signal' : 'gray';
   return (
-    <Badge variant="light" color={color} radius="xl">
+    // min-width: max-content — in a squeezed table cell the label used to shrink to «ـ.» (A9 QA).
+    <Badge variant="light" color={color} radius="xl" style={{ minWidth: 'max-content' }}>
       {projectStatusLabel(status)}
     </Badge>
   );

@@ -48,7 +48,7 @@ export function MyTaskPage() {
   const projectName = mine.data?.find((x) => x.id === id)?.project.name ?? null;
 
   return (
-    <div className="nz-mt-page" data-wide={wide || undefined}>
+    <div className="nz-mt-page" data-wide={wide || undefined} data-view={wide ? undefined : view}>
       {/* Phones: the status and progress controls live on the details view so the chat keeps its height. */}
       <TaskHeader task={data} projectName={projectName} showUpdate={wide || view === 'details'} />
       {wide ? (

@@ -1,4 +1,5 @@
 import { SegmentedControl, Text, TextInput } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { formatNumber, t } from '../../i18n';
 import { MAX_RANGE_DAYS, clampRange, presetOf, presetRange, type Range, type RangePreset } from './math';
 
@@ -20,6 +21,8 @@ export function RangeControl({
   clamped?: boolean;
 }) {
   const preset = presetOf(range, today);
+  // A9 QA: at 360 px the four presets used to scroll «فترة مخصّصة» out of sight.
+  const phone = useMediaQuery('(max-width: 30em)') ?? false;
   const set = (from: string, to: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return;
     onChange(clampRange(from, to));
@@ -29,6 +32,8 @@ export function RangeControl({
       {presets ? (
         <SegmentedControl
           className="rp-seg"
+          size={phone ? 'xs' : 'sm'}
+          fullWidth={phone}
           aria-label={t('a9r.wl.presets')}
           value={preset ?? 'custom'}
           onChange={(v) => {

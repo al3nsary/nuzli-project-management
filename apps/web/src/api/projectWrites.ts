@@ -10,7 +10,7 @@ import { ApiError, errorMessage } from './errors';
 import { qk4 } from './projectQueries';
 import { invalidateProjectReads } from './a9Queries';
 import { mergeTasks, runOptimisticBatch } from '../features/gantt/batch';
-import { archiveOp, inverseOf, rootsOf, useUndoStore, type UndoEntry, type UndoOp } from '../features/projects/undo';
+import { archiveOp, inverseOf, rootsOf, tasksOfResult, useUndoStore, versionMoves, type UndoEntry, type UndoOp } from '../features/projects/undo';
 import { t } from '../i18n';
 
 type BulkPatch = z.input<typeof taskBulkSchema>['patch'];
@@ -32,6 +32,18 @@ export function useProjectWrites(projectId: string) {
 
   const get = useCallback(() => qc.getQueryData<GanttDto>(key), [qc, key]);
   const set = useCallback((g: GanttDto) => qc.setQueryData(key, g), [qc, key]);
+
+  /**
+   * The task versions as this tab knows them, read before each of its own writes. After the write,
+   * every stacked undo/redo entry that expected the old version of a task this write moved is
+   * re-based on the new one (`rebaseOp`), so undoing several of one's own actions in a row never
+   * trips the version check; somebody else's edit still does (ADR-095).
+   */
+  const versionsNow = useCallback(() => new Map((get()?.tasks ?? []).map((x) => [x.id, x.version])), [get]);
+  const rebaseFrom = useCallback(
+    (before: ReadonlyMap<string, number>, answer: unknown) => store.rebase(projectId, versionMoves(before, tasksOfResult(answer))),
+    [store, projectId],
+  );
 
   /** Merges tasks returned by any write and refreshes the lists that depend on them. */
   const merge = useCallback(
@@ -60,11 +72,15 @@ export function useProjectWrites(projectId: string) {
   const commitBatch = useCallback(
     async (changes: TaskDto[], label = t('undo.label.move')): Promise<{ ok: boolean; error?: unknown }> => {
       setSaving(true);
+      const before = versionsNow();
       try {
         const out = await runOptimisticBatch({ get, set, send: (body) => api.tasks.batch(projectId, body), changes });
         if (!out.ok && out.conflict) setConflict(true);
         if (out.ok) {
-          if (out.result) record(label, inverseOf(out.result.previous, out.result.tasks));
+          if (out.result) {
+            rebaseFrom(before, out.result);
+            record(label, inverseOf(out.result.previous, out.result.tasks));
+          }
           invalidateProjectReads(qc, projectId);
           return { ok: true };
         }
@@ -73,21 +89,24 @@ export function useProjectWrites(projectId: string) {
         setSaving(false);
       }
     },
-    [api, projectId, get, set, qc, record],
+    [api, projectId, get, set, qc, record, versionsNow, rebaseFrom],
   );
 
   /** Wraps a write: a CONFLICT_VERSION answer turns on the refresh prompt. */
   const run = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
     setSaving(true);
+    const before = versionsNow();
     try {
-      return await fn();
+      const out = await fn();
+      rebaseFrom(before, out);
+      return out;
     } catch (err) {
       if (err instanceof ApiError && err.code === 'CONFLICT_VERSION') setConflict(true);
       throw err;
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [versionsNow, rebaseFrom]);
 
   // ---------------------------------------------------------------- A9 writes with undo
 
@@ -150,6 +169,7 @@ export function useProjectWrites(projectId: string) {
   /** Runs an inverse operation and answers the operation that reverses it again. */
   const runOp = useCallback(
     async (op: UndoOp): Promise<UndoOp | null> => {
+      const before = versionsNow();
       if (op.kind === 'batch') {
         let tasks: TaskDto[] = [];
         let previous: TaskPreviousMap = {};
@@ -165,11 +185,13 @@ export function useProjectWrites(projectId: string) {
           tasks = [...tasks.filter((x) => x.id !== d.id), res.task, ...res.affected];
           previous = { ...previous, [d.id]: { ...(previous[d.id] ?? {}), ...(res.previous?.[d.id] ?? {}) } };
         }
+        rebaseFrom(before, { tasks });
         merge(tasks);
         return inverseOf(previous, tasks);
       }
       if (op.kind === 'archive') {
         const res = await api.tasks.bulkArchive(projectId, { ids: op.ids, versions: op.versions });
+        rebaseFrom(before, res);
         await refresh();
         return { kind: 'restore', ids: res.archivedIds, dependencies: res.deletedDependencies };
       }
@@ -179,11 +201,12 @@ export function useProjectWrites(projectId: string) {
         const dep = await api.dependencies.create(projectId, { predecessorId: d.predecessorId, successorId: d.successorId, type: 'FS', lagDays: d.lagDays });
         for (const x of dep.affected) latest.set(x.id, x);
       }
+      rebaseFrom(before, { tasks: [...latest.values()] });
       await refresh();
       const restored = res.restored.map((x) => latest.get(x.id) ?? x);
       return archiveOp(restored);
     },
-    [api, projectId, get, merge, refresh],
+    [api, projectId, get, merge, refresh, versionsNow, rebaseFrom],
   );
 
   const step = useCallback(

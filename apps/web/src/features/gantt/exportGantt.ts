@@ -60,7 +60,12 @@ const HEAD = 22;
 const GRID = 300;
 const TITLE = 40;
 
-/** The whole chart as one SVG string, grid on the right, time flowing right → left. */
+/**
+ * The whole chart as one SVG string, grid on the right, time flowing right → left.
+ * Arabic labels carry direction="rtl", where text-anchor "start" is the RIGHT edge: every such label
+ * is anchored at its right-hand x with "start" (A9 QA: "end" made names run off the image and bar
+ * labels run over their bars).
+ */
 export function ganttSvg(o: ExportOptions): { svg: string; width: number; height: number } {
   const rows: GanttRow[] = buildRows(o.data.tasks, o.collapsed ?? new Set()).slice(0, o.maxRows ?? 600);
   const scale = makeScale(o.fromDay, o.toDay, o.dayWidth);
@@ -76,7 +81,7 @@ export function ganttSvg(o: ExportOptions): { svg: string; width: number; height
   if (o.fontCss) parts.push(`<style>${o.fontCss}</style>`);
   parts.push(`<rect width="${width}" height="${height}" fill="${C.surface}"/>`);
   const title = t('gantt.printTitle', { name: o.data.project.name, date: dayLabel(riyadhToday(), o.digits) });
-  parts.push(`<text x="${width - 12}" y="26" text-anchor="end" font-size="16" font-weight="600" fill="${C.ink}" direction="rtl">${esc(title)}</text>`);
+  parts.push(`<text x="${width - 12}" y="26" text-anchor="start" font-size="16" font-weight="600" fill="${C.ink}" direction="rtl">${esc(title)}</text>`);
 
   // Timeline (left part, x in [0, scale.width]).
   const rowY = (i: number) => top + i * ROW;
@@ -136,7 +141,7 @@ export function ganttSvg(o: ExportOptions): { svg: string; width: number; height
     if (r.task.assignee?.teamColor) parts.push(`<rect x="${b.startX - 4}" y="${y}" width="4" height="14" fill="${r.task.assignee.teamColor}"/>`);
     if (r.task.assignee) {
       const label = `${r.task.assignee.fullName}${r.task.assignee.teamName ? ` (${r.task.assignee.teamName})` : ''}`;
-      parts.push(`<text x="${b.x - 4}" y="${b.cy + 4}" text-anchor="end" font-size="9.5" fill="${C.muted}" direction="rtl">${esc(label)}</text>`);
+      parts.push(`<text x="${b.x - 4}" y="${b.cy + 4}" text-anchor="start" font-size="9.5" fill="${C.muted}" direction="rtl">${esc(label)}</text>`);
     }
   });
   parts.push(`</g>`);
@@ -146,14 +151,14 @@ export function ganttSvg(o: ExportOptions): { svg: string; width: number; height
   parts.push(`<rect x="${gx}" y="${TITLE}" width="${GRID}" height="${height - TITLE}" fill="${C.surface}"/>`);
   parts.push(`<line x1="${gx}" x2="${gx}" y1="${TITLE}" y2="${height}" stroke="${C.line}"/>`);
   parts.push(`<rect x="${gx}" y="${TITLE}" width="${GRID}" height="${HEAD * heads}" fill="${C.ground}"/>`);
-  parts.push(`<text x="${width - 8}" y="${top - 8}" text-anchor="end" font-size="10" font-weight="600" fill="${C.muted}" direction="rtl">${esc(t('gantt.col.wbs'))}</text>`);
-  parts.push(`<text x="${width - 56}" y="${top - 8}" text-anchor="end" font-size="10" font-weight="600" fill="${C.muted}" direction="rtl">${esc(t('gantt.col.name'))}</text>`);
+  parts.push(`<text x="${width - 8}" y="${top - 8}" text-anchor="start" font-size="10" font-weight="600" fill="${C.muted}" direction="rtl">${esc(t('gantt.col.wbs'))}</text>`);
+  parts.push(`<text x="${width - 56}" y="${top - 8}" text-anchor="start" font-size="10" font-weight="600" fill="${C.muted}" direction="rtl">${esc(t('gantt.col.name'))}</text>`);
   rows.forEach((r, i) => {
     const y = rowY(i) + 17;
     parts.push(`<text x="${width - 8}" y="${y}" text-anchor="end" font-size="10" fill="${C.muted}">${esc(r.task.wbs)}</text>`);
     const name = r.task.name.length > 34 ? `${r.task.name.slice(0, 33)}…` : r.task.name;
     parts.push(
-      `<text x="${width - 56 - r.depth * 10}" y="${y}" text-anchor="end" font-size="11" ${r.hasChildren ? 'font-weight="600"' : ''} fill="${C.ink}" direction="rtl">${esc(name)}</text>`,
+      `<text x="${width - 56 - r.depth * 10}" y="${y}" text-anchor="start" font-size="11" ${r.hasChildren ? 'font-weight="600"' : ''} fill="${C.ink}" direction="rtl">${esc(name)}</text>`,
     );
     parts.push(`<text x="${gx + 6}" y="${y}" text-anchor="start" font-size="9.5" fill="${C.muted}">${esc(`${formatNumber(Math.round(r.task.progress))}٪`)}</text>`);
   });

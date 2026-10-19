@@ -28,7 +28,7 @@ import { useViewPref } from '../../api/a9Queries';
 import { unitOf, type ProjectView } from '../../api/hoursWire';
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
-import { formatDate, formatMoney, formatNumber, t } from '../../i18n';
+import { formatDate, formatMoney, formatNumber, t, tCount } from '../../i18n';
 import { useOverlayParam } from '../../lib/useUrlState';
 import { ProgressLine, ProjectStatusBadge, PROJECT_STATUSES, projectStatusLabel } from './parts';
 import { CreateProjectDialog } from './CreateProjectDialog';
@@ -122,7 +122,7 @@ export function ProjectCard({ project, favourite, onToggleFavourite }: { project
       </div>
       <Group justify="space-between" mt="sm" gap="xs" wrap="nowrap">
         <Text size="sm" c="dimmed">
-          {t('projects.taskCount', { count: formatNumber(project.taskCount) })}
+          {tCount('projects.taskCount', project.taskCount)}
         </Text>
         <IconChevronRight size={16} className="mirror-rtl" aria-hidden color="var(--muted)" />
       </Group>
@@ -225,7 +225,7 @@ export function ProjectsPage() {
                       {p.name}
                     </Link>
                     <Text size="xs" c="dimmed">
-                      {t('projects.taskCount', { count: formatNumber(p.taskCount) })}
+                      {tCount('projects.taskCount', p.taskCount)}
                       {unitOf(p) === 'HOUR' ? ` · ${t('projects.hourBadge')}` : ''}
                     </Text>
                   </span>

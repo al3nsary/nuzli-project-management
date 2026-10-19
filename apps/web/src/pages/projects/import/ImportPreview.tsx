@@ -47,6 +47,7 @@ import {
   getDisplayPrefs,
   t,
   tKey,
+  tCount,
 } from '../../../i18n';
 import { ImportErrorAlert } from './ImportWizardPage';
 
@@ -433,7 +434,7 @@ export function ImportPreview({
           {t('import.preview.back')}
         </Button>
         <Button onClick={() => void commit()} loading={busy} disabled={expired}>
-          {t('import.preview.commit', { n: formatNumber(pv.stats.taskCount) })}
+          {t('import.preview.commit', { n: tCount('projects.taskCount', pv.stats.taskCount) })}
         </Button>
       </Group>
     </Stack>

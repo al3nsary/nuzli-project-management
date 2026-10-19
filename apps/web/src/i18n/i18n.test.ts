@@ -76,3 +76,17 @@ describe('scripts/check-i18n.mjs', () => {
     expect(out).toContain('i18n check passed');
   });
 });
+
+describe('tCount — Arabic number agreement (A9 QA)', () => {
+  it('picks the CLDR form: one, two, 3–10 plural, 11–99 singular, hundreds', async () => {
+    const { tCount } = await import('./index');
+    expect(tCount('projects.taskCount', 1)).toBe('مهمة واحدة');
+    expect(tCount('projects.taskCount', 2)).toBe('مهمتان');
+    expect(tCount('projects.taskCount', 9)).toBe('9 مهام');
+    expect(tCount('projects.taskCount', 60)).toBe('60 مهمة');
+    expect(tCount('projects.taskCount', 2000)).toBe('2,000 مهمة');
+    expect(tCount('teams.memberCount', 6)).toBe('6 أعضاء');
+    expect(tCount('teams.memberCount', 12)).toBe('12 عضوًا');
+    expect(tCount('teams.memberCount', 0)).toBe('لا أعضاء');
+  });
+});

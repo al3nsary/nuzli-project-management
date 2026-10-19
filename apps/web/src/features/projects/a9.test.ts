@@ -8,7 +8,7 @@ import type { TaskDto } from '@nuzli/shared';
 import { DemoApi } from '../../api/demo/DemoApi';
 import { DEMO_PASSWORD } from '../../api/demo/constants';
 import { ApiError } from '../../api/errors';
-import { archiveOp, inverseOf, rootsOf, useUndoStore } from './undo';
+import { archiveOp, inverseOf, rebaseOp, rootsOf, tasksOfResult, useUndoStore, versionMoves } from './undo';
 import {
   DEFAULT_COLUMNS,
   addColumn,
@@ -72,6 +72,59 @@ describe('undo / redo (ADR-095)', () => {
     const err = await api.tasks.batch(p.id, { changes: (redo as unknown as { changes: never[] }).changes }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).code).toBe('CONFLICT_VERSION');
+  });
+
+  it('two own writes in a row undo, undo, redo, redo without a 409; another edit still conflicts (A9 QA)', async () => {
+    const { p, g } = await project();
+    const a = g.tasks.find((x) => x.name === 'أ')!;
+    const b = g.tasks.find((x) => x.name === 'ب')!;
+    const s = useUndoStore.getState();
+    s.clear(p.id);
+    const known = new Map(g.tasks.map((x) => [x.id, x.version]));
+    // What useProjectWrites does around every write: versions before, rebase after, then record.
+    const write = async (fn: () => Promise<{ tasks: TaskDto[]; previous?: never }>, label: string) => {
+      const before = new Map(known);
+      const res = await fn();
+      for (const x of res.tasks) known.set(x.id, x.version);
+      useUndoStore.getState().rebase(p.id, versionMoves(before, tasksOfResult(res)));
+      return res;
+    };
+    const status = await write(() => api.tasks.bulk(p.id, { ids: [a.id, b.id], versions: { [a.id]: a.version, [b.id]: b.version }, patch: { status: 'ON_HOLD' } }) as never, 'status');
+    useUndoStore.getState().record(p.id, { label: 'status', op: inverseOf(status.previous, status.tasks)! });
+    const colour = await write(() => api.tasks.bulk(p.id, { ids: [a.id, b.id], versions: { [a.id]: known.get(a.id)!, [b.id]: known.get(b.id)! }, patch: { barColor: '#00838F' } }) as never, 'colour');
+    useUndoStore.getState().record(p.id, { label: 'colour', op: inverseOf(colour.previous, colour.tasks)! });
+    const step = async (dir: 'undo' | 'redo') => {
+      const st = useUndoStore.getState();
+      const e = (dir === 'undo' ? st.popUndo(p.id) : st.popRedo(p.id))!;
+      const op = e.op as unknown as { changes: never[] };
+      const res = await write(() => api.tasks.batch(p.id, { changes: op.changes }) as never, e.label);
+      const next = { label: e.label, op: inverseOf(res.previous, res.tasks)! };
+      if (dir === 'undo') useUndoStore.getState().pushRedo(p.id, next);
+      else useUndoStore.getState().pushUndo(p.id, next);
+    };
+    const now = async () => (await api.projects.gantt(p.id)).tasks.find((x) => x.id === a.id)!;
+    await step('undo');
+    expect(await now()).toMatchObject({ status: 'ON_HOLD', barColor: null });
+    await step('undo'); // used to answer 409: the colour undo had moved the versions
+    expect((await now()).status).toBe('NOT_STARTED');
+    await step('redo');
+    expect((await now()).status).toBe('ON_HOLD');
+    await step('redo');
+    expect((await now()).barColor).toBe('#00838F');
+    // Somebody else's edit is not re-based: the next undo still answers 409.
+    const cur = await now();
+    await api.tasks.update(a.id, { version: cur.version, name: 'تعديل من غيري' });
+    const e = useUndoStore.getState().popUndo(p.id)!;
+    const err = await api.tasks.batch(p.id, { changes: (e.op as unknown as { changes: never[] }).changes }).catch((x: unknown) => x);
+    expect((err as ApiError).code).toBe('CONFLICT_VERSION');
+  });
+
+  it('rebaseOp only moves the exact version this user moved away from', () => {
+    const op = { kind: 'batch' as const, changes: [{ id: 'a', version: 3, status: 'X' }, { id: 'b', version: 7 }] };
+    expect(rebaseOp(op, { a: { from: 3, to: 4 }, b: { from: 6, to: 8 } })).toEqual({ kind: 'batch', changes: [{ id: 'a', version: 4, status: 'X' }, { id: 'b', version: 7 }] });
+    expect(rebaseOp(op, {})).toBe(op);
+    expect(rebaseOp({ kind: 'archive', ids: ['r'], versions: { r: 0 } }, { r: { from: 0, to: 1 } })).toEqual({ kind: 'archive', ids: ['r'], versions: { r: 1 } });
+    expect(versionMoves(new Map([['a', 1], ['b', 2]]), [{ id: 'a', version: 2 }, { id: 'b', version: 2 }, { id: 'c', version: 5 }])).toEqual({ a: { from: 1, to: 2 } });
   });
 
   it('a create is undone by archiving the new roots; the store keeps undo and redo apart', () => {

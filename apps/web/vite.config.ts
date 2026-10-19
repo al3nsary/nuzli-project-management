@@ -52,6 +52,7 @@ export default defineConfig(({ mode }) => {
           'favicon-32.png',
           'favicon-64.png',
           'apple-touch-icon.png',
+          'brand/muhsen-mark.png',
           'brand/muhsen-mark-white.png',
           'brand/muhsen-lockup-white.png',
           'brand/muhsen-pattern.png',

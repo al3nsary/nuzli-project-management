@@ -75,6 +75,11 @@ describe('OCR parser — national ID / Iqama number (A9, ADR-104)', () => {
 });
 
 describe('OCR parser — names', () => {
+  it('never takes the demo banner for a name (A9 QA)', () => {
+    expect(pickArabicName(lines('بطاقة تجريبية — ليست وثيقة حقيقية', 'RAJESH KUMAR', 'هندي'))).toBeNull();
+    expect(pickArabicName(lines('بطاقة تجريبية — ليست وثبقة حقيقية', 'راجيش كومار'))?.value).toBe('راجيش كومار');
+  });
+
   it('the value after «الاسم:» on the same line', () => {
     const card = parseIdCard({ text: `المملكة العربية السعودية\nوزارة الداخلية\nالاسم: محمد عبدالله سالم القحطاني\nرقم الهوية ${CITIZEN}` });
     expect(card.name?.value).toBe('محمد عبدالله سالم القحطاني');

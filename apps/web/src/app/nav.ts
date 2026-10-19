@@ -420,6 +420,11 @@ export function visibleNav(user: UserDto | null, ctx: NavContext, nodes: NavNode
   }
   // An item that leads for this role moves to the very top, into the first group (A9:
   // supervisors open on «مهامي»).
+  // A9: whoever cannot see projects (the supervisor) never reads «المشاريع» either — what is left
+  // of that group («سجل وقتي») joins the home group in the menu, the palette and the top bar.
+  if (user && !can(user, 'projects.readAll')) {
+    for (let i = 0; i < out.length; i++) if (out[i]!.group === 'projects') out[i] = { ...out[i]!, group: 'home' };
+  }
   const lead = user ? out.findIndex((n) => n.lead?.includes(user.role)) : -1;
   if (lead > 0) {
     const [n] = out.splice(lead, 1);

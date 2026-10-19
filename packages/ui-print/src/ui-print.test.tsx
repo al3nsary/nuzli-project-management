@@ -282,20 +282,20 @@ describe('photo area (owner request A8)', () => {
     expect(buildCardModel(template(), data).showPhoto).toBe(true);
   });
 
-  it('shows the photo (object-fit: cover) in a thin #DDE9E1 frame with a 1 mm radius', () => {
+  it('shows the photo (object-fit: cover) in a thin #C5CAE9 frame with a 1 mm radius', () => {
     const html = render(<WorkCard template={template()} data={data} photoUrl="/p.jpg" />);
     expect(html).toContain('data-photo="image"');
     expect(html).toMatch(/<img class="nz-photo" src="\/p.jpg"/);
-    expect(html).toContain('border:0.25mm solid #DDE9E1');
+    expect(html).toContain('border:0.25mm solid #C5CAE9');
     expect(html).toContain('border-radius:1mm');
     expect(CARD_BASE_CSS).toMatch(/\.nz-photo \{[^}]*object-fit: cover/);
   });
 
-  it('without a photo: initials of the first and last name on #F2F9F4 in #14593F, with a silhouette', () => {
+  it('without a photo: initials of the first and last name on #E8EAF6 in #303F9F, with a silhouette', () => {
     const html = render(<WorkCard template={template()} data={data} />);
     expect(html).toContain('data-photo="placeholder"');
-    expect(html).toContain('background:#F2F9F4');
-    expect(html).toContain('color:#14593F');
+    expect(html).toContain('background:#E8EAF6');
+    expect(html).toContain('color:#303F9F');
     expect(html).toContain('nz-photo-silhouette');
     expect(html).toContain('>م‌ق</span>');
     expect(html).not.toContain('<img class="nz-photo"');

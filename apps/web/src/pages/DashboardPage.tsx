@@ -25,7 +25,7 @@ import { can, type Role } from '@nuzli/shared';
 import { useAuthStore } from '../stores/auth';
 import { useAudit, useRegistrations, useTeams, useUsers, useViolationStats } from '../api/queries';
 import { TeamBadge } from '../theme/TeamBadge';
-import { formatDateTime, formatNumber, t, tKey } from '../i18n';
+import { formatDateTime, formatNumber, t, tKey, tCount } from '../i18n';
 import { MonitorHome } from './violations/MonitorHome';
 import { MyTasksSummary, ProjectsKpi } from './projects/DashboardWidgets';
 import { PageHeader, roleLabel } from '../components/ui';
@@ -152,7 +152,7 @@ function MyTeams() {
                 ) : null}
               </Group>
               <Text size="sm" className="num" style={{ flex: 'none' }}>
-                {t('teams.memberCount', { count: tm.memberCount })}
+                {tCount('teams.memberCount', tm.memberCount)}
               </Text>
             </Group>
           ))}
