@@ -2190,7 +2190,7 @@ export const ar = {
   'a9r.dash.overdueSub': 'المتأخرة: {n} — الأقدم أولًا',
   'a9r.dash.noOverdue': 'لا مهام متأخرة.',
   'a9r.dash.endedOn': 'انتهت في {date}',
-  'a9r.dash.upcomingTitle': 'القادم خلال ١٤ يومًا',
+  'a9r.dash.upcomingTitle': 'القادم خلال {span}',
   'a9r.dash.upcomingSub': 'المواعيد النهائية ونهايات المهام والمعالم',
   'a9r.dash.noUpcoming': 'لا مواعيد خلال الأيام الأربعة عشر القادمة.',
   'a9r.dash.today': 'اليوم',
