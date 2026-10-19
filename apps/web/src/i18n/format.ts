@@ -3,6 +3,8 @@
  * Western digits by default (Arabic-Indic optional), Gregorian by default (Hijri
  * Umm al-Qura optional), always displayed in Asia/Riyadh. Storage stays UTC.
  */
+import { ar } from './ar';
+
 export type Digits = 'latn' | 'arab';
 
 export interface DisplayPrefs {
@@ -113,4 +115,61 @@ export function formatHijri(value: string | Date, prefs: Partial<DisplayPrefs> =
 /** `YYYY-MM-DD` of an instant in Asia/Riyadh (for date filters). */
 export function riyadhDay(value: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(value);
+}
+
+// ---------------------------------------------------------------- A9: money, durations, clock
+
+
+/**
+ * Money in the project currency (A9 budget): Western digits by default, up to two decimals, the
+ * SAR sign «ر.س» after the amount («١٢٬٥٠٠ ر.س» with Arabic-Indic digits). Other ISO codes are
+ * shown as their code. `compact` gives «١٢٫٥ ألف» for chart axes.
+ */
+export function formatMoney(
+  value: number | null | undefined,
+  currency = 'SAR',
+  opts: { compact?: boolean; prefs?: Partial<DisplayPrefs> } = {},
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '';
+  const digits = opts.prefs?.digits ?? current.digits;
+  const n = opts.compact
+    ? numberFormat(digits, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+    : numberFormat(digits, { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
+  const sign = currency === 'SAR' ? ar['money.sar'] : currency;
+  return `${n} ${sign}`;
+}
+
+/** Minutes as «٣ س ١٥ د» (or «٤٥ د», «٢ س»). */
+export function formatMinutes(minutes: number, prefs: Partial<DisplayPrefs> = {}): string {
+  const m = Math.max(0, Math.round(minutes));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  const f = (v: number) => formatNumber(v, prefs);
+  if (!h) return ar['duration.m'].replace('{m}', f(r));
+  if (!r) return ar['duration.h'].replace('{h}', f(h));
+  return ar['duration.hm'].replace('{h}', f(h)).replace('{m}', f(r));
+}
+
+/** Working hours as «٢٫٥ ساعة». */
+export function formatHours(hours: number, prefs: Partial<DisplayPrefs> = {}): string {
+  const v = Math.round(hours * 100) / 100;
+  return ar['duration.hours'].replace('{n}', numberFormat(prefs.digits ?? current.digits, { maximumFractionDigits: 2 }).format(v));
+}
+
+/** `HH:MM` (24 h wall clock, `24:00` allowed) as «٩:٠٠ ص» / «١:٠٠ م» (Arabic-friendly 12 h). */
+export function formatClock(hm: string, prefs: Partial<DisplayPrefs> = {}): string {
+  const [hs, ms] = hm.split(':');
+  const h = Number(hs);
+  const m = Number(ms);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hm;
+  const pm = h >= 12 && h < 24;
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const digits = prefs.digits ?? current.digits;
+  const mm = numberFormat(digits, { minimumIntegerDigits: 2 }).format(m);
+  return `${numberFormat(digits).format(h12)}:${mm} ${pm ? ar['time.pm'] : ar['time.am']}`;
+}
+
+/** The clock part of a local `YYYY-MM-DDTHH:MM` (HOUR projects). */
+export function formatLocalTime(local: string, prefs: Partial<DisplayPrefs> = {}): string {
+  return local.length > 10 ? formatClock(local.slice(11, 16), prefs) : '';
 }

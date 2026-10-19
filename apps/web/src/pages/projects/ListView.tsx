@@ -4,8 +4,8 @@
  * supervisor edits progress and status of their own tasks only. Every edit goes through
  * `PATCH /tasks/:id` with the task's version; the server's `affected` list is merged.
  */
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { ActionIcon, Button, Group, NativeSelect, NumberInput, Text, TextInput, Tooltip } from '@mantine/core';
+import { useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { ActionIcon, Button, Checkbox, Group, Menu, NativeSelect, NumberInput, Text, TextInput, Tooltip } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import {
@@ -13,6 +13,8 @@ import {
   IconArrowBarToRight,
   IconDiamond,
   IconFolderPlus,
+  IconCheck,
+  IconFlag3,
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react';
@@ -22,7 +24,23 @@ import { errorMessage } from '../../api/errors';
 import { useSupervisors } from '../../api/queries';
 import type { useProjectWrites } from '../../api/projectWrites';
 import { useAuthStore } from '../../stores/auth';
-import { formatDate, formatNumber, t } from '../../i18n';
+import { formatDate, formatMoney, formatNumber, t } from '../../i18n';
+import { useViewPref } from '../../api/a9Queries';
+import {
+  COLUMN_DEFS,
+  DEFAULT_LIST_COLUMNS,
+  availableColumns,
+  clampWidth,
+  dropIndex,
+  fieldIdOf,
+  isCustom,
+  moveColumn,
+  normalizeColumns,
+  resizeColumn,
+  type BaseColumnId,
+  type ColumnId,
+  type ColumnPref,
+} from '../../features/gantt/columns';
 import { buildRows } from '../../features/gantt/geometry';
 import { riyadhToday } from '../../features/projects/engine';
 import { PRIORITIES, TASK_STATUSES, priorityLabel, taskStatusLabel } from './parts';
@@ -34,7 +52,76 @@ const OVERSCAN = 6;
 /** Fixed row height: dates stay on one line (the Hijri date is in the Gantt header and the editor). */
 const COMPACT = { showHijri: false } as const;
 
-export function ListView({ data, writes, onOpenTask }: { data: GanttDto; writes: Writes; onOpenTask(id: string): void }) {
+export function ListView({
+  data,
+  writes,
+  onOpenTask,
+  selecting = false,
+  selected,
+  onSelectionChange,
+}: {
+  data: GanttDto;
+  writes: Writes;
+  onOpenTask(id: string): void;
+  selecting?: boolean;
+  selected?: ReadonlySet<string>;
+  onSelectionChange?(next: Set<string>): void;
+}) {
+  // A9: the columns are the user's (`list.columns`, per project), like the Gantt grid.
+  const [colsRaw, setColsPref] = useViewPref<ColumnPref[] | null>('list.columns', data.project.id, null);
+  const cols = useMemo(() => normalizeColumns(colsRaw ?? DEFAULT_LIST_COLUMNS, data.customFields ?? [], DEFAULT_LIST_COLUMNS), [colsRaw, data.customFields]);
+  const [liveCols, setLiveCols] = useState<ColumnPref[] | null>(null);
+  const shown = liveCols ?? cols;
+  const setCols = (next: ColumnPref[]) => setColsPref(next.length ? next : DEFAULT_LIST_COLUMNS);
+  const fieldsById = useMemo(() => new Map((data.customFields ?? []).map((x) => [x.id, x])), [data.customFields]);
+  const labelsById = useMemo(() => new Map((data.labels ?? []).map((x) => [x.id, x])), [data.labels]);
+  const colLabel = (id: ColumnId) => (isCustom(id) ? (fieldsById.get(fieldIdOf(id)!)?.name ?? '') : t(COLUMN_DEFS[id as BaseColumnId].label));
+  const headRef = useRef<HTMLTableRowElement>(null);
+  const startResize = (e: RPointerEvent, id: ColumnId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const x0 = e.clientX;
+    const w0 = cols.find((c) => c.id === id)?.width ?? 100;
+    const rtl = document.documentElement.dir !== 'ltr';
+    let latest = cols;
+    const move = (ev: PointerEvent) => {
+      latest = resizeColumn(cols, id, clampWidth(id, w0 + (ev.clientX - x0) * (rtl ? -1 : 1)));
+      setLiveCols(latest);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setLiveCols(null);
+      setCols(latest);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const startMove = (e: RPointerEvent, index: number) => {
+    if (index === 0 || e.button !== 0) return;
+    const head = headRef.current;
+    if (!head) return;
+    const x0 = e.clientX;
+    let moved = false;
+    let to = index;
+    const rtl = document.documentElement.dir !== 'ltr';
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - x0) < 5) return;
+      moved = true;
+      const r = head.getBoundingClientRect();
+      const offset = selecting ? 40 : 0;
+      const total = cols.reduce((a, c) => a + c.width, 0);
+      const local = rtl ? r.right - offset - ev.clientX : ev.clientX - r.left - offset;
+      to = dropIndex(cols, rtl ? total - local : local, total, rtl);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (moved && to !== index) setCols(moveColumn(cols, index, to));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   const api = useApi();
   const user = useAuthStore((s) => s.user);
   const admin = can(user, 'tasks.manage');
@@ -53,8 +140,7 @@ export function ListView({ data, writes, onOpenTask }: { data: GanttDto; writes:
 
   const update = async (task: TaskDto, patch: Record<string, unknown>, structural = false) => {
     try {
-      const res = await writes.run(() => api.tasks.update(task.id, { version: task.version, ...patch } as never));
-      writes.merge([res.task, ...res.affected]);
+      await writes.updateTask(task.id, { version: task.version, ...patch } as never);
       if (structural) await writes.refresh();
     } catch (err) {
       notifications.show({ color: 'breach', message: errorMessage(err) });
@@ -187,17 +273,51 @@ export function ListView({ data, writes, onOpenTask }: { data: GanttDto; writes:
       >
         <table className="nz-tree-table" role="treegrid" aria-label={t('list.label', { name: data.project.name })} aria-rowcount={rows.length}>
           <thead>
-            <tr>
-              <th style={{ width: 56 }}>{t('gantt.col.wbs')}</th>
-              <th style={{ minWidth: 220 }}>{t('gantt.col.name')}</th>
-              <th style={{ width: 150 }}>{t('gantt.col.start')}</th>
-              <th style={{ width: 90 }}>{t('gantt.col.duration')}</th>
-              <th style={{ width: 96 }}>{t('gantt.col.end')}</th>
-              <th style={{ width: 90 }}>{t('gantt.col.progress')}</th>
-              <th style={{ width: 130 }}>{t('task.status')}</th>
-              <th style={{ width: 110 }}>{t('task.priority')}</th>
-              <th style={{ width: 170 }}>{t('gantt.col.assignee')}</th>
-              {admin ? <th style={{ width: 48 }} aria-label={t('common.actions')} /> : null}
+            <tr ref={headRef}>
+              {selecting ? (
+                <th style={{ width: 40 }}>
+                  <Checkbox
+                    size="xs"
+                    aria-label={t('grid.selectAll')}
+                    checked={Boolean(selected?.size) && rows.every((r) => selected?.has(r.task.id))}
+                    onChange={(e) => onSelectionChange?.(e.currentTarget.checked ? new Set(rows.map((r) => r.task.id)) : new Set())}
+                  />
+                </th>
+              ) : null}
+              {shown.map((c, i) => (
+                <th key={c.id} style={{ width: c.width, position: 'relative', cursor: i > 0 ? 'grab' : undefined }} onPointerDown={(e) => startMove(e, i)} title={i > 0 ? t('col.dragHint') : undefined}>
+                  {colLabel(c.id)}
+                  <span className="nz-th-resize" role="separator" aria-label={t('col.resize', { name: colLabel(c.id) })} onPointerDown={(e) => startResize(e, c.id)} />
+                </th>
+              ))}
+              <th style={{ width: 44 }}>
+                <Menu position="bottom-end" withinPortal shadow="md" width={240}>
+                  <Menu.Target>
+                    <ActionIcon variant="subtle" size="sm" aria-label={t('col.add')}>
+                      <IconPlus size={15} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown mah={420} style={{ overflowY: 'auto' }}>
+                    <Menu.Label>{t('col.addTitle')}</Menu.Label>
+                    {[...cols.map((c) => c.id), ...availableColumns(cols, data.customFields ?? [])].map((id) => {
+                      const on = cols.some((c) => c.id === id);
+                      return (
+                        <Menu.Item
+                          key={id}
+                          disabled={id === 'name'}
+                          closeMenuOnClick={false}
+                          leftSection={<span style={{ width: 16, display: 'inline-flex' }}>{on ? <IconCheck size={15} /> : null}</span>}
+                          onClick={() => setCols(on ? cols.filter((x) => x.id !== id) : [...cols, { id, width: isCustom(id) ? 140 : COLUMN_DEFS[id as BaseColumnId].width }])}
+                        >
+                          {colLabel(id)}
+                        </Menu.Item>
+                      );
+                    })}
+                    <Menu.Divider />
+                    <Menu.Item onClick={() => setCols(DEFAULT_LIST_COLUMNS)}>{t('col.reset')}</Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -207,22 +327,12 @@ export function ListView({ data, writes, onOpenTask }: { data: GanttDto; writes:
               const isGroup = r.hasChildren;
               const mine = task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned');
               const editStatus = admin || mine;
-              return (
-                <tr
-                  key={task.id}
-                  tabIndex={focus === r.index ? 0 : -1}
-                  data-list-row={r.index}
-                  data-focused={focus === r.index}
-                  aria-level={r.depth + 1}
-                  aria-expanded={isGroup ? !collapsed.has(task.id) : undefined}
-                  onFocus={(e) => e.target === e.currentTarget && setFocus(r.index)}
-                  onClick={() => setFocus(r.index)}
-                  onKeyDown={(e) => onRowKey(e, r.index)}
-                >
-                  <td className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {task.wbs}
-                  </td>
-                  <td>
+              const cellOf = (id: ColumnId): ReactNode => {
+                switch (id) {
+                  case 'wbs':
+                    return <span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{task.wbs}</span>;
+                  case 'name':
+                    return (<>
                     <Group gap={4} wrap="nowrap" style={{ paddingInlineStart: r.depth * 16 }}>
                       {isGroup ? (
                         <ActionIcon
@@ -256,8 +366,9 @@ export function ListView({ data, writes, onOpenTask }: { data: GanttDto; writes:
                         <span aria-hidden>⋯</span>
                       </ActionIcon>
                     </Group>
-                  </td>
-                  <td>
+                  </>);
+                  case 'start':
+                    return (<>
                     {admin && !isGroup ? (
                       <TextInput size="xs" type="date" aria-label={t('task.start')} value={task.startDate} onChange={(e) => e.currentTarget.value && e.currentTarget.value !== task.startDate && void update(task, { startDate: e.currentTarget.value })} />
                     ) : (
@@ -265,8 +376,9 @@ export function ListView({ data, writes, onOpenTask }: { data: GanttDto; writes:
                         {formatDate(task.startDate, COMPACT)}
                       </Text>
                     )}
-                  </td>
-                  <td>
+                  </>);
+                  case 'duration':
+                    return (<>
                     {admin && !isGroup && task.type !== 'MILESTONE' ? (
                       <CommitNumber value={task.durationDays} min={1} max={3650} label={t('task.duration')} onCommit={(v) => v !== task.durationDays && void update(task, { durationDays: v })} />
                     ) : (
@@ -274,34 +386,39 @@ export function ListView({ data, writes, onOpenTask }: { data: GanttDto; writes:
                         {formatNumber(task.durationDays)}
                       </Text>
                     )}
-                  </td>
-                  <td>
+                  </>);
+                  case 'end':
+                    return (<>
                     <Text size="sm">
                       {formatDate(task.endDate, COMPACT)}
                     </Text>
-                  </td>
-                  <td>
+                  </>);
+                  case 'progress':
+                    return (<>
                     {editStatus && !isGroup ? (
                       <CommitNumber value={task.progress} min={0} max={100} step={5} label={t('task.progress')} suffix="٪" onCommit={(v) => v !== task.progress && void update(task, { progress: v })} />
                     ) : (
                       <Text size="sm" className="num">{`${formatNumber(Math.round(task.progress))}٪`}</Text>
                     )}
-                  </td>
-                  <td>
+                  </>);
+                  case 'status':
+                    return (<>
                     {editStatus && !isGroup ? (
                       <NativeSelect size="xs" aria-label={t('task.status')} value={task.status} data={TASK_STATUSES.map((s) => ({ value: s, label: taskStatusLabel(s) }))} onChange={(e) => void update(task, { status: e.currentTarget.value as TaskStatus })} />
                     ) : (
                       <Text size="sm">{taskStatusLabel(task.status)}</Text>
                     )}
-                  </td>
-                  <td>
+                  </>);
+                  case 'priority':
+                    return (<>
                     {admin ? (
                       <NativeSelect size="xs" aria-label={t('task.priority')} value={task.priority} data={PRIORITIES.map((p) => ({ value: p, label: priorityLabel(p) }))} onChange={(e) => void update(task, { priority: e.currentTarget.value as Priority })} />
                     ) : (
                       <Text size="sm">{priorityLabel(task.priority)}</Text>
                     )}
-                  </td>
-                  <td>
+                  </>);
+                  case 'assignee':
+                    return (<>
                     {admin && !isGroup ? (
                       <NativeSelect
                         size="xs"
@@ -315,7 +432,83 @@ export function ListView({ data, writes, onOpenTask }: { data: GanttDto; writes:
                         {task.assignee ? `${task.assignee.fullName}${task.assignee.teamName ? ` — ${task.assignee.teamName}` : ''}` : t('common.none')}
                       </Text>
                     )}
-                  </td>
+                  </>);
+                  case 'deadline':
+                    return admin && !isGroup ? (
+                      <TextInput size="xs" type="date" aria-label={t('col.deadline')} value={task.deadline ?? ''} onChange={(e) => void update(task, { deadline: e.currentTarget.value || null })} />
+                    ) : task.deadline ? (
+                      <Text size="sm" c={task.deadlinePassed ? 'var(--red)' : undefined} fw={task.deadlinePassed ? 600 : 400}>
+                        <IconFlag3 size={13} style={{ verticalAlign: -2 }} /> {formatDate(task.deadline, COMPACT)}
+                      </Text>
+                    ) : (
+                      <Text size="sm" c="dimmed">{t('common.none')}</Text>
+                    );
+                  case 'plannedCost':
+                    return admin && !isGroup ? (
+                      <CommitNumber value={task.plannedCost ?? 0} min={0} max={999999999} label={t('col.plannedCost')} onCommit={(v) => v !== task.plannedCost && void update(task, { plannedCost: v })} />
+                    ) : (
+                      <Text size="sm" className="num">{formatMoney(task.plannedCost ?? 0)}</Text>
+                    );
+                  case 'actualCost':
+                    return admin && !isGroup ? (
+                      <CommitNumber value={task.actualCost ?? 0} min={0} max={999999999} label={t('col.actualCost')} onCommit={(v) => v !== task.actualCost && void update(task, { actualCost: v })} />
+                    ) : (
+                      <Text size="sm" className="num" c={task.overBudget ? 'var(--red)' : undefined}>{formatMoney(task.actualCost ?? 0)}</Text>
+                    );
+                  case 'labels':
+                    return (
+                      <Group gap={4} wrap="nowrap" style={{ overflow: 'hidden' }}>
+                        {(task.labelIds ?? []).map((lid) => {
+                          const l = labelsById.get(lid);
+                          return l ? (
+                            <span key={lid} className="nz-chip-label" style={{ '--lc': l.color } as CSSProperties}>
+                              {l.name}
+                            </span>
+                          ) : null;
+                        })}
+                      </Group>
+                    );
+                  default: {
+                    const fid = fieldIdOf(id);
+                    const v = fid ? task.customValues?.[fid] : null;
+                    const field = fid ? fieldsById.get(fid) : undefined;
+                    const text = v === null || v === undefined ? '' : field?.type === 'CHECKBOX' ? (v ? t('common.yes') : t('common.no')) : field?.type === 'NUMBER' ? formatNumber(Number(v)) : String(v);
+                    return <Text size="sm" truncate>{text}</Text>;
+                  }
+                }
+              };
+              return (
+                <tr
+                  key={task.id}
+                  tabIndex={focus === r.index ? 0 : -1}
+                  data-list-row={r.index}
+                  data-focused={focus === r.index}
+                  aria-level={r.depth + 1}
+                  aria-expanded={isGroup ? !collapsed.has(task.id) : undefined}
+                  onFocus={(e) => e.target === e.currentTarget && setFocus(r.index)}
+                  onClick={() => setFocus(r.index)}
+                  onKeyDown={(e) => onRowKey(e, r.index)}
+                >
+                  {selecting ? (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        size="xs"
+                        aria-label={t('grid.selectRow', { name: task.name })}
+                        checked={Boolean(selected?.has(task.id))}
+                        onChange={() => {
+                          const next = new Set(selected ?? []);
+                          if (next.has(task.id)) next.delete(task.id);
+                          else next.add(task.id);
+                          onSelectionChange?.(next);
+                        }}
+                      />
+                    </td>
+                  ) : null}
+                  {shown.map((c) => (
+                    <td key={c.id} style={{ width: c.width, maxWidth: c.width }}>
+                      {cellOf(c.id)}
+                    </td>
+                  ))}
                   {admin ? (
                     <td>
                       <ActionIcon variant="subtle" color="breach" aria-label={t('list.delete', { name: task.name })} onClick={() => remove(task)}>

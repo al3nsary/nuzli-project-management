@@ -211,10 +211,10 @@ export function ViolationsListPage() {
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm" fw={600}>
-                        {v.member.fullName}
+                        {v.member?.fullName ?? t('violations.unassigned')}
                       </Text>
                       <Text size="xs" c="dimmed" className="mono ltr">
-                        {v.member.nationalIdMasked}
+                        {v.member?.nationalIdMasked ?? ''}
                       </Text>
                     </Table.Td>
                     <Table.Td>

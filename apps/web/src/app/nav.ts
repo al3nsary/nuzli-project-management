@@ -43,7 +43,7 @@ import type { MessageKey } from '../i18n';
 
 export type NavGroupId = 'home' | 'projects' | 'collab' | 'teams' | 'violations' | 'admin';
 export type BadgeKind = 'registrations' | 'pendingTeams' | 'outbox' | 'overdueTasks';
-export type EntityKind = 'team' | 'project';
+export type EntityKind = 'team' | 'project' | 'task';
 
 /**
  * Groups in the order of GanttPRO's left nav (owner request A9): the project pages first, then
@@ -111,7 +111,6 @@ export const NAV: NavNode[] = [
     icon: IconBriefcase,
     group: 'projects',
     permission: 'projects.readAll',
-    soon: true,
   },
   {
     id: 'myTasks',
@@ -131,7 +130,6 @@ export const NAV: NavNode[] = [
     icon: IconClockHour4,
     group: 'projects',
     permission: 'tasks.updateAssigned',
-    soon: true,
   },
   {
     id: 'reports',
@@ -140,7 +138,6 @@ export const NAV: NavNode[] = [
     icon: IconFileReport,
     group: 'projects',
     permission: 'projects.readAll',
-    soon: true,
   },
   {
     id: 'workload',
@@ -148,8 +145,7 @@ export const NAV: NavNode[] = [
     label: 'nav.workload',
     icon: IconChartArcs,
     group: 'projects',
-    permission: 'projects.manage',
-    soon: true,
+    permission: 'projects.readAll',
   },
   // ------------------------------------------------------------------ التواصل (A9)
   {
@@ -383,6 +379,8 @@ export interface RouteMeta {
 export const ROUTE_META: RouteMeta[] = [
   { pattern: '/teams/:id', title: 'nav.teams', parent: '/teams', entity: 'team', activeId: 'teams' },
   { pattern: '/projects/:id', title: 'nav.projects', parent: '/projects', entity: 'project', activeId: 'projects' },
+  // A9: the supervisor's task page (chat-style notes thread) under «مهامي».
+  { pattern: '/my-tasks/:id', title: 'nav.myTasks', parent: '/my-tasks', entity: 'task', activeId: 'myTasks' },
   { pattern: '/profile', title: 'nav.profile', icon: IconUserCircle },
 ];
 

@@ -33,9 +33,13 @@ a {
   outline-offset: 3px;
 }
 
-.mono,
-.num {
+/* IDs, WBS and timestamps: the mono face. */
+.mono {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.num {
+  /* Tabular figures in the UI face: amounts like «٧٥٠ ر.س» and «٣٣٪» mix Arabic signs with digits, so not the mono face (that is .mono, for IDs and WBS). */
   font-variant-numeric: tabular-nums;
 }
 .display {
@@ -862,4 +866,12 @@ a {
   font-size: 13.5px;
   line-height: 1.8;
   color: var(--dim);
+}
+
+/* KPI captions stay on one line (A9 QA: «مشاريع نشطة» used to break mid-phrase). */
+.nz-kpi-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
 }

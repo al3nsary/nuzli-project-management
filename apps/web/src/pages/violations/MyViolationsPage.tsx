@@ -51,7 +51,7 @@ export function ViolationRowCard({ v, onOpen }: { v: ViolationDto; onOpen: () =>
       <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm">
         <Box style={{ minWidth: 0 }}>
           <Text fw={600} truncate>
-            {v.member.fullName}
+            {v.member?.fullName ?? t('violations.unassigned')}
           </Text>
           <Text size="sm" c="dimmed" truncate>
             {v.type.name}

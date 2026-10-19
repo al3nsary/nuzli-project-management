@@ -203,7 +203,8 @@ export interface DemoViolationResponse {
 export interface DemoViolation {
   id: string;
   clientUuid: string;
-  memberId: string;
+  /** A9: null until the person is identified and assigned. */
+  memberId: string | null;
   typeId: string;
   teamIdSnapshot: string | null;
   supervisorIdSnapshot: string | null;
@@ -266,6 +267,12 @@ export interface DemoProject {
   ownerId: string;
   createdAt: string;
   archivedAt: string | null;
+  // A9 (ADR-093/094, ADR-105). Optional: rows stored before A9 read as the defaults.
+  budget?: number | null;
+  currency?: string;
+  isTemplate?: boolean;
+  templateOfId?: string | null;
+  durationUnit?: 'DAY' | 'HOUR';
 }
 
 /** A task as the API stores it (StoredTask) plus archive and reminder columns (ADR-059). */
@@ -274,6 +281,12 @@ export interface DemoTask extends StoredTask {
   dueSoonNotifiedAt: string | null;
   overdueNotifiedAt: string | null;
   createdAt: string;
+  /** A9: who created the task (the hub's «أنشأتها» tab). */
+  createdById?: string | null;
+  /** A9: TASK_DEADLINE_PASSED sent for the current deadline (reset when it changes). */
+  deadlineNotifiedAt?: string | null;
+  /** A9: custom field id → value (validated by normalizeCustomValue; not versioned). */
+  customValues?: Record<string, unknown>;
 }
 
 export interface DemoDependency {
@@ -293,6 +306,8 @@ export interface DemoCalendar {
   isDefault: boolean;
   createdAt: string;
   exceptions: { id: string; date: string; isWorking: boolean; name: string }[];
+  /** A9 HOUR projects: working intervals of a normal day (absent = 09:00–13:00, 14:00–18:00). */
+  workingHours?: { start: string; end: string }[];
 }
 
 export interface DemoProjectAccess {
@@ -310,6 +325,75 @@ export interface DemoTaskComment {
   body: string;
   mentions: string[];
   createdAt: string;
+  /** A9: the quoted comment of the same task. */
+  replyToId?: string | null;
+}
+
+// ---------------------------------------------------------------- A9 rows (ADR-092..097)
+
+export interface DemoLabel {
+  id: string;
+  projectId: string;
+  name: string;
+  color: string;
+  createdAt: string;
+}
+
+export interface DemoCustomField {
+  id: string;
+  projectId: string;
+  name: string;
+  type: 'TEXT' | 'NUMBER' | 'DROPDOWN' | 'DATE' | 'CHECKBOX';
+  options: string[];
+  sort: number;
+  createdAt: string;
+}
+
+export interface DemoChecklistItem {
+  id: string;
+  taskId: string;
+  text: string;
+  done: boolean;
+  sort: number;
+  doneById: string | null;
+  doneAt: string | null;
+  createdAt: string;
+}
+
+export interface DemoViewPref {
+  /** `${userId}|${projectId ?? ''}|${key}` */
+  id: string;
+  userId: string;
+  projectId: string | null;
+  key: string;
+  value: unknown;
+  updatedAt: string;
+}
+
+export interface DemoPortfolio {
+  id: string;
+  name: string;
+  description: string | null;
+  projectIds: string[];
+  createdAt: string;
+}
+
+export interface DemoTimeEntry {
+  id: string;
+  taskId: string;
+  userId: string;
+  date: string;
+  minutes: number;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface DemoCommentRead {
+  /** `${userId}|${taskId}` */
+  id: string;
+  userId: string;
+  taskId: string;
+  lastReadAt: string;
 }
 
 export class DemoDb extends Dexie {
@@ -338,6 +422,13 @@ export class DemoDb extends Dexie {
   calendars!: Table<DemoCalendar, string>;
   projectAccess!: Table<DemoProjectAccess, string>;
   taskComments!: Table<DemoTaskComment, string>;
+  labels!: Table<DemoLabel, string>;
+  customFields!: Table<DemoCustomField, string>;
+  checklist!: Table<DemoChecklistItem, string>;
+  viewPrefs!: Table<DemoViewPref, string>;
+  portfolios!: Table<DemoPortfolio, string>;
+  timeEntries!: Table<DemoTimeEntry, string>;
+  commentReads!: Table<DemoCommentRead, string>;
 
   constructor(name: string) {
     super(name);
@@ -394,6 +485,30 @@ export class DemoDb extends Dexie {
                   : item.data.nationalId,
               },
             }));
+          }),
+      );
+    // A9: labels, custom fields, checklists, view preferences, portfolios, time log, read marks.
+    // Tasks stored before A9 get the new columns' defaults.
+    this.version(5)
+      .stores({
+        labels: 'id, projectId',
+        customFields: 'id, projectId',
+        checklist: 'id, taskId',
+        viewPrefs: 'id, userId',
+        portfolios: 'id',
+        timeEntries: 'id, taskId, userId, date',
+        commentReads: 'id, userId, taskId',
+      })
+      .upgrade((tx) =>
+        tx
+          .table('tasks')
+          .toCollection()
+          .modify((t: DemoTask) => {
+            t.plannedCost ??= 0;
+            t.actualCost ??= 0;
+            t.deadline ??= null;
+            t.barColor ??= null;
+            t.labelIds ??= [];
           }),
       );
   }

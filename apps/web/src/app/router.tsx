@@ -76,6 +76,12 @@ const ProjectsPage = lazyPage(() => import('../pages/projects/ProjectsPage'), 'P
 const ProjectPage = lazyPage(() => import('../pages/projects/ProjectPage'), 'ProjectPage', 'gantt');
 const MyTasksPage = lazyPage(() => import('../pages/projects/MyTasksPage'), 'MyTasksPage', 'tasks');
 const CalendarsPage = lazyPage(() => import('../pages/settings/CalendarsPage'), 'CalendarsPage', 'form');
+// A9: GanttPRO-style pages (owner request A9).
+const MyTaskPage = lazyPage(() => import('../pages/projects/MyTaskPage'), 'MyTaskPage', 'detail');
+const PortfoliosPage = lazyPage(() => import('../pages/portfolios/PortfoliosPage'), 'PortfoliosPage', 'cards');
+const ReportsPage = lazyPage(() => import('../pages/reports/ReportsPage'), 'ReportsPage', 'dashboard');
+const WorkloadPage = lazyPage(() => import('../pages/workload/WorkloadPage'), 'WorkloadPage', 'table');
+const TimeLogPage = lazyPage(() => import('../pages/timelog/TimeLogPage'), 'TimeLogPage', 'table');
 
 /** Placeholder routes for the registry's `soon` pages, guarded by the same permission. */
 const SOON_ROUTES: RouteObject[] = navLeaves(NAV)
@@ -315,7 +321,7 @@ export const routes: RouteObject[] = [
         path: 'projects/:id',
         handle: { fullWidth: true },
         element: (
-          <RequirePermission permission="projects.readGranted">
+          <RequirePermission permission="projects.readAll">
             <ProjectPage />
           </RequirePermission>
         ),
@@ -325,6 +331,50 @@ export const routes: RouteObject[] = [
         element: (
           <RequirePermission permission="tasks.readAssigned">
             <MyTasksPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'my-tasks/:id',
+        element: (
+          <RequirePermission permission="tasks.readAssigned">
+            <MyTaskPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'portfolios',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="projects.readAll">
+            <PortfoliosPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'reports',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="projects.readAll">
+            <ReportsPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'workload',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="projects.readAll">
+            <WorkloadPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'time-log',
+        handle: { fullWidth: true },
+        element: (
+          <RequirePermission permission="tasks.updateAssigned">
+            <TimeLogPage />
           </RequirePermission>
         ),
       },

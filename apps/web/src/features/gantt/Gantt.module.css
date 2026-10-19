@@ -28,6 +28,13 @@
   flex: none;
 }
 .headCell {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  align-self: stretch;
+  flex: none;
+  user-select: none;
+  border-inline-end: 1px solid var(--line);
   padding-inline: 6px;
   padding-block-end: 6px;
   font-size: var(--fs-xs);
@@ -218,22 +225,22 @@
   stroke-width: 1;
 }
 .today {
-  stroke: var(--field);
+  stroke: var(--red);
   stroke-width: 2;
-  stroke-dasharray: 4 3;
 }
+/* Dependency arrows: orange like GanttPRO. */
 .arrow {
   fill: none;
-  stroke: var(--muted);
-  stroke-width: 1.25;
+  stroke: var(--gantt-link);
+  stroke-width: 1.4;
 }
 .arrowActive {
   fill: none;
-  stroke: var(--field);
-  stroke-width: 2;
+  stroke: var(--gantt-link);
+  stroke-width: 2.2;
 }
 .arrowHead {
-  fill: var(--muted);
+  fill: var(--gantt-link);
 }
 .bar {
   cursor: grab;
@@ -333,4 +340,378 @@
   .linkHandle {
     transition: none;
   }
+}
+
+/* ------------------------------------------------------------------ A9 grid */
+.root {
+  --gantt-link: #f57c00;
+}
+:global([data-mantine-color-scheme='dark']) .root {
+  --gantt-link: #ffb74d;
+}
+.headLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: grab;
+}
+.headCell[data-dragging] {
+  background: var(--tint);
+  color: var(--primary);
+}
+.headCell[data-drop] {
+  box-shadow: inset 0 -3px 0 var(--primary);
+}
+.colResize {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: -3px;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 1;
+}
+.colResize:hover {
+  background: color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.addCol {
+  flex: none;
+  align-self: stretch;
+  width: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.addCol:hover {
+  color: var(--primary);
+  background: var(--tint);
+}
+.nameCell {
+  position: relative;
+  gap: 2px;
+}
+.dragHandle {
+  flex: none;
+  width: 16px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--dim2);
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+}
+.row:hover .dragHandle,
+.row:focus-within .dragHandle {
+  opacity: 1;
+}
+.dragSpacer {
+  flex: none;
+  width: 16px;
+}
+.nameText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.colorDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  padding-inline: 6px;
+  font: inherit;
+  background: var(--panel);
+  color: var(--ink);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.row {
+  --rowbg: var(--panel);
+}
+.row:hover {
+  --rowbg: var(--hover);
+  background: var(--hover);
+}
+.rowActions {
+  position: absolute;
+  inset-inline-end: 2px;
+  inset-block: 0;
+  display: none;
+  align-items: center;
+  gap: 1px;
+  padding-inline-start: 6px;
+  background: var(--rowbg);
+}
+.row:hover .rowActions,
+.row:focus-within .rowActions {
+  display: inline-flex;
+}
+.rowAction {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+.rowAction:hover {
+  background: var(--tint);
+  color: var(--primary);
+}
+.rowAction[data-danger]:hover {
+  background: var(--p-no-b);
+  color: var(--red);
+}
+.row[data-selected] {
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  --rowbg: color-mix(in srgb, var(--primary) 9%, var(--panel));
+}
+.row[data-dragging] {
+  opacity: 0.45;
+}
+.row[data-drop='before'] {
+  box-shadow: inset 0 2px 0 var(--primary);
+}
+.row[data-drop='after'] {
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+.muted {
+  color: var(--dim2);
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.statusDot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.deadlineCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dim);
+}
+.deadlineCell[data-passed] {
+  color: var(--red);
+  font-weight: 600;
+}
+.priority[data-priority='URGENT'] {
+  color: var(--red);
+  font-weight: 600;
+}
+.priority[data-priority='HIGH'] {
+  font-weight: 600;
+}
+.progressCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.progressTrack {
+  flex: 1;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--panel2);
+  overflow: hidden;
+}
+.progressFill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 99px;
+}
+.over {
+  color: var(--red);
+  font-weight: 600;
+}
+.labelChips {
+  display: inline-flex;
+  gap: 4px;
+  overflow: hidden;
+}
+.labelChip {
+  flex: none;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  padding-inline: 7px;
+  border-radius: 99px;
+  color: color-mix(in srgb, var(--lc) 70%, var(--ink));
+  background: color-mix(in srgb, var(--lc) 16%, var(--panel));
+}
+.addRow {
+  border-block-end: 0;
+}
+.addRow:hover {
+  background: transparent;
+}
+.addInner {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding-inline-end: 8px;
+}
+.addLink {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--dim2);
+  cursor: pointer;
+}
+.addLink:hover {
+  color: var(--primary);
+}
+.addSep {
+  color: var(--line2);
+}
+.headerRow {
+  background: var(--panel2);
+  font-weight: 600;
+  gap: 6px;
+  padding-inline-start: 6px;
+  cursor: pointer;
+}
+.headerLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.headerCount {
+  font-size: 11px;
+  color: var(--dim2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding-inline: 7px;
+  line-height: 18px;
+}
+.hoverCard {
+  position: absolute;
+  z-index: 5;
+  width: 280px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--lift);
+  padding: 10px 12px;
+  pointer-events: none;
+}
+.hoverTitle {
+  font-weight: 700;
+  font-size: 13px;
+  margin-block-end: 4px;
+}
+.hoverDesc {
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.6;
+  margin-block-end: 6px;
+}
+.hoverDesc[data-empty] {
+  color: var(--dim2);
+  font-style: italic;
+}
+.hoverMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 11.5px;
+  color: var(--dim2);
+}
+
+/* ------------------------------------------------------------------ A9 timeline */
+.todayPill {
+  fill: var(--red);
+}
+.todayText {
+  fill: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.offHours {
+  fill: color-mix(in srgb, var(--muted) 7%, transparent);
+}
+.selectedRow {
+  fill: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+.rangeLabel {
+  font-size: 10.5px;
+  fill: var(--dim);
+  font-weight: 600;
+  pointer-events: none;
+}
+.labelChipBar,
+.avatar,
+.deadline,
+.deadlinePassed {
+  pointer-events: none;
+}
+.avatarRing {
+  fill: var(--panel);
+  stroke: var(--line2);
+  stroke-width: 1.5;
+}
+.avatarBg {
+  fill: var(--tint);
+}
+.avatarText {
+  font-size: 9.5px;
+  font-weight: 700;
+  fill: var(--primary);
+}
+.overdueLabel {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--red);
+  pointer-events: none;
+}
+.deadlineLink {
+  stroke: var(--dim2);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.deadlinePole {
+  stroke: var(--dim);
+  stroke-width: 1.5;
+}
+.deadlineFlag {
+  fill: var(--dim);
+}
+.deadlinePassed .deadlinePole,
+.deadlinePassed .deadlineLink {
+  stroke: var(--red);
+}
+.deadlinePassed .deadlineFlag {
+  fill: var(--red);
 }

@@ -50,6 +50,28 @@ import type {
   TaskCommentDto,
   TaskDto,
   TaskUpdateResult,
+  AttachmentBrowseDto,
+  BudgetReportDto,
+  ChecklistItemDto,
+  CommentReadDto,
+  CustomFieldDto,
+  CustomValueDto,
+  DuplicateTaskResult,
+  HubPageDto,
+  LabelDto,
+  PortfolioDto,
+  PortfolioSummaryDto,
+  ProjectCalendarDto,
+  ProjectDashboardDto,
+  ProjectPersonDto,
+  ProjectReportRow,
+  TaskBulkArchiveResult,
+  TaskBulkResult,
+  TaskPreviousMap,
+  TaskRestoreResult,
+  TimeEntryDto,
+  ViewPrefDto,
+  WorkloadDto,
 } from '@nuzli/shared';
 import type { z } from 'zod';
 import type {
@@ -100,7 +122,39 @@ import type {
   updateCalendarSchema,
   updateProjectSchema,
   updateTaskSchema,
+  attachmentBrowseQuerySchema,
+  checklistItemSchema,
+  checklistReorderSchema,
+  customFieldSchema,
+  duplicateTaskSchema,
+  hubQuerySchema,
+  labelSchema,
+  portfolioSchema,
+  putViewPrefSchema,
+  saveAsTemplateSchema,
+  taskBulkArchiveSchema,
+  taskBulkSchema,
+  taskCommentSchema as commentSchemaA9,
+  timeEntrySchema,
+  updateChecklistItemSchema,
+  updateCustomFieldSchema,
+  updateLabelSchema,
+  updatePortfolioSchema,
+  updateTimeEntrySchema,
 } from '@nuzli/shared';
+import type {
+  CalendarView,
+  GanttView,
+  ProjectView,
+  TaskView,
+  calendarSchemaH,
+  createProjectSchemaH,
+  createTaskSchemaH,
+  taskBatchSchemaH,
+  updateCalendarSchemaH,
+  updateProjectSchemaH,
+  updateTaskSchemaH,
+} from './hoursWire';
 
 /**
  * The data contract between screens and the backend (docs/API.md, Phase 1).
@@ -405,42 +459,76 @@ export interface ApiClient {
 
   // ---------------------------------------------------------------- Phase 4
 
-  /** Projects (docs/API.md "Phase 4"). Supervisors see granted projects and those with their tasks. */
+  /**
+   * Projects (docs/API.md "Phase 4" + "A9 — projects"). Admins only since A9 (ADR-092): every
+   * project route answers 403 to a supervisor, who reaches only the tasks assigned to them.
+   */
   projects: {
-    list(query?: ProjectListQuery): Promise<ProjectDto[]>;
-    get(id: string): Promise<ProjectDto>;
-    create(input: In<typeof createProjectSchema>): Promise<ProjectDto>;
-    update(id: string, input: In<typeof updateProjectSchema>): Promise<ProjectDto>;
+    list(query?: ProjectListQuery): Promise<ProjectView[]>;
+    get(id: string): Promise<ProjectView>;
+    create(input: In<typeof createProjectSchemaH>): Promise<ProjectView>;
+    update(id: string, input: In<typeof updateProjectSchemaH>): Promise<ProjectView>;
     /** `DELETE /projects/:id` archives and answers the archived project. */
-    archive(id: string): Promise<ProjectDto>;
+    archive(id: string): Promise<ProjectView>;
     access(id: string): Promise<ProjectAccessDto[]>;
     grantAccess(id: string, input: In<typeof grantProjectAccessSchema>): Promise<ProjectAccessDto>;
     revokeAccess(id: string, userId: string): Promise<void>;
-    /** The whole chart in one call: project, tasks (WBS order), dependencies, calendar. */
-    gantt(id: string): Promise<GanttDto>;
+    /** The whole chart in one call: project, tasks (WBS order), dependencies, calendar, labels, fields. */
+    gantt(id: string): Promise<GanttView>;
     /** Tasks to Excel (ADR-019): RTL sheets, no freeze panes. */
     exportXlsx(id: string): Promise<Blob>;
+    // A9
+    budget(id: string): Promise<BudgetReportDto>;
+    people(id: string): Promise<ProjectPersonDto[]>;
+    dashboard(id: string): Promise<ProjectDashboardDto>;
+    /** Tasks overlapping [from, to] (≤ 366 days) or with a deadline in it. */
+    calendar(id: string, range: { from: string; to: string }): Promise<ProjectCalendarDto>;
+    saveAsTemplate(id: string, input: In<typeof saveAsTemplateSchema>): Promise<ProjectView>;
+    templates(): Promise<ProjectView[]>;
+    /** `GET /reports/projects`. */
+    report(query?: { status?: ProjectListQuery['status'] }): Promise<ProjectReportRow[]>;
   };
 
   tasks: {
-    create(projectId: string, input: In<typeof createTaskSchema>): Promise<CreatedTaskDto>;
-    get(id: string): Promise<TaskDto>;
+    create(projectId: string, input: In<typeof createTaskSchemaH>): Promise<CreatedTaskDto>;
+    get(id: string): Promise<TaskView>;
     /** The server re-runs the engine; `affected` lists every other task it changed. 409 CONFLICT_VERSION. */
-    update(id: string, input: In<typeof updateTaskSchema>): Promise<TaskUpdateResult>;
-    /** One drag-end = one request with every changed task and its version (ADR-017). */
-    batch(projectId: string, input: In<typeof taskBatchSchema>): Promise<TaskBatchResult>;
+    update(id: string, input: In<typeof updateTaskSchemaH>): Promise<TaskUpdateResult>;
+    /** One drag-end (or one undo/redo step, ADR-095) = one request with every changed task and its version. */
+    batch(projectId: string, input: In<typeof taskBatchSchemaH>): Promise<TaskBatchResult>;
     /** Archives the task and its subtree. */
     archive(id: string): Promise<TaskArchiveResult>;
-    /** Supervisor: assigned tasks across projects with due flags. */
+    /** Assigned tasks across projects with due flags (the supervisor «مهامي»). */
     mine(): Promise<MyTaskDto[]>;
     comments(id: string): Promise<TaskCommentDto[]>;
     addComment(id: string, input: In<typeof taskCommentSchema>): Promise<TaskCommentDto>;
+    /** `POST /tasks/:id/comments/read` — the thread is read up to now. */
+    markRead(id: string): Promise<CommentReadDto>;
     activity(id: string): Promise<ActivityDto[]>;
     attachments(id: string): Promise<TaskAttachmentDto[]>;
     /** Links a READY file uploaded with `entityType: 'task'` (presign → upload → confirm first). */
     attach(id: string, fileId: string): Promise<TaskAttachmentDto>;
     attachmentUrl(id: string, fileId: string): Promise<{ url: string; expiresAt: string }>;
     removeAttachment(id: string, fileId: string): Promise<void>;
+    // A9
+    duplicate(id: string, input?: In<typeof duplicateTaskSchema>): Promise<DuplicateTaskResult>;
+    bulk(projectId: string, input: In<typeof taskBulkSchema>): Promise<TaskBulkResult>;
+    bulkArchive(projectId: string, input: In<typeof taskBulkArchiveSchema>): Promise<TaskBulkArchiveResult>;
+    restore(projectId: string, ids: string[]): Promise<TaskRestoreResult>;
+    labels(id: string): Promise<LabelDto[]>;
+    addLabel(id: string, labelId: string): Promise<TaskUpdateResult>;
+    removeLabel(id: string, labelId: string): Promise<TaskUpdateResult>;
+    customFields(id: string): Promise<Array<CustomFieldDto & { value: unknown }>>;
+    /** `null` clears the value. */
+    setCustomValue(id: string, fieldId: string, value: unknown): Promise<CustomValueDto>;
+    checklist(id: string): Promise<ChecklistItemDto[]>;
+    addChecklistItem(id: string, input: In<typeof checklistItemSchema>): Promise<ChecklistItemDto>;
+    /** Admins edit; the assignee ticks (`done` only). */
+    updateChecklistItem(id: string, itemId: string, input: In<typeof updateChecklistItemSchema>): Promise<ChecklistItemDto>;
+    removeChecklistItem(id: string, itemId: string): Promise<void>;
+    reorderChecklist(id: string, input: In<typeof checklistReorderSchema>): Promise<ChecklistItemDto[]>;
+    timeEntries(id: string): Promise<TimeEntryDto[]>;
+    addTimeEntry(id: string, input: In<typeof timeEntrySchema>): Promise<TimeEntryDto>;
   };
 
   dependencies: {
@@ -450,15 +538,68 @@ export interface ApiClient {
   };
 
   calendars: {
-    list(): Promise<CalendarListDto[]>;
-    get(id: string): Promise<CalendarListDto>;
-    create(input: In<typeof calendarSchema>): Promise<CalendarListDto>;
-    update(id: string, input: In<typeof updateCalendarSchema>): Promise<CalendarListDto>;
+    list(): Promise<CalendarListView[]>;
+    get(id: string): Promise<CalendarListView>;
+    create(input: In<typeof calendarSchemaH>): Promise<CalendarListView>;
+    update(id: string, input: In<typeof updateCalendarSchemaH>): Promise<CalendarListView>;
     /** Answers the whole calendar (201); a duplicate date → 409 CALENDAR_DATE_EXISTS. */
-    addException(id: string, input: In<typeof calendarExceptionSchema>): Promise<CalendarListDto>;
+    addException(id: string, input: In<typeof calendarExceptionSchema>): Promise<CalendarListView>;
     removeException(id: string, exceptionId: string): Promise<void>;
   };
+
+  // ---------------------------------------------------------------- A9 (ADR-092..097)
+
+  labels: {
+    list(projectId: string): Promise<LabelDto[]>;
+    create(projectId: string, input: In<typeof labelSchema>): Promise<LabelDto>;
+    update(id: string, input: In<typeof updateLabelSchema>): Promise<LabelDto>;
+    /** Takes the label off its tasks through the versioned write path. */
+    remove(id: string): Promise<{ affected: TaskDto[]; previous: TaskPreviousMap }>;
+  };
+
+  customFields: {
+    list(projectId: string): Promise<CustomFieldDto[]>;
+    create(projectId: string, input: In<typeof customFieldSchema>): Promise<CustomFieldDto>;
+    update(id: string, input: In<typeof updateCustomFieldSchema>): Promise<CustomFieldDto>;
+    remove(id: string): Promise<void>;
+  };
+
+  timeEntries: {
+    /** `GET /me/time-entries?from&to` (default: the last 31 days). */
+    mine(range?: { from?: string; to?: string }): Promise<TimeEntryDto[]>;
+    update(id: string, input: In<typeof updateTimeEntrySchema>): Promise<TimeEntryDto>;
+    remove(id: string): Promise<void>;
+  };
+
+  /** Personal UI state (ADR-097): columns, saved views, favourites. Not audited. */
+  viewPrefs: {
+    list(query?: { projectId?: string; key?: string }): Promise<ViewPrefDto[]>;
+    put(input: In<typeof putViewPrefSchema>): Promise<ViewPrefDto>;
+    remove(query: { projectId?: string; key: string }): Promise<void>;
+  };
+
+  portfolios: {
+    list(): Promise<PortfolioDto[]>;
+    get(id: string): Promise<PortfolioSummaryDto>;
+    create(input: In<typeof portfolioSchema>): Promise<PortfolioDto>;
+    update(id: string, input: In<typeof updatePortfolioSchema>): Promise<PortfolioDto>;
+    remove(id: string): Promise<void>;
+    addProject(id: string, projectId: string): Promise<PortfolioDto>;
+    removeProject(id: string, projectId: string): Promise<PortfolioDto>;
+  };
+
+  /** `GET /workload?from&to&userIds` (≤ 92 days). */
+  workload(query: { from: string; to: string; userIds?: string[] }): Promise<WorkloadDto>;
+
+  /** Communication hub (`GET /hub`) and the attachments browser (`GET /attachments`). */
+  hub: {
+    list(query?: In<typeof hubQuerySchema>): Promise<HubPageDto>;
+    attachments(query?: In<typeof attachmentBrowseQuerySchema>): Promise<Paginated<AttachmentBrowseDto>>;
+  };
 }
+
+/** A calendar as listed: `CalendarDto` + `isDefault` + the A9 working hours. */
+export type CalendarListView = CalendarListDto & CalendarView;
 
 /** Builds `?a=1&b=x` from defined, non-empty values. */
 export function toQueryString(query: object | undefined): string {

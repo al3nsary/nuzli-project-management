@@ -1,57 +1,123 @@
-import { useState } from 'react';
+/**
+ * «كل المشاريع» (owner request A9, GanttPRO's «All projects»): folder rows (or cards) with the
+ * favourite star (per user, `/me/view-prefs` key `projects.favourites`), status, progress, dates,
+ * budget used %, search, status filter and sort. «+ إنشاء مشروع جديد» opens the create form
+ * (`?create=1`, also from the sidebar and the command palette).
+ */
+import { useMemo, useState, type MouseEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { ActionIcon, Button, Group, Progress, SegmentedControl, Select, SimpleGrid, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
+import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
 import {
-  Button,
-  Group,
-  Modal,
-  SegmentedControl,
-  Select,
-  SimpleGrid,
-  Stack,
-  Switch,
-  Text,
-  TextInput,
-  Textarea,
-  UnstyledButton,
-} from '@mantine/core';
-import { useDebouncedValue } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
-import { IconCalendarEvent, IconChevronRight, IconLayoutKanban, IconPlus, IconSearch } from '@tabler/icons-react';
-import { can, createProjectSchema, type ProjectDto, type ProjectListQuery } from '@nuzli/shared';
-import { useQueryClient } from '@tanstack/react-query';
-import { useApi } from '../../api/context';
-import { ApiError } from '../../api/errors';
-import { useCalendars, useProjects } from '../../api/projectQueries';
+  IconCalendarEvent,
+  IconChevronRight,
+  IconClockHour4,
+  IconFolder,
+  IconLayoutGrid,
+  IconLayoutKanban,
+  IconLayoutList,
+  IconPlus,
+  IconSearch,
+  IconStar,
+  IconStarFilled,
+} from '@tabler/icons-react';
+import { can, type ProjectDto, type ProjectListQuery } from '@nuzli/shared';
+import { useProjects } from '../../api/projectQueries';
+import { useViewPref } from '../../api/a9Queries';
+import { unitOf, type ProjectView } from '../../api/hoursWire';
 import { useAuthStore } from '../../stores/auth';
-import { useZodForm } from '../../forms/useZodForm';
-import { EmptyState, ErrorBlock, FormError, LoadingBlock, PageHeader } from '../../components/ui';
-import { formatDate, formatNumber, t } from '../../i18n';
-import { riyadhToday } from '../../features/projects/engine';
-import './projects.css';
-import { ProgressLine, ProjectStatusBadge, PROJECT_STATUSES, projectStatusLabel } from './parts';
+import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
+import { formatDate, formatMoney, formatNumber, t } from '../../i18n';
 import { useOverlayParam } from '../../lib/useUrlState';
+import { ProgressLine, ProjectStatusBadge, PROJECT_STATUSES, projectStatusLabel } from './parts';
+import { CreateProjectDialog } from './CreateProjectDialog';
+import './projects.css';
+import './a9-projects.css';
 
-type Filter = 'OPEN' | 'ALL' | NonNullable<ProjectListQuery['status']>;
+type Sort = 'recent' | 'name' | 'start' | 'end' | 'progress' | 'budget';
+type Layout = 'rows' | 'cards';
 
-export function ProjectCard({ project }: { project: ProjectDto }) {
+const FAV_KEY = 'projects.favourites';
+
+function dates(p: ProjectDto) {
+  return p.endDate
+    ? t('projects.dates', { start: formatDate(p.startDate), end: formatDate(p.endDate.slice(0, 10)) })
+    : t('projects.startsOn', { start: formatDate(p.startDate) });
+}
+
+/** % of the budget used, coloured by state: amber over 90 %, red over 100 %. */
+function BudgetMeter({ project, compact }: { project: ProjectView; compact?: boolean }) {
+  if (project.budget == null) {
+    return (
+      <Text size="xs" c="dimmed">
+        {t('projects.noBudget')}
+      </Text>
+    );
+  }
+  const pct = project.budgetUsedPct ?? 0;
+  const tone = pct > 100 ? 'breach' : pct > 90 ? 'signal' : 'field';
+  return (
+    <div className="nz-pl-budget" title={`${formatMoney(project.actualCost ?? 0, project.currency)} / ${formatMoney(project.budget, project.currency)}`}>
+      <Progress value={Math.min(100, pct)} color={tone} size="sm" radius="xl" aria-label={t('projects.col.budget')} />
+      <Text size="xs" className="num" c={pct > 100 ? 'var(--red)' : 'dimmed'} fw={pct > 100 ? 600 : 400}>
+        {compact ? `${formatNumber(Math.round(pct))}٪` : t('projects.budgetUsed', { pct: formatNumber(Math.round(pct)) })}
+      </Text>
+    </div>
+  );
+}
+
+function Star({ on, onToggle, name }: { on: boolean; onToggle(): void; name: string }) {
+  return (
+    <Tooltip label={on ? t('projects.unfavourite') : t('projects.favourite')} withinPortal>
+      <ActionIcon
+        variant="subtle"
+        color={on ? 'yellow' : 'gray'}
+        aria-pressed={on}
+        aria-label={`${on ? t('projects.unfavourite') : t('projects.favourite')}: ${name}`}
+        onClick={(e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggle();
+        }}
+        className="nz-star"
+      >
+        {on ? <IconStarFilled size={17} style={{ color: '#F5A524' }} /> : <IconStar size={17} />}
+      </ActionIcon>
+    </Tooltip>
+  );
+}
+
+export function ProjectCard({ project, favourite, onToggleFavourite }: { project: ProjectView; favourite?: boolean; onToggleFavourite?: () => void }) {
   return (
     <UnstyledButton component={Link} to={`/projects/${project.id}`} className="surface-card nz-project-card" aria-label={t('projects.open', { name: project.name })}>
       <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
-        <Text fw={700} fz="lg" lh={1.35} className="nz-clamp-2">
-          {project.name}
-        </Text>
-        <ProjectStatusBadge status={project.status} />
+        <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+          <span className="nz-pl-folder" aria-hidden>
+            <IconFolder size={18} />
+          </span>
+          <Text fw={700} fz="md" lh={1.35} className="nz-clamp-2">
+            {project.name}
+          </Text>
+        </Group>
+        {onToggleFavourite ? <Star on={Boolean(favourite)} onToggle={onToggleFavourite} name={project.name} /> : <ProjectStatusBadge status={project.status} />}
       </Group>
-      <Group gap={6} mt={6} c="dimmed" wrap="nowrap">
+      <Group gap={6} mt={8} wrap="wrap">
+        {onToggleFavourite ? <ProjectStatusBadge status={project.status} /> : null}
+        {unitOf(project) === 'HOUR' ? (
+          <span className="pill brand">
+            <IconClockHour4 size={12} aria-hidden /> {t('projects.hourBadge')}
+          </span>
+        ) : null}
+      </Group>
+      <Group gap={6} mt={8} c="dimmed" wrap="nowrap">
         <IconCalendarEvent size={16} aria-hidden />
-        <Text size="sm">
-          {project.endDate
-            ? t('projects.dates', { start: formatDate(project.startDate), end: formatDate(project.endDate) })
-            : t('projects.startsOn', { start: formatDate(project.startDate) })}
-        </Text>
+        <Text size="sm">{dates(project)}</Text>
       </Group>
       <div style={{ marginBlockStart: 12 }}>
         <ProgressLine value={project.progress} label={t('projects.progress')} />
+      </div>
+      <div style={{ marginBlockStart: 10 }}>
+        <BudgetMeter project={project} />
       </div>
       <Group justify="space-between" mt="sm" gap="xs" wrap="nowrap">
         <Text size="sm" c="dimmed">
@@ -63,148 +129,209 @@ export function ProjectCard({ project }: { project: ProjectDto }) {
   );
 }
 
+function sortProjects(list: ProjectView[], sort: Sort): ProjectView[] {
+  const out = [...list];
+  switch (sort) {
+    case 'name':
+      return out.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    case 'start':
+      return out.sort((a, b) => a.startDate.localeCompare(b.startDate));
+    case 'end':
+      return out.sort((a, b) => (a.endDate ?? '9999').localeCompare(b.endDate ?? '9999'));
+    case 'progress':
+      return out.sort((a, b) => b.progress - a.progress);
+    case 'budget':
+      return out.sort((a, b) => (b.budgetUsedPct ?? -1) - (a.budgetUsedPct ?? -1));
+    default:
+      return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+}
+
 export function ProjectsPage() {
   const user = useAuthStore((s) => s.user);
-  const [filter, setFilter] = useState<Filter>('OPEN');
+  const navigate = useNavigate();
+  const phone = useMediaQuery('(max-width: 767px)') ?? false;
+  const [status, setStatus] = useState<string>('OPEN');
   const [search, setSearch] = useState('');
   const [q] = useDebouncedValue(search, 250);
-  // «إنشاء» is a URL (?create=1): the command palette opens it, and back closes it.
+  const [sort, setSort] = useViewPref<Sort>('projects.sort', null, 'recent');
+  const [layoutPref, setLayout] = useViewPref<Layout>('projects.layout', null, 'rows');
+  const layout: Layout = phone ? 'cards' : layoutPref;
+  const [favourites, setFavourites] = useViewPref<string[]>(FAV_KEY, null, []);
+  // «إنشاء» is a URL (?create=1): the sidebar button and the command palette open it, back closes it.
   const create = useOverlayParam('create');
   const creating = create.value === '1';
   const setCreating = (on: boolean) => (on ? create.open('1') : create.close());
   const query: ProjectListQuery = {
-    ...(filter === 'OPEN' ? {} : { status: filter }),
+    ...(status === 'OPEN' ? {} : { status: status as ProjectListQuery['status'] }),
     ...(q.trim() ? { q: q.trim() } : {}),
   };
   const projects = useProjects(query);
   const canCreate = can(user, 'projects.create');
+  const favSet = useMemo(() => new Set(favourites), [favourites]);
+  const toggleFav = (id: string) => setFavourites(favSet.has(id) ? favourites.filter((x) => x !== id) : [...favourites, id]);
+
+  const sorted = useMemo(() => sortProjects(projects.data ?? [], sort), [projects.data, sort]);
+  const favs = sorted.filter((p) => favSet.has(p.id));
+  const others = sorted.filter((p) => !favSet.has(p.id));
+
+  const section = (title: string, list: ProjectView[], key: string) =>
+    list.length ? (
+      <section key={key} aria-labelledby={`pl-${key}`} className="nz-pl-section">
+        <h2 id={`pl-${key}`} className="nz-pl-heading">
+          {key === 'fav' ? <IconStarFilled size={14} style={{ color: '#F5A524' }} aria-hidden /> : <IconFolder size={14} aria-hidden />}
+          {title}
+          <span className="nz-pl-count num">{formatNumber(list.length)}</span>
+        </h2>
+        {layout === 'cards' ? (
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+            {list.map((p) => (
+              <ProjectCard key={p.id} project={p} favourite={favSet.has(p.id)} onToggleFavourite={() => toggleFav(p.id)} />
+            ))}
+          </SimpleGrid>
+        ) : (
+          <div className="nz-pl-table" role="table" aria-labelledby={`pl-${key}`}>
+            <div className="nz-pl-row nz-pl-head" role="row">
+              <span role="columnheader" className="nz-pl-c-star" aria-label={t('projects.favourites')} />
+              <span role="columnheader">{t('projects.col.name')}</span>
+              <span role="columnheader">{t('projects.col.status')}</span>
+              <span role="columnheader">{t('projects.col.progress')}</span>
+              <span role="columnheader">{t('projects.col.dates')}</span>
+              <span role="columnheader">{t('projects.col.budget')}</span>
+              <span role="columnheader">{t('projects.col.owner')}</span>
+            </div>
+            {list.map((p) => (
+              <div
+                key={p.id}
+                className="nz-pl-row"
+                role="row"
+                tabIndex={0}
+                onClick={() => navigate(`/projects/${p.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') navigate(`/projects/${p.id}`);
+                }}
+                aria-label={t('projects.open', { name: p.name })}
+              >
+                <span role="cell" className="nz-pl-c-star">
+                  <Star on={favSet.has(p.id)} onToggle={() => toggleFav(p.id)} name={p.name} />
+                </span>
+                <span role="cell" className="nz-pl-c-name">
+                  <span className="nz-pl-folder" aria-hidden>
+                    <IconFolder size={18} />
+                  </span>
+                  <span className="nz-pl-name-text">
+                    <Link to={`/projects/${p.id}`} onClick={(e) => e.stopPropagation()} className="nz-pl-link">
+                      {p.name}
+                    </Link>
+                    <Text size="xs" c="dimmed">
+                      {t('projects.taskCount', { count: formatNumber(p.taskCount) })}
+                      {unitOf(p) === 'HOUR' ? ` · ${t('projects.hourBadge')}` : ''}
+                    </Text>
+                  </span>
+                </span>
+                <span role="cell">
+                  <ProjectStatusBadge status={p.status} />
+                </span>
+                <span role="cell">
+                  <ProgressLine value={p.progress} label={t('projects.progress')} />
+                </span>
+                <span role="cell">
+                  <Text size="sm" c="dimmed">
+                    {dates(p)}
+                  </Text>
+                </span>
+                <span role="cell">
+                  <BudgetMeter project={p} compact />
+                </span>
+                <span role="cell">
+                  <Text size="sm" truncate>
+                    {p.owner.fullName}
+                  </Text>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    ) : null;
 
   return (
     <>
       <PageHeader
-        title={t('nav.projects')}
-        lead={canCreate ? t('projects.leadAdmin') : t('projects.leadSupervisor')}
+        title={t('projects.allTitle')}
+        lead={t('projects.lead')}
         actions={
           canCreate ? (
             <Button leftSection={<IconPlus size={18} />} onClick={() => setCreating(true)}>
-              {t('projects.create')}
+              {t('projects.createNew')}
             </Button>
           ) : undefined
         }
       />
-      <Group gap="sm" mb="md" wrap="wrap">
+      <div className="nz-pl-tools">
         <TextInput
           leftSection={<IconSearch size={16} />}
-          placeholder={t('projects.search')}
-          aria-label={t('projects.search')}
+          placeholder={t('projects.searchPlaceholder')}
+          aria-label={t('projects.searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
-          style={{ flex: '1 1 220px', maxWidth: 360 }}
+          className="nz-pl-search"
         />
-        <SegmentedControl
-          value={filter}
-          onChange={(v) => setFilter(v as Filter)}
+        <Select
+          aria-label={t('projects.filterStatus')}
+          value={status}
+          onChange={(v) => setStatus(v ?? 'OPEN')}
+          allowDeselect={false}
           data={[
             { value: 'OPEN', label: t('projects.filter.open') },
-            { value: 'ACTIVE', label: projectStatusLabel('ACTIVE') },
-            { value: 'PLANNING', label: projectStatusLabel('PLANNING') },
-            { value: 'COMPLETED', label: projectStatusLabel('COMPLETED') },
-            ...(canCreate ? [{ value: 'ARCHIVED', label: projectStatusLabel('ARCHIVED') }] : []),
+            ...PROJECT_STATUSES.filter((s) => s !== 'ARCHIVED').map((s) => ({ value: s, label: projectStatusLabel(s) })),
+            { value: 'ARCHIVED', label: projectStatusLabel('ARCHIVED') },
+            { value: 'ALL', label: t('projects.allStatuses') },
           ]}
+          w={170}
         />
-      </Group>
+        <Select
+          aria-label={t('projects.sort')}
+          leftSection={<Text size="xs" c="dimmed" px={6}>{t('projects.sort')}</Text>}
+          leftSectionWidth={64}
+          value={sort}
+          onChange={(v) => setSort((v as Sort) ?? 'recent')}
+          allowDeselect={false}
+          data={(['recent', 'name', 'start', 'end', 'progress', 'budget'] as const).map((s) => ({ value: s, label: t(`projects.sort.${s}`) }))}
+          w={230}
+        />
+        {!phone ? (
+          <SegmentedControl
+            aria-label={t('projects.view.rows')}
+            value={layout}
+            onChange={(v) => setLayout(v as Layout)}
+            data={[
+              { value: 'rows', label: <IconLayoutList size={16} aria-label={t('projects.view.rows')} /> },
+              { value: 'cards', label: <IconLayoutGrid size={16} aria-label={t('projects.view.cards')} /> },
+            ]}
+          />
+        ) : null}
+      </div>
       {projects.isLoading ? (
-        <LoadingBlock variant="cards" />
+        <LoadingBlock variant={layout === 'cards' ? 'cards' : 'table'} />
       ) : projects.isError ? (
         <ErrorBlock error={projects.error} onRetry={() => void projects.refetch()} />
-      ) : projects.data?.length ? (
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
-          {projects.data.map((p) => (
-            <ProjectCard key={p.id} project={p} />
-          ))}
-        </SimpleGrid>
+      ) : sorted.length ? (
+        <>
+          {section(t('projects.favourites'), favs, 'fav')}
+          {section(favs.length ? t('projects.others') : t('projects.allTitle'), others, 'all')}
+        </>
+      ) : q.trim() || status !== 'OPEN' ? (
+        <EmptyState icon={IconSearch} title={t('projects.noMatch')} body={t('projects.noMatchBody')} />
       ) : (
         <EmptyState
           icon={IconLayoutKanban}
           title={t('projects.empty')}
           body={canCreate ? t('projects.emptyAdmin') : t('projects.emptySupervisor')}
-          action={canCreate ? { label: t('projects.create'), onClick: () => setCreating(true) } : undefined}
+          action={canCreate ? { label: t('projects.createNew'), onClick: () => setCreating(true) } : undefined}
         />
       )}
       {canCreate ? <CreateProjectDialog opened={creating} onClose={() => setCreating(false)} /> : null}
     </>
-  );
-}
-
-function CreateProjectDialog({ opened, onClose }: { opened: boolean; onClose(): void }) {
-  const api = useApi();
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-  const calendars = useCalendars(opened);
-  const [error, setError] = useState<unknown>(null);
-  const [calendarId, setCalendarId] = useState<string | null>(null);
-  const form = useZodForm(createProjectSchema, {
-    name: '',
-    description: '',
-    startDate: riyadhToday(),
-    autoSchedule: true,
-    status: 'PLANNING' as const,
-  });
-  const submit = form.onSubmit(async (data) => {
-    setError(null);
-    try {
-      const p = await api.projects.create({ ...data, ...(calendarId ? { calendarId } : {}) });
-      void qc.invalidateQueries({ queryKey: ['projects'] });
-      notifications.show({ color: 'ok', message: t('projects.created', { name: p.name }) });
-      // Replace the ?create=1 entry: back from the new project returns to the list.
-      navigate(`/projects/${p.id}`, { replace: true });
-    } catch (err) {
-      if (err instanceof ApiError && Object.keys(err.fieldErrors).length) form.setErrors(err.fieldErrors);
-      setError(err);
-    }
-  });
-  const calendarOptions = (calendars.data ?? []).map((c) => ({ value: c.id, label: c.isDefault ? t('calendars.defaultName', { name: c.name }) : c.name }));
-  return (
-    <Modal opened={opened} onClose={onClose} title={t('projects.create')} size="lg">
-      <form onSubmit={submit} noValidate>
-        <Stack>
-          <FormError error={error} />
-          <TextInput label={t('projects.name')} required data-autofocus {...form.getInputProps('name')} />
-          <Textarea label={t('projects.description')} autosize minRows={2} {...form.getInputProps('description')} />
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            <TextInput type="date" label={t('projects.startDate')} required {...form.getInputProps('startDate')} />
-            <Select
-              label={t('projects.status')}
-              data={PROJECT_STATUSES.filter((s) => s !== 'ARCHIVED').map((s) => ({ value: s, label: projectStatusLabel(s) }))}
-              allowDeselect={false}
-              {...form.getInputProps('status')}
-            />
-          </SimpleGrid>
-          <Select
-            label={t('projects.calendar')}
-            description={t('projects.calendarHint')}
-            placeholder={t('projects.calendarDefault')}
-            data={calendarOptions}
-            clearable
-            value={calendarId}
-            onChange={setCalendarId}
-          />
-          <Switch
-            label={t('projects.autoSchedule')}
-            description={t('projects.autoScheduleHint')}
-            checked={Boolean(form.values.autoSchedule)}
-            onChange={(e) => form.setFieldValue('autoSchedule', e.currentTarget.checked)}
-          />
-          <Group justify="flex-end">
-            <Button variant="default" onClick={onClose}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" loading={form.submitting}>
-              {t('projects.createSubmit')}
-            </Button>
-          </Group>
-        </Stack>
-      </form>
-    </Modal>
   );
 }

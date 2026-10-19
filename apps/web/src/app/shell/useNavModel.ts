@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTask } from '../../api/a9Queries';
 import { useLocation } from 'react-router-dom';
 import { can } from '@nuzli/shared';
 import { useAuthStore } from '../../stores/auth';
@@ -49,14 +50,17 @@ export function useNavModel() {
   // Entity names come from data the page already loads (same query keys, no extra requests).
   const id = resolved.params.id ?? null;
   const team = useTeam(resolved.meta?.entity === 'team' ? id : null);
-  const gantt = useGantt(resolved.meta?.entity === 'project' ? id : null);
+  const gantt = useGantt(resolved.meta?.entity === 'project' && can(user, 'projects.readAll') ? id : null);
+  const myTask = useTask(resolved.meta?.entity === 'task' ? id : null);
   const taskId = resolved.meta?.entity === 'project' ? new URLSearchParams(location.search).get('task') : null;
   const entityName =
     resolved.meta?.entity === 'team'
       ? (team.data?.name ?? null)
       : resolved.meta?.entity === 'project'
         ? (gantt.data?.project.name ?? null)
-        : null;
+        : resolved.meta?.entity === 'task'
+          ? (myTask.data?.name ?? null)
+          : null;
   const extra = taskId ? (gantt.data?.tasks.find((x) => x.id === taskId)?.name ?? null) : null;
 
   const trail = useMemo(

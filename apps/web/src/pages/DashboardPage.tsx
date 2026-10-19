@@ -41,8 +41,8 @@ function Kpi({
   tone?: string;
 }) {
   return (
-    <Stack gap={2}>
-      <Text size="sm" c="dimmed">
+    <Stack gap={2} style={{ minWidth: 0 }}>
+      <Text size="sm" c="dimmed" className="nz-kpi-label" title={label}>
         {label}
       </Text>
       {loading ? (
@@ -157,7 +157,7 @@ function AdminDashboard() {
 
   return (
     <Stack gap="lg">
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
         <Card className="nz-kpi-card" data-tone={pendingCount ? 'wait' : undefined}>
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <Kpi

@@ -29,15 +29,15 @@ export function ProjectsKpi() {
   return (
     <Card className="nz-kpi-card" data-tone={overdue ? 'no' : undefined}>
       <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <SimpleGrid cols={2} spacing="md">
+        <SimpleGrid cols={2} spacing="md" style={{ flex: 1, minWidth: 0 }}>
           <Stack gap={2}>
-            <Text size="sm" c="dimmed">
+            <Text size="sm" c="dimmed" className="nz-kpi-label" title={t('dash.activeProjects')}>
               {t('dash.activeProjects')}
             </Text>
             {projects.isLoading ? <Skeleton h={40} w={60} /> : <Text className="nz-kpi">{formatNumber(projects.data?.length ?? 0)}</Text>}
           </Stack>
           <Stack gap={2}>
-            <Text size="sm" c="dimmed">
+            <Text size="sm" c="dimmed" className="nz-kpi-label" title={t('dash.overdueTasks')}>
               {t('dash.overdueTasks')}
             </Text>
             {loading ? <Skeleton h={40} w={60} /> : <Text className="nz-kpi" c={overdue ? 'var(--breach)' : 'dimmed'}>{formatNumber(overdue)}</Text>}

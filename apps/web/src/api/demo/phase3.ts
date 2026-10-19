@@ -166,13 +166,13 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
     viewer: DemoUser,
     opts: { withResponses?: boolean } = {},
   ): ViolationDto {
-    const member = w.members.get(v.memberId);
+    const member = v.memberId ? (v.memberId ? w.members.get(v.memberId) : undefined) : undefined;
     const type = w.types.get(v.typeId);
     const files = (w.files.get(v.id) ?? []).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const dto: ViolationDto = {
       id: v.id,
       clientUuid: v.clientUuid,
-      member: {
+      member: v.memberId === null ? null : {
         id: v.memberId,
         fullName: member?.fullName ?? '—',
         nationalIdMasked: maskNationalId(member?.nationalId ?? ''),
@@ -253,14 +253,14 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       id: v.id,
       capturedAt: v.capturedAt,
       teamId: v.teamIdSnapshot,
-      memberId: v.memberId,
+      memberId: v.memberId ?? '',
       recordedById: v.recordedById,
       typeId: v.typeId,
       severity: w.types.get(v.typeId)?.severity ?? null,
       status: v.status,
       latitude: v.latitude,
       longitude: v.longitude,
-      memberName: w.members.get(v.memberId)?.fullName ?? '',
+      memberName: (v.memberId ? w.members.get(v.memberId) : undefined)?.fullName ?? '',
     };
   }
 
@@ -530,8 +530,8 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         id: v.id,
         capturedAt: new Date(v.capturedAt),
         receivedAt: new Date(v.receivedAt),
-        memberName: w.members.get(v.memberId)?.fullName ?? '—',
-        nationalIdMasked: maskNationalId(w.members.get(v.memberId)?.nationalId ?? ''),
+        memberName: (v.memberId ? w.members.get(v.memberId) : undefined)?.fullName ?? '—',
+        nationalIdMasked: maskNationalId((v.memberId ? w.members.get(v.memberId) : undefined)?.nationalId ?? ''),
         teamName: v.teamIdSnapshot ? w.teams.get(v.teamIdSnapshot)?.name ?? null : null,
         supervisorName: person(w, v.supervisorIdSnapshot)?.fullName ?? null,
         recordedByName: person(w, v.recordedById)?.fullName ?? '—',
@@ -621,9 +621,13 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
           result = { violation: existing, created: false };
           return;
         }
-        const member = w.members.get(data.memberId);
-        if (!member || member.status !== 'ACTIVE') {
-          fail('VALIDATION_FAILED', { fieldErrors: { memberId: [t('violations.err.member')] } });
+        // A9: a violation may be recorded without a person (assigned later).
+        const memberId = data.memberId ?? null;
+        if (memberId) {
+          const member = w.members.get(memberId);
+          if (!member || member.status !== 'ACTIVE') {
+            fail('VALIDATION_FAILED', { fieldErrors: { memberId: [t('violations.err.member')] } });
+          }
         }
         const type = w.types.get(data.typeId);
         if (!type || !type.isActive) {
@@ -633,10 +637,12 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
           throw ApiError.of('TOO_MANY_PHOTOS', 409);
         }
         const at = data.capturedAt;
-        const membership = resolveTeamAt(
-          w.memberships.filter((m) => m.memberId === data.memberId),
-          at,
-        );
+        const membership = memberId
+          ? resolveTeamAt(
+              w.memberships.filter((m) => m.memberId === memberId),
+              at,
+            )
+          : null;
         const teamId = membership?.teamId ?? null;
         const sup = teamId
           ? resolveTeamAt(
@@ -648,7 +654,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         const v: DemoViolation = {
           id: newId(),
           clientUuid: data.clientUuid,
-          memberId: data.memberId,
+          memberId,
           typeId: data.typeId,
           teamIdSnapshot: teamId,
           supervisorIdSnapshot: sup?.supervisorId ?? null,
@@ -823,7 +829,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
             supervisorName: viewer.fullName,
             teamName: v.teamIdSnapshot ? w.teams.get(v.teamIdSnapshot)?.name ?? '' : '',
             typeName: w.types.get(v.typeId)?.name ?? '',
-            memberName: w.members.get(v.memberId)?.fullName ?? '',
+            memberName: (v.memberId ? w.members.get(v.memberId) : undefined)?.fullName ?? '',
           });
         }
       });

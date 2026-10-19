@@ -53,11 +53,14 @@ async function chainProject() {
   return { project, cal, a: byName('أ'), b: byName('ب'), c: byName('ج') };
 }
 
-describe('seed (seed/demo/projects.json + calendars.json)', () => {
-  it('has three projects, a 2,000-task one, FS dependencies and sample holidays marked (تجريبي)', async () => {
+describe('seed (seed/demo/projects.json + calendars.json + a9.json)', () => {
+  it('has four projects (one HOUR-mode, templates excluded), a 2,000-task one, FS dependencies and sample holidays marked (تجريبي)', async () => {
     await loginAs(ADMIN);
     const list = await api.projects.list();
-    expect(list).toHaveLength(3);
+    expect(list).toHaveLength(4);
+    expect(list.filter((p) => p.durationUnit === 'HOUR')).toHaveLength(1);
+    expect(list.every((p) => p.name.includes('(تجريبي)'))).toBe(true);
+    expect(await api.projects.templates()).toHaveLength(1);
     const large = await api.projects.gantt(LARGE_PROJECT_ID);
     expect(large.tasks).toHaveLength(2000);
     expect(large.dependencies.length).toBeGreaterThan(1500);
@@ -126,28 +129,36 @@ describe('optimistic concurrency (ADR-017)', () => {
   });
 });
 
-describe('supervisor rights (ADR-007, ADR-058)', () => {
-  it('may change progress/status of own tasks only; never dates; sees the project read-only', async () => {
+describe('supervisor rights (ADR-007, ADR-058, A9 ADR-092)', () => {
+  it('may change progress/status of own tasks only; never dates; never sees a project', async () => {
     const { project, a, b } = await chainProject();
     await loginAs(SUP1);
-    const visible = await api.projects.list();
-    expect(visible.map((p) => p.id)).toContain(project.id);
+    // A9: no project routes at all for a supervisor (403), only the tasks assigned to them.
+    expect((await codeOf(api.projects.list())).code).toBe('FORBIDDEN');
+    expect((await codeOf(api.projects.gantt(project.id))).code).toBe('FORBIDDEN');
+    expect((await api.tasks.mine()).map((t) => t.id)).toContain(a.id);
+    expect((await api.tasks.get(a.id)).id).toBe(a.id);
+    // Another task of the same project is not revealed (404).
+    expect((await codeOf(api.tasks.get(b.id))).code).toBe('NOT_FOUND');
     const dateErr = await codeOf(api.tasks.update(a.id, { version: a.version, startDate: '2026-11-08' }));
     expect(dateErr.code).toBe('FORBIDDEN');
     expect((dateErr.details as { fields: string[] }).fields).toEqual(['startDate']);
     const ok = await api.tasks.update(a.id, { version: a.version, progress: 40, status: 'IN_PROGRESS' });
     expect(ok.task).toMatchObject({ progress: 40, status: 'IN_PROGRESS', startDate: a.startDate });
-    expect((await codeOf(api.tasks.update(b.id, { version: b.version, progress: 10 }))).code).toBe('FORBIDDEN');
+    expect((await codeOf(api.tasks.update(b.id, { version: b.version, progress: 10 }))).code).toBe('NOT_FOUND');
     expect((await codeOf(api.tasks.batch(project.id, { changes: [{ id: a.id, version: 1, startDate: '2026-11-08' }] }))).code).toBe(
       'FORBIDDEN',
     );
     expect((await codeOf(api.tasks.create(project.id, { name: 'x', startDate: '2026-11-01' }))).code).toBe('FORBIDDEN');
   });
 
-  it('a supervisor without a grant or task sees nothing (404)', async () => {
-    const { project } = await chainProject();
+  it('a supervisor without a task sees nothing: projects 403, tasks 404 (ADR-092)', async () => {
+    const { project, a } = await chainProject();
+    // A grant no longer opens anything (project_access kept but inert).
+    await api.projects.grantAccess(project.id, { userId: '00000000-0000-4000-8000-000000000005' });
     await loginAs('supervisor3@demo.nuzli.example');
-    expect((await codeOf(api.projects.gantt(project.id))).code).toBe('NOT_FOUND');
+    expect((await codeOf(api.projects.gantt(project.id))).code).toBe('FORBIDDEN');
+    expect((await codeOf(api.tasks.comments(a.id))).code).toBe('NOT_FOUND');
   });
 
   it('assignees are active supervisors only', async () => {
@@ -217,18 +228,18 @@ describe('hierarchy (ADR-057)', () => {
 describe('collaboration and notifications (ADR-058, ADR-060)', () => {
   it('assignment and @mentions notify; comments are audited without the text', async () => {
     const { project, a } = await chainProject();
-    // Mentions are limited to people who can see the project.
+    // A9 (ADR-092): mentions are limited to people who can open the task — admins and the assignee.
     const denied = await codeOf(api.tasks.addComment(a.id, { body: 'x', mentions: [SUP2_ID] }));
     expect(denied.code).toBe('VALIDATION_FAILED');
     await api.projects.grantAccess(project.id, { userId: SUP2_ID });
-    await api.tasks.addComment(a.id, { body: 'راجع الجدول @سارة', mentions: [SUP2_ID] });
-    await loginAs('supervisor2@demo.nuzli.example');
-    const notes = await api.notifications.list();
-    expect(notes.items.find((x) => x.type === 'TASK_MENTIONED')?.payload).toMatchObject({ taskId: a.id, taskName: 'أ' });
+    // A grant no longer makes another supervisor mentionable.
+    expect((await codeOf(api.tasks.addComment(a.id, { body: 'x', mentions: [SUP2_ID] }))).code).toBe('VALIDATION_FAILED');
+    await api.tasks.addComment(a.id, { body: 'راجع الجدول @فهد', mentions: [SUP1_ID] });
     await loginAs(SUP1);
     const mine = await api.notifications.list();
+    expect(mine.items.find((x) => x.type === 'TASK_MENTIONED')?.payload).toMatchObject({ taskId: a.id, taskName: 'أ' });
     expect(mine.items.some((x) => x.type === 'TASK_ASSIGNED' && x.payload.taskId === a.id)).toBe(true);
-    // A supervisor may comment on any task of a visible project.
+    // The assignee replies in the task chat.
     await api.tasks.addComment(a.id, { body: 'تم', mentions: [] });
     expect(await api.tasks.comments(a.id)).toHaveLength(2);
     await loginAs(ADMIN);
@@ -284,8 +295,8 @@ describe('Excel (ADR-019, brief §7.7)', () => {
   });
 });
 
-describe('task attachments (ADR-058)', () => {
-  it('admins and the assignee upload; others are refused', async () => {
+describe('task attachments (ADR-058, ADR-092)', () => {
+  it('admins and the assignee upload; another task is not even revealed (404)', async () => {
     const { a, b } = await chainProject();
     const pdf = new Blob([new TextEncoder().encode('%PDF-1.4 demo')], { type: 'application/pdf' });
     const p = await api.files.presign({ entityType: 'task', entityId: a.id, kind: 'ATTACHMENT', contentType: 'application/pdf', sizeBytes: pdf.size });
@@ -299,6 +310,6 @@ describe('task attachments (ADR-058)', () => {
     const denied = await codeOf(
       api.files.presign({ entityType: 'task', entityId: b.id, kind: 'ATTACHMENT', contentType: 'application/pdf', sizeBytes: 10 }),
     );
-    expect(denied.code).toBe('FORBIDDEN');
+    expect(denied.code).toBe('NOT_FOUND');
   });
 });

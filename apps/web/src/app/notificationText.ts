@@ -1,4 +1,4 @@
-import type { NotificationDto } from '@nuzli/shared';
+import type { NotificationDto, Role } from '@nuzli/shared';
 import { formatDate, tKey } from '../i18n';
 import { roleLabel } from '../components/ui';
 
@@ -17,11 +17,25 @@ export function notificationText(n: NotificationDto): string {
     project: str('projectName'),
     author: str('authorName'),
     date: str('endDate') ? formatDate(str('endDate')) : '',
+    preview: str('preview'),
+    deadline: str('deadline') ? formatDate(str('deadline')) : '',
   });
 }
 
-/** Where clicking a notification takes the user. */
-export function notificationLink(n: NotificationDto): string | null {
+/**
+ * Where clicking a notification takes the user. Task notifications: a supervisor goes to the task
+ * page in «مهامي» (A9: supervisors never open projects), an admin to the task in its project
+ * (comments open on the chat tab).
+ */
+export function notificationLink(n: NotificationDto, role?: Role): string | null {
+  const taskId = typeof n.payload?.taskId === 'string' ? n.payload.taskId : null;
+  const projectId = typeof n.payload?.projectId === 'string' ? n.payload.projectId : null;
+  const isTask = n.type.startsWith('TASK_');
+  if (isTask && role === 'SUPERVISOR') return taskId ? `/my-tasks/${encodeURIComponent(taskId)}` : '/my-tasks';
+  if (isTask && projectId) {
+    const chat = n.type === 'TASK_COMMENTED' || n.type === 'TASK_MENTIONED';
+    return `/projects/${encodeURIComponent(projectId)}${taskId ? `?task=${encodeURIComponent(taskId)}${chat ? '&ttab=comments' : ''}` : ''}`;
+  }
   switch (n.type) {
     case 'REGISTRATION_REQUESTED':
       return '/registrations';

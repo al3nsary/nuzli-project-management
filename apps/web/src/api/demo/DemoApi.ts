@@ -35,6 +35,8 @@ import { loadPhase2Seed, loadPhase3Seed, loadSeed } from './seed';
 import { createPhase2, type Phase2Api } from './phase2';
 import { createPhase3, type Phase3Api } from './phase3';
 import { createPhase4, type Phase4Api, type Phase4Hooks } from './phase4';
+import { createA9, type A9Api } from './phaseA9';
+import { seedA9 } from './seedA9';
 import { createPhotos, type PhotoHooks } from './photos';
 import { seedPhotos } from './seedPhotos';
 import { buildProjectSeed } from './seedProjects';
@@ -78,6 +80,13 @@ export class DemoApi implements ApiClient {
   tasks!: Phase4Api['tasks'];
   dependencies!: Phase4Api['dependencies'];
   calendars!: Phase4Api['calendars'];
+  labels!: A9Api['labels'];
+  customFields!: A9Api['customFields'];
+  timeEntries!: A9Api['timeEntries'];
+  viewPrefs!: A9Api['viewPrefs'];
+  portfolios!: A9Api['portfolios'];
+  workload!: A9Api['workload'];
+  hub!: A9Api['hub'];
   /** @internal Phase 4 hooks used by the files module and tests. */
   phase4!: Phase4Hooks;
   photos!: ApiClient['photos'];
@@ -94,10 +103,24 @@ export class DemoApi implements ApiClient {
   constructor(opts: { dbName?: string } = {}) {
     this.db = new DemoDb(opts.dbName ?? DEMO_DB_NAME);
     Object.assign(this, createPhase2(this));
-    const p4 = createPhase4(this);
+    let a9: A9Api | null = null;
+    const p4 = createPhase4(this, { templates: () => a9!.templateHook });
+    a9 = createA9(this, p4.core);
     this.phase4 = p4;
     Object.assign(this, createPhase3(this));
-    Object.assign(this, { projects: p4.projects, tasks: p4.tasks, dependencies: p4.dependencies, calendars: p4.calendars });
+    Object.assign(this, {
+      projects: { ...p4.projects, ...a9.projectsA9 },
+      tasks: { ...p4.tasks, ...a9.tasksA9 },
+      dependencies: p4.dependencies,
+      calendars: p4.calendars,
+      labels: a9.labels,
+      customFields: a9.customFields,
+      timeEntries: a9.timeEntries,
+      viewPrefs: a9.viewPrefs,
+      portfolios: a9.portfolios,
+      workload: a9.workload,
+      hub: a9.hub,
+    });
     this.photoHooks = createPhotos(this);
     this.photos = this.photoHooks.photos;
     const seed = loadSeed();
@@ -126,6 +149,7 @@ export class DemoApi implements ApiClient {
     await this.seedPhase2();
     await this.seedPhase3();
     await this.seedPhase4();
+    await seedA9(this.db);
     await seedPhotos(this.db);
   }
 

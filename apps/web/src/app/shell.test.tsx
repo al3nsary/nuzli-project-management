@@ -78,8 +78,8 @@ describe('RTL app shell', () => {
   });
 
   it('renders the pages being built with their guard and the «قيد الإنشاء» notice (A9)', async () => {
-    await renderAs('admin1@demo.nuzli.example', '/portfolios');
-    expect(await screen.findByRole('heading', { level: 1, name: 'المحافظ' })).toBeInTheDocument();
+    await renderAs('admin1@demo.nuzli.example', '/communication');
+    expect(await screen.findByRole('heading', { level: 1, name: 'مركز التواصل' })).toBeInTheDocument();
     expect(screen.getByText('قيد الإنشاء — يصل في هذا الإصدار')).toBeInTheDocument();
   });
 

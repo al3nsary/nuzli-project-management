@@ -125,7 +125,7 @@ export function computeViolationStats(
     })
     .sort((a, b) => b.count - a.count || a.teamName.localeCompare(b.teamName, 'ar'));
 
-  const topMembers = [...countBy(rows, (r) => r.memberId)]
+  const topMembers = [...countBy(rows.filter((r) => r.memberId), (r) => r.memberId)]
     .filter(([, n]) => n > 1)
     .map(([memberId, count]) => {
       const m = look.members.get(memberId);

@@ -426,10 +426,10 @@ export function ViolationDrawer({ id, onClose }: { id: string | null; onClose: (
           <Card padding="md">
             <Stack gap="xs">
               <Text fw={600} size="lg">
-                {v.member.fullName}
+                {v.member?.fullName ?? t('violations.unassigned')}
               </Text>
               <Text className="mono ltr" size="sm" c="dimmed">
-                {v.member.nationalIdMasked}
+                {v.member?.nationalIdMasked ?? ''}
               </Text>
               <Group gap="xs" wrap="wrap">
                 <SnapshotTeam team={v.team} />

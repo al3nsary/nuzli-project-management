@@ -33,10 +33,8 @@ import type {
   ActivityDto,
   CreatedDependencyDto,
   CreatedTaskDto,
-  GanttDto,
   MyTaskDto,
   ProjectAccessDto,
-  ProjectDto,
   TaskArchiveResult,
   TaskAttachmentDto,
   TaskBatchResult,
@@ -44,13 +42,38 @@ import type {
   TaskDto,
   TaskUpdateResult,
 } from '@nuzli/shared';
+import type {
+  AttachmentBrowseDto,
+  BudgetReportDto,
+  ChecklistItemDto,
+  CommentReadDto,
+  CustomFieldDto,
+  CustomValueDto,
+  DuplicateTaskResult,
+  HubPageDto,
+  LabelDto,
+  PortfolioDto,
+  PortfolioSummaryDto,
+  ProjectCalendarDto,
+  ProjectDashboardDto,
+  ProjectPersonDto,
+  ProjectReportRow,
+  TaskBulkArchiveResult,
+  TaskBulkResult,
+  TaskPreviousMap,
+  TaskRestoreResult,
+  TimeEntryDto,
+  ViewPrefDto,
+  WorkloadDto,
+} from '@nuzli/shared';
+import type { GanttView, ProjectView } from './hoursWire';
 import { ERRORS } from '@nuzli/shared';
 import { ApiError } from './errors';
 import { t } from '../i18n';
 import {
   toQueryString,
   type ApiClient,
-  type CalendarListDto,
+  type CalendarListView,
   type PhotoTarget,
   type ReferenceRemoveResult,
   type SessionListener,
@@ -488,21 +511,30 @@ export class HttpApi implements ApiClient {
     remove: (id) => this.request<void>('DELETE', `/logos/${enc(id)}`),
   };
 
-  // ---------------------------------------------------------------- Phase 4
+  // ---------------------------------------------------------------- Phase 4 + A9
 
   projects: ApiClient['projects'] = {
-    list: (q) => this.request<ProjectDto[]>('GET', `/projects${toQueryString(q)}`),
-    get: (id) => this.request<ProjectDto>('GET', `/projects/${enc(id)}`),
-    create: (input) => this.request<ProjectDto>('POST', '/projects', { body: input }),
-    update: (id, input) => this.request<ProjectDto>('PATCH', `/projects/${enc(id)}`, { body: input }),
-    archive: (id) => this.request<ProjectDto>('DELETE', `/projects/${enc(id)}`),
+    list: (q) => this.request<ProjectView[]>('GET', `/projects${toQueryString(q)}`),
+    get: (id) => this.request<ProjectView>('GET', `/projects/${enc(id)}`),
+    create: (input) => this.request<ProjectView>('POST', '/projects', { body: input }),
+    update: (id, input) => this.request<ProjectView>('PATCH', `/projects/${enc(id)}`, { body: input }),
+    archive: (id) => this.request<ProjectView>('DELETE', `/projects/${enc(id)}`),
     access: (id) => this.request<ProjectAccessDto[]>('GET', `/projects/${enc(id)}/access`),
     grantAccess: (id, input) =>
       this.request<ProjectAccessDto>('POST', `/projects/${enc(id)}/access`, { body: input }),
     revokeAccess: (id, userId) =>
       this.request<void>('DELETE', `/projects/${enc(id)}/access/${enc(userId)}`),
-    gantt: (id) => this.request<GanttDto>('GET', `/projects/${enc(id)}/gantt`),
+    gantt: (id) => this.request<GanttView>('GET', `/projects/${enc(id)}/gantt`),
     exportXlsx: (id) => this.requestBlob(`/projects/${enc(id)}/export.xlsx`),
+    budget: (id) => this.request<BudgetReportDto>('GET', `/projects/${enc(id)}/budget`),
+    people: (id) => this.request<ProjectPersonDto[]>('GET', `/projects/${enc(id)}/people`),
+    dashboard: (id) => this.request<ProjectDashboardDto>('GET', `/projects/${enc(id)}/dashboard`),
+    calendar: (id, range) =>
+      this.request<ProjectCalendarDto>('GET', `/projects/${enc(id)}/calendar${toQueryString(range)}`),
+    saveAsTemplate: (id, input) =>
+      this.request<ProjectView>('POST', `/projects/${enc(id)}/save-as-template`, { body: input }),
+    templates: () => this.request<ProjectView[]>('GET', '/project-templates'),
+    report: (q) => this.request<ProjectReportRow[]>('GET', `/reports/projects${toQueryString(q)}`),
   };
 
   tasks: ApiClient['tasks'] = {
@@ -517,6 +549,7 @@ export class HttpApi implements ApiClient {
     comments: (id) => this.request<TaskCommentDto[]>('GET', `/tasks/${enc(id)}/comments`),
     addComment: (id, input) =>
       this.request<TaskCommentDto>('POST', `/tasks/${enc(id)}/comments`, { body: input }),
+    markRead: (id) => this.request<CommentReadDto>('POST', `/tasks/${enc(id)}/comments/read`),
     activity: (id) => this.request<ActivityDto[]>('GET', `/tasks/${enc(id)}/activity`),
     attachments: (id) => this.request<TaskAttachmentDto[]>('GET', `/tasks/${enc(id)}/attachments`),
     attach: (id, fileId) =>
@@ -528,6 +561,37 @@ export class HttpApi implements ApiClient {
       ),
     removeAttachment: (id, fileId) =>
       this.request<void>('DELETE', `/tasks/${enc(id)}/attachments/${enc(fileId)}`),
+    duplicate: (id, input) =>
+      this.request<DuplicateTaskResult>('POST', `/tasks/${enc(id)}/duplicate`, { body: input ?? {} }),
+    bulk: (projectId, input) =>
+      this.request<TaskBulkResult>('POST', `/projects/${enc(projectId)}/tasks/bulk`, { body: input }),
+    bulkArchive: (projectId, input) =>
+      this.request<TaskBulkArchiveResult>('POST', `/projects/${enc(projectId)}/tasks/bulk-archive`, {
+        body: input,
+      }),
+    restore: (projectId, ids) =>
+      this.request<TaskRestoreResult>('POST', `/projects/${enc(projectId)}/tasks/restore`, { body: { ids } }),
+    labels: (id) => this.request<LabelDto[]>('GET', `/tasks/${enc(id)}/labels`),
+    addLabel: (id, labelId) =>
+      this.request<TaskUpdateResult>('POST', `/tasks/${enc(id)}/labels`, { body: { labelId } }),
+    removeLabel: (id, labelId) =>
+      this.request<TaskUpdateResult>('DELETE', `/tasks/${enc(id)}/labels/${enc(labelId)}`),
+    customFields: (id) =>
+      this.request<Array<CustomFieldDto & { value: unknown }>>('GET', `/tasks/${enc(id)}/custom-fields`),
+    setCustomValue: (id, fieldId, value) =>
+      this.request<CustomValueDto>('PUT', `/tasks/${enc(id)}/custom-values/${enc(fieldId)}`, { body: { value } }),
+    checklist: (id) => this.request<ChecklistItemDto[]>('GET', `/tasks/${enc(id)}/checklist`),
+    addChecklistItem: (id, input) =>
+      this.request<ChecklistItemDto>('POST', `/tasks/${enc(id)}/checklist`, { body: input }),
+    updateChecklistItem: (id, itemId, input) =>
+      this.request<ChecklistItemDto>('PATCH', `/tasks/${enc(id)}/checklist/${enc(itemId)}`, { body: input }),
+    removeChecklistItem: (id, itemId) =>
+      this.request<void>('DELETE', `/tasks/${enc(id)}/checklist/${enc(itemId)}`),
+    reorderChecklist: (id, input) =>
+      this.request<ChecklistItemDto[]>('POST', `/tasks/${enc(id)}/checklist/reorder`, { body: input }),
+    timeEntries: (id) => this.request<TimeEntryDto[]>('GET', `/tasks/${enc(id)}/time-entries`),
+    addTimeEntry: (id, input) =>
+      this.request<TimeEntryDto>('POST', `/tasks/${enc(id)}/time-entries`, { body: input }),
   };
 
   dependencies: ApiClient['dependencies'] = {
@@ -539,15 +603,66 @@ export class HttpApi implements ApiClient {
   };
 
   calendars: ApiClient['calendars'] = {
-    list: () => this.request<CalendarListDto[]>('GET', '/calendars'),
-    get: (id) => this.request<CalendarListDto>('GET', `/calendars/${enc(id)}`),
-    create: (input) => this.request<CalendarListDto>('POST', '/calendars', { body: input }),
+    list: () => this.request<CalendarListView[]>('GET', '/calendars'),
+    get: (id) => this.request<CalendarListView>('GET', `/calendars/${enc(id)}`),
+    create: (input) => this.request<CalendarListView>('POST', '/calendars', { body: input }),
     update: (id, input) =>
-      this.request<CalendarListDto>('PATCH', `/calendars/${enc(id)}`, { body: input }),
+      this.request<CalendarListView>('PATCH', `/calendars/${enc(id)}`, { body: input }),
     addException: (id, input) =>
-      this.request<CalendarListDto>('POST', `/calendars/${enc(id)}/exceptions`, { body: input }),
+      this.request<CalendarListView>('POST', `/calendars/${enc(id)}/exceptions`, { body: input }),
     removeException: (id, exId) =>
       this.request<void>('DELETE', `/calendars/${enc(id)}/exceptions/${enc(exId)}`),
+  };
+
+  labels: ApiClient['labels'] = {
+    list: (projectId) => this.request<LabelDto[]>('GET', `/projects/${enc(projectId)}/labels`),
+    create: (projectId, input) =>
+      this.request<LabelDto>('POST', `/projects/${enc(projectId)}/labels`, { body: input }),
+    update: (id, input) => this.request<LabelDto>('PATCH', `/labels/${enc(id)}`, { body: input }),
+    remove: (id) => this.request<{ affected: TaskDto[]; previous: TaskPreviousMap }>('DELETE', `/labels/${enc(id)}`),
+  };
+
+  customFields: ApiClient['customFields'] = {
+    list: (projectId) => this.request<CustomFieldDto[]>('GET', `/projects/${enc(projectId)}/custom-fields`),
+    create: (projectId, input) =>
+      this.request<CustomFieldDto>('POST', `/projects/${enc(projectId)}/custom-fields`, { body: input }),
+    update: (id, input) => this.request<CustomFieldDto>('PATCH', `/custom-fields/${enc(id)}`, { body: input }),
+    remove: (id) => this.request<void>('DELETE', `/custom-fields/${enc(id)}`),
+  };
+
+  timeEntries: ApiClient['timeEntries'] = {
+    mine: (range) => this.request<TimeEntryDto[]>('GET', `/me/time-entries${toQueryString(range)}`),
+    update: (id, input) => this.request<TimeEntryDto>('PATCH', `/time-entries/${enc(id)}`, { body: input }),
+    remove: (id) => this.request<void>('DELETE', `/time-entries/${enc(id)}`),
+  };
+
+  viewPrefs: ApiClient['viewPrefs'] = {
+    list: (q) => this.request<ViewPrefDto[]>('GET', `/me/view-prefs${toQueryString(q)}`),
+    put: (input) => this.request<ViewPrefDto>('PUT', '/me/view-prefs', { body: input }),
+    remove: (q) => this.request<void>('DELETE', `/me/view-prefs${toQueryString(q)}`),
+  };
+
+  portfolios: ApiClient['portfolios'] = {
+    list: () => this.request<PortfolioDto[]>('GET', '/portfolios'),
+    get: (id) => this.request<PortfolioSummaryDto>('GET', `/portfolios/${enc(id)}`),
+    create: (input) => this.request<PortfolioDto>('POST', '/portfolios', { body: input }),
+    update: (id, input) => this.request<PortfolioDto>('PATCH', `/portfolios/${enc(id)}`, { body: input }),
+    remove: (id) => this.request<void>('DELETE', `/portfolios/${enc(id)}`),
+    addProject: (id, projectId) =>
+      this.request<PortfolioDto>('POST', `/portfolios/${enc(id)}/projects`, { body: { projectId } }),
+    removeProject: (id, projectId) =>
+      this.request<PortfolioDto>('DELETE', `/portfolios/${enc(id)}/projects/${enc(projectId)}`),
+  };
+
+  workload: ApiClient['workload'] = (q) =>
+    this.request<WorkloadDto>(
+      'GET',
+      `/workload${toQueryString({ from: q.from, to: q.to, userIds: q.userIds?.length ? q.userIds.join(',') : undefined })}`,
+    );
+
+  hub: ApiClient['hub'] = {
+    list: (q) => this.request<HubPageDto>('GET', `/hub${toQueryString(q)}`),
+    attachments: (q) => this.request<Paginated<AttachmentBrowseDto>>('GET', `/attachments${toQueryString(q)}`),
   };
 }
 

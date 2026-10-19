@@ -132,8 +132,10 @@ export function Layout() {
   }, [mobile, setDrawer]);
 
   useShortcuts(tree, { mobile });
-  const entity = resolved.meta?.entity && entityName && resolved.params.id
-    ? { kind: resolved.meta.entity, id: resolved.params.id, name: entityName }
+  // Recent items (palette) remember teams and projects; a supervisor task page is not one of them.
+  const kind = resolved.meta?.entity;
+  const entity = kind && kind !== 'task' && entityName && resolved.params.id
+    ? { kind, id: resolved.params.id, name: entityName }
     : null;
   usePageLifecycle(trail.title, entity);
 

@@ -1,150 +1,223 @@
 /**
- * «مهامي» (brief §6.1, §12: excellent on phones): the supervisor's tasks across projects grouped
- * by due date — overdue, due soon (≤ 2 working days), later — with a quick progress slider and
- * status change (ADR-007). Each change is one `PATCH /tasks/:id` with the task's version.
+ * «مهامي» — the supervisor's home (owner request A9: «اجعل المشرف لا يرى إدارة المشروع، فقط يرى
+ * المهام المسندة إليه»). The tasks assigned to the signed-in user across projects, grouped
+ * overdue / due soon / later / done, with search, a status filter and the unread comment count of
+ * each task's chat. Project names are plain text: supervisors cannot open projects (API 403).
+ * A card opens the task page `/my-tasks/:id`, whose main area is the chat. Phone-first (360px).
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Accordion, Anchor, Badge, Group, NativeSelect, Slider, Stack, Text } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
-import { IconChecklist } from '@tabler/icons-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { Accordion, Badge, Group, Progress, Select, Text, TextInput } from '@mantine/core';
+import { IconChecklist, IconFlag, IconListCheck, IconMessageCircle, IconSearch, IconSearchOff } from '@tabler/icons-react';
 import type { MyTaskDto, TaskStatus } from '@nuzli/shared';
-import { useApi } from '../../api/context';
-import { ApiError, errorMessage } from '../../api/errors';
-import { qk4, useMyTasks } from '../../api/projectQueries';
+import { useMyTasks } from '../../api/projectQueries';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { formatDate, formatNumber, t } from '../../i18n';
-import { TASK_STATUSES, bucketOf, taskStatusLabel, type Bucket } from './parts';
-import './projects.css';
+import { useTabParam } from '../../lib/useUrlState';
+import { useUnreadByTask } from '../../features/tasks/useUnreadByTask';
+import { taskWhen } from '../../features/tasks/when';
+import { TASK_STATUSES, TaskStatusBadge, bucketOf, taskStatusLabel, type Bucket } from './parts';
+import '../../features/tasks/tasks.css';
 
-const BUCKET_TONE: Record<Bucket, string> = { overdue: 'var(--breach)', soon: 'var(--signal)', later: 'var(--field)', done: 'var(--ok)' };
+const STATUS_FILTERS = ['all', ...TASK_STATUSES] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
 
+const BUCKET_TONE: Record<Bucket, string> = { overdue: 'var(--red)', soon: 'var(--amber)', later: 'var(--primary)', done: 'var(--live)' };
+
+/** Arabic-insensitive match (alef forms, taa marbuta, diacritics). */
+export function normalizeSearch(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[ً-ْـ]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .trim();
+}
 
 export function MyTasksPage() {
   const tasks = useMyTasks();
+  const unread = useUnreadByTask();
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useTabParam<StatusFilter>('status', STATUS_FILTERS, 'all');
+
+  const all = useMemo(() => tasks.data ?? [], [tasks.data]);
+  const shown = useMemo(() => {
+    const term = normalizeSearch(q);
+    return all.filter(
+      (task) =>
+        (status === 'all' || task.status === status) &&
+        (!term || normalizeSearch(task.name).includes(term) || normalizeSearch(task.project.name).includes(term) || task.wbs.startsWith(term)),
+    );
+  }, [all, q, status]);
+  const groups = useMemo(() => {
+    const g: Record<Bucket, MyTaskDto[]> = { overdue: [], soon: [], later: [], done: [] };
+    for (const task of shown) g[bucketOf(task)].push(task);
+    return g;
+  }, [shown]);
+  const unreadTotal = useMemo(() => all.reduce((n, x) => n + (unread.get(x.id) ?? 0), 0), [all, unread]);
+
   if (tasks.isLoading) return <LoadingBlock variant="tasks" header />;
   if (tasks.isError) return <ErrorBlock error={tasks.error} onRetry={() => void tasks.refetch()} />;
-  const all = tasks.data ?? [];
-  const groups: Record<Bucket, MyTaskDto[]> = { overdue: [], soon: [], later: [], done: [] };
-  for (const task of all) groups[bucketOf(task)].push(task);
+
+  const filtered = Boolean(q.trim()) || status !== 'all';
 
   return (
-    <>
-      <PageHeader title={t('nav.myTasks')} lead={t('myTasks.lead')} />
+    <div className="nz-mytasks">
+      <PageHeader title={t('nav.myTasks')} lead={t('a9s.myTasks.lead')} />
       {!all.length ? (
-        <EmptyState icon={IconChecklist} title={t('myTasks.empty')} body={t('myTasks.emptyBody')} />
+        <EmptyState icon={IconChecklist} title={t('myTasks.empty')} body={t('a9s.myTasks.emptyBody')} />
       ) : (
-        <Stack gap="lg">
-          {(['overdue', 'soon', 'later'] as const).map((b) =>
-            groups[b].length ? (
-              <section key={b} aria-labelledby={`bucket-${b}`}>
-                <Group gap="xs" mb="xs">
-                  <span aria-hidden style={{ width: 10, height: 10, borderRadius: 999, background: BUCKET_TONE[b] }} />
-                  <Text id={`bucket-${b}`} fw={700} fz="lg">
-                    {t(`myTasks.bucket.${b}`)}
-                  </Text>
-                  <Badge variant="light" color="gray" radius="xl" className="num">
-                    {formatNumber(groups[b].length)}
-                  </Badge>
-                </Group>
-                <Stack gap="sm">
-                  {groups[b].map((task) => (
-                    <MyTaskCard key={task.id} task={task} bucket={b} />
-                  ))}
-                </Stack>
-              </section>
-            ) : null,
+        <>
+          <div className="nz-mytasks-summary" aria-label={t('a9s.myTasks.summary')}>
+            <SummaryTile tone="var(--red)" label={t('myTasks.bucket.overdue')} value={all.filter((x) => bucketOf(x) === 'overdue').length} />
+            <SummaryTile tone="var(--amber)" label={t('myTasks.bucket.soon')} value={all.filter((x) => bucketOf(x) === 'soon').length} />
+            <SummaryTile tone="var(--primary)" label={t('a9s.myTasks.open')} value={all.filter((x) => x.status !== 'DONE').length} />
+            <SummaryTile tone="var(--red)" label={t('a9s.myTasks.unreadTile')} value={unreadTotal} />
+          </div>
+          <div className="nz-mytasks-tools" role="search">
+            <TextInput
+              className="nz-mytasks-search"
+              leftSection={<IconSearch size={18} aria-hidden />}
+              placeholder={t('a9s.myTasks.search')}
+              aria-label={t('a9s.myTasks.search')}
+              value={q}
+              onChange={(e) => setQ(e.currentTarget.value)}
+              size="md"
+              type="search"
+            />
+            <Select
+              className="nz-mytasks-status"
+              aria-label={t('a9s.myTasks.statusFilter')}
+              data={STATUS_FILTERS.map((s) => ({ value: s, label: s === 'all' ? t('a9s.myTasks.allStatuses') : taskStatusLabel(s) }))}
+              value={status}
+              onChange={(v) => setStatus(v)}
+              allowDeselect={false}
+              size="md"
+              comboboxProps={{ withinPortal: true }}
+            />
+          </div>
+
+          {!shown.length ? (
+            <EmptyState
+              icon={IconSearchOff}
+              title={t('a9s.myTasks.noMatch')}
+              body={t('a9s.myTasks.noMatchBody')}
+              action={
+                filtered
+                  ? {
+                      label: t('a9s.myTasks.clear'),
+                      onClick: () => {
+                        setQ('');
+                        setStatus(null);
+                      },
+                    }
+                  : undefined
+              }
+            />
+          ) : (
+            <div className="nz-mytasks-groups">
+              {(['overdue', 'soon', 'later'] as const).map((b) =>
+                groups[b].length ? (
+                  <section key={b} aria-labelledby={`bucket-${b}`} className="nz-bucket">
+                    <h2 id={`bucket-${b}`} className="nz-bucket-h">
+                      <span className="nz-bucket-dot" style={{ background: BUCKET_TONE[b] }} aria-hidden />
+                      {t(`myTasks.bucket.${b}`)}
+                      <Badge variant="light" color="gray" radius="xl" className="num" size="sm">
+                        {formatNumber(groups[b].length)}
+                      </Badge>
+                    </h2>
+                    <ul className="nz-task-cards">
+                      {groups[b].map((task) => (
+                        <li key={task.id}>
+                          <TaskCard task={task} bucket={b} unread={unread.get(task.id) ?? 0} />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null,
+              )}
+              {groups.done.length ? (
+                <Accordion variant="contained" radius="md" defaultValue={status === 'DONE' ? 'done' : null}>
+                  <Accordion.Item value="done">
+                    <Accordion.Control>{t('myTasks.doneCount', { count: formatNumber(groups.done.length) })}</Accordion.Control>
+                    <Accordion.Panel>
+                      <ul className="nz-task-cards">
+                        {groups.done.map((task) => (
+                          <li key={task.id}>
+                            <TaskCard task={task} bucket="done" unread={unread.get(task.id) ?? 0} />
+                          </li>
+                        ))}
+                      </ul>
+                    </Accordion.Panel>
+                  </Accordion.Item>
+                </Accordion>
+              ) : null}
+            </div>
           )}
-          {groups.done.length ? (
-            <Accordion variant="contained" radius="md">
-              <Accordion.Item value="done">
-                <Accordion.Control>{t('myTasks.doneCount', { count: formatNumber(groups.done.length) })}</Accordion.Control>
-                <Accordion.Panel>
-                  <Stack gap="sm">
-                    {groups.done.map((task) => (
-                      <MyTaskCard key={task.id} task={task} bucket="done" />
-                    ))}
-                  </Stack>
-                </Accordion.Panel>
-              </Accordion.Item>
-            </Accordion>
-          ) : null}
-        </Stack>
+        </>
       )}
-    </>
+    </div>
   );
 }
 
-function MyTaskCard({ task, bucket }: { task: MyTaskDto; bucket: Bucket }) {
-  const api = useApi();
-  const qc = useQueryClient();
-  const [progress, setProgress] = useState(task.progress);
-  const [prev, setPrev] = useState(task.progress);
-  const [busy, setBusy] = useState(false);
-  if (prev !== task.progress) {
-    setPrev(task.progress);
-    setProgress(task.progress);
-  }
-
-  const save = async (patch: { progress?: number; status?: TaskStatus }) => {
-    setBusy(true);
-    try {
-      await api.tasks.update(task.id, { version: task.version, ...patch });
-      await qc.invalidateQueries({ queryKey: qk4.myTasks });
-      void qc.invalidateQueries({ queryKey: qk4.gantt(task.projectId) });
-      notifications.show({ color: 'ok', message: t('myTasks.saved', { name: task.name }) });
-    } catch (err) {
-      setProgress(task.progress);
-      notifications.show({
-        color: 'breach',
-        message: err instanceof ApiError && err.code === 'CONFLICT_VERSION' ? t('gantt.conflict') : errorMessage(err),
-      });
-      if (err instanceof ApiError && err.code === 'CONFLICT_VERSION') void qc.invalidateQueries({ queryKey: qk4.myTasks });
-    } finally {
-      setBusy(false);
-    }
-  };
-
+function SummaryTile({ tone, label, value }: { tone: string; label: string; value: number }) {
   return (
-    <article className="surface-card nz-mytask" style={{ borderInlineStart: `4px solid ${BUCKET_TONE[bucket]}` }} aria-busy={busy}>
-      <Anchor component={Link} to={`/projects/${task.project.id}`} size="xs" c="dimmed">
-        {task.project.name}
-      </Anchor>
-      <Text fw={600} lh={1.4}>
+    <div className="nz-sum-tile" data-zero={value === 0 || undefined} style={{ ['--tone' as string]: tone }}>
+      <span className="nz-sum-value num">{formatNumber(value)}</span>
+      <span className="nz-sum-label">{label}</span>
+    </div>
+  );
+}
+
+function TaskCard({ task, bucket, unread }: { task: MyTaskDto; bucket: Bucket; unread: number }) {
+  const checklist = task.checklist;
+  const late = bucket === 'overdue';
+  const label = [task.name, task.project.name, taskStatusLabel(task.status as TaskStatus), unread ? t('a9s.myTasks.unreadAria', { count: formatNumber(unread) }) : '']
+    .filter(Boolean)
+    .join('، ');
+  return (
+    <Link to={`/my-tasks/${task.id}`} className="nz-task-card" data-bucket={bucket} aria-label={label}>
+      <div className="nz-task-card-top">
+        <Text span size="xs" c="dimmed" truncate className="nz-task-card-project">
+          {task.project.name}
+        </Text>
+        {unread ? (
+          <span className="nz-unread-badge" aria-hidden>
+            <IconMessageCircle size={14} />
+            <span className="num">{formatNumber(unread)}</span>
+          </span>
+        ) : null}
+      </div>
+      <Text className="nz-task-card-name" fw={600}>
         {task.name}
       </Text>
-      <Group gap="xs" mt={2} wrap="wrap">
-        <Text size="sm" c={bucket === 'overdue' ? 'var(--breach)' : 'dimmed'} fw={bucket === 'overdue' ? 600 : 400}>
-          {bucket === 'overdue' ? t('myTasks.wasDue', { date: formatDate(task.endDate) }) : t('myTasks.due', { date: formatDate(task.endDate) })}
+      <div className="nz-task-card-meta">
+        <Text span size="sm" c={late ? 'var(--red)' : 'dimmed'} fw={late ? 600 : 400}>
+          {late ? t('a9s.myTasks.late', { when: taskWhen(task) }) : taskWhen(task)}
         </Text>
-      </Group>
-      <Text size="sm" fw={500} mt="sm" id={`p-${task.id}`}>
-        {t('task.progressValue', { value: formatNumber(Math.round(progress)) })}
-      </Text>
-      <Slider
-        aria-labelledby={`p-${task.id}`}
-        value={progress}
-        onChange={setProgress}
-        onChangeEnd={(v) => v !== task.progress && void save({ progress: v })}
-        step={10}
-        min={0}
-        max={100}
-        size="lg"
-        thumbSize={28}
-        color={progress >= 100 ? 'ok' : 'field'}
-        label={(v) => `${formatNumber(v)}٪`}
-        disabled={busy}
-        mb="xs"
-      />
-      <NativeSelect
-        label={t('task.status')}
-        value={task.status}
-        data={TASK_STATUSES.map((s) => ({ value: s, label: taskStatusLabel(s) }))}
-        onChange={(e) => void save({ status: e.currentTarget.value as TaskStatus })}
-        disabled={busy}
-        size="md"
-      />
-    </article>
+        {task.deadline ? (
+          <span className="nz-deadline" data-passed={task.deadlinePassed || undefined}>
+            <IconFlag size={14} aria-hidden />
+            {task.deadlinePassed ? t('a9s.deadline.passed', { date: formatDate(task.deadline) }) : t('a9s.deadline.on', { date: formatDate(task.deadline) })}
+          </span>
+        ) : null}
+      </div>
+      <div className="nz-task-card-foot">
+        <TaskStatusBadge status={task.status} />
+        {checklist && checklist.total ? (
+          <span className="nz-check-count" data-complete={checklist.done === checklist.total || undefined}>
+            <IconListCheck size={15} aria-hidden />
+            <span className="num">{t('a9s.checklist.count', { done: formatNumber(checklist.done), total: formatNumber(checklist.total) })}</span>
+          </span>
+        ) : null}
+        <Group gap={6} wrap="nowrap" className="nz-task-card-progress">
+          <Progress value={task.progress} color={task.progress >= 100 ? 'ok' : 'field'} size="sm" radius="xl" style={{ flex: 1 }} aria-hidden />
+          <Text span size="xs" className="num" c="dimmed">
+            {`${formatNumber(Math.round(task.progress))}٪`}
+          </Text>
+        </Group>
+      </div>
+    </Link>
   );
 }

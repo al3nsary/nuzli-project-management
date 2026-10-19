@@ -144,3 +144,52 @@ export function hijriLabel(iso: string, digits: Digits): string {
 }
 
 export { fromDayNumber };
+
+// ---------------------------------------------------------------- A9: HOUR projects
+
+/** A header segment in (fractional) day positions — HOUR projects draw hours. */
+export interface PosSegment {
+  from: number;
+  to: number;
+  label: string;
+}
+
+/** «9 ص» / «1 م»: an hour of the day in short Arabic 12-hour form. */
+export function hourLabel(h: number, digits: Digits): string {
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const n = new Intl.NumberFormat(`ar-SA-u-nu-${digits}`).format(h12);
+  return `${n} ${h >= 12 ? t('time.pm') : t('time.am')}`;
+}
+
+/**
+ * Header rows of an HOUR project. Zoom `hour`: days on top, every hour below; `day`: days on top,
+ * every three hours below; `week`: months on top, days below (like the DAY project's day zoom).
+ */
+export function hourRows(fromDay: number, toDay: number, zoom: Zoom, digits: Digits): { top: PosSegment[]; bottom: PosSegment[] } {
+  if (zoom === 'week') {
+    const g = gregorianRows(fromDay, toDay, 'day', digits);
+    const toPos = (s: Segment): PosSegment => ({ from: s.fromDay, to: s.toDay + 1, label: s.label });
+    const dayName = (d: number) => fmt('gregory', digits, { weekday: 'short', day: 'numeric' }).format(dateOfDay(d));
+    return { top: g.top.map(toPos), bottom: segments(fromDay, toDay, String, dayName).map(toPos) };
+  }
+  const top: PosSegment[] = [];
+  const bottom: PosSegment[] = [];
+  const step = zoom === 'hour' ? 1 : 3;
+  for (let d = fromDay; d <= toDay; d++) {
+    top.push({ from: d, to: d + 1, label: fmt('gregory', digits, { weekday: 'long', day: 'numeric', month: 'short' }).format(dateOfDay(d)) });
+    for (let h = 0; h < 24; h += step) bottom.push({ from: d + h / 24, to: d + (h + step) / 24, label: hourLabel(h, digits) });
+  }
+  return { top, bottom };
+}
+
+/** `YYYY-MM-DDTHH:MM` → «20 أكتوبر 9:30 ص» (task grid and tooltips of HOUR projects). */
+export function dateTimeLabel(local: string, digits: Digits): string {
+  const day = fmt('gregory', digits, { day: 'numeric', month: 'short' }).format(new Date(`${local.slice(0, 10)}T00:00:00Z`));
+  if (local.length <= 10) return day;
+  const h = Number(local.slice(11, 13));
+  const m = local.slice(14, 16);
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const nf = new Intl.NumberFormat(`ar-SA-u-nu-${digits}`);
+  const mm = new Intl.NumberFormat(`ar-SA-u-nu-${digits}`, { minimumIntegerDigits: 2 }).format(Number(m));
+  return `${day} ${nf.format(h12)}:${mm} ${h >= 12 ? t('time.pm') : t('time.am')}`;
+}

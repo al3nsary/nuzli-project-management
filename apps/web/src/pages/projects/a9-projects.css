@@ -1,0 +1,400 @@
+/* A9 project screens (GanttPRO-clean, white + Nozoly indigo). Logical properties only. */
+
+/* ------------------------------------------------------------------ «كل المشاريع» */
+.nz-pl-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-block-end: var(--sp-4);
+}
+.nz-pl-search {
+  flex: 1 1 240px;
+  max-width: 380px;
+}
+.nz-pl-section + .nz-pl-section {
+  margin-block-start: var(--sp-5);
+}
+.nz-pl-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dim);
+  margin: 0 0 var(--sp-2);
+}
+.nz-pl-count {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--dim2);
+  background: var(--panel2);
+  border-radius: 999px;
+  padding: 0 8px;
+  line-height: 20px;
+}
+.nz-pl-table {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.nz-pl-row {
+  display: grid;
+  grid-template-columns: 44px minmax(220px, 2.4fr) 120px minmax(140px, 1.2fr) minmax(170px, 1.4fr) minmax(130px, 1fr) minmax(120px, 1fr);
+  align-items: center;
+  gap: var(--sp-3);
+  padding-inline: var(--sp-3);
+  min-height: 56px;
+  border-block-end: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 120ms var(--e);
+}
+.nz-pl-row:last-child {
+  border-block-end: 0;
+}
+.nz-pl-row:not(.nz-pl-head):hover {
+  background: var(--hover);
+}
+.nz-pl-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.nz-pl-head {
+  min-height: 38px;
+  cursor: default;
+  background: var(--panel2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+}
+.nz-pl-c-star {
+  display: flex;
+  justify-content: center;
+}
+.nz-pl-c-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.nz-pl-name-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nz-pl-link {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-pl-link:hover {
+  color: var(--primary);
+}
+.nz-pl-folder {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--tint);
+  color: var(--primary);
+}
+.nz-pl-budget {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+@media (max-width: 1200px) {
+  .nz-pl-row {
+    grid-template-columns: 44px minmax(200px, 2fr) 110px minmax(130px, 1fr) minmax(120px, 1fr);
+  }
+  .nz-pl-row > :nth-child(5),
+  .nz-pl-row > :nth-child(7) {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ create project (screenshot 2) */
+.nz-cp-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+}
+.nz-cp-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-block-end: 6px;
+}
+.nz-cp-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.nz-cp-day {
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--line2);
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+  transition: background 120ms var(--e), color 120ms var(--e), border-color 120ms var(--e);
+}
+.nz-cp-day:hover {
+  border-color: var(--primary);
+}
+.nz-cp-day[data-on] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.nz-cp-day:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.nz-cp-hours {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.nz-cp-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--tint);
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 13px;
+  padding-inline: 4px;
+}
+.nz-cp-chip[data-invalid] {
+  background: var(--p-no-b);
+  color: var(--p-no-t);
+}
+.nz-cp-chip-btn {
+  padding-inline: 10px 6px;
+  height: 100%;
+  color: inherit;
+}
+.nz-cp-chip-x {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: inherit;
+  opacity: 0.75;
+}
+.nz-cp-chip-x:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+/* ------------------------------------------------------------------ project page (screenshot 1) */
+.nz-ps {
+  gap: 0;
+}
+.nz-ps[data-fullscreen] {
+  height: 100dvh;
+  background: var(--void);
+  padding: var(--sp-3);
+}
+.nz-ps-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-block: 2px 10px;
+}
+.nz-ps-folder {
+  width: 36px;
+  height: 36px;
+}
+.nz-ps-name {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.2px;
+  max-width: min(60vw, 640px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 6px;
+  padding-inline: 4px;
+}
+.nz-ps-name[data-editable] {
+  cursor: text;
+}
+.nz-ps-name[data-editable]:hover {
+  background: var(--hover);
+}
+.nz-ps-name-input {
+  min-width: 260px;
+}
+.nz-ps-spacer {
+  flex: 1;
+}
+.nz-ps-status {
+  font-weight: 600;
+}
+.nz-ps-tabs {
+  margin-block-end: 8px;
+}
+.nz-ps-tabs .mantine-Tabs-list {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nz-ps-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+.nz-ps-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  padding: 4px 6px;
+}
+.nz-ps-tgroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-inline-end: 6px;
+  border-inline-end: 1px solid var(--line);
+}
+.nz-ps-tgroup:last-of-type {
+  border-inline-end: 0;
+}
+.nz-ps-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding-inline: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.nz-ps-tool:hover:not(:disabled) {
+  background: var(--hover);
+}
+.nz-ps-tool[data-active] {
+  background: var(--tint);
+  color: var(--primary);
+}
+.nz-ps-tool:disabled {
+  color: var(--dim2);
+  cursor: default;
+}
+.nz-ps-tool:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+/* GanttPRO keeps one toolbar row: secondary texts hide first, then all of them. */
+@media (max-width: 1720px) {
+  .nz-ps-tool:not([data-keep]) .nz-ps-tool-text {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  .nz-ps-tool-text {
+    display: none;
+  }
+}
+
+/* bulk bar */
+.nz-bulk {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--r3);
+  background: var(--tint);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+}
+.nz-bulk-count {
+  font-weight: 700;
+  color: var(--primary);
+  margin-inline-end: 6px;
+}
+.nz-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 24px);
+  gap: 6px;
+  padding: 8px;
+}
+.nz-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 0;
+  cursor: pointer;
+}
+.nz-swatch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* settings */
+.nz-set-row {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  background: var(--panel);
+}
+.nz-label-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex: none;
+}
+.nz-budget-kpi {
+  padding: 10px 12px;
+}
+
+/* list view */
+.nz-th-resize {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: -3px;
+  width: 7px;
+  cursor: col-resize;
+}
+.nz-th-resize:hover {
+  background: color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.nz-chip-label {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  padding-inline: 7px;
+  border-radius: 99px;
+  color: color-mix(in srgb, var(--lc) 70%, var(--ink));
+  background: color-mix(in srgb, var(--lc) 16%, var(--panel));
+}

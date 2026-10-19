@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { RouterProvider, type createBrowserRouter } from 'react-router-dom';
 import { DirectionProvider, MantineProvider, useMantineColorScheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
+import { ModalsProvider } from '@mantine/modals';
+import { t } from '../i18n';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import type { ApiClient } from '../api/client';
 import { ApiProvider } from '../api/context';
@@ -117,6 +119,8 @@ export function AppProviders({
         <Notifications position="top-center" zIndex={1000} />
         <DocumentDirection />
         <ColorSchemeSync />
+        {/* Confirm dialogs (modals.openConfirmModal) need this provider. */}
+        <ModalsProvider labels={{ confirm: t('common.yes'), cancel: t('common.cancel') }} modalProps={{ centered: true }}>
         <QueryClientProvider client={qc}>
           <ApiProvider api={api}>
             <AuthBootstrap api={api}>
@@ -126,6 +130,7 @@ export function AppProviders({
             </AuthBootstrap>
           </ApiProvider>
         </QueryClientProvider>
+        </ModalsProvider>
       </MantineProvider>
     </DirectionProvider>
   );

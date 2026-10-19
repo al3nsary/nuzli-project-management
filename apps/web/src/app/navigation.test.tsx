@@ -130,8 +130,10 @@ describe('nav registry → breadcrumbs and titles (rules 1–4)', () => {
     const projects = top.find((n) => n.id === 'projects')!;
     expect(t(projects.label)).toBe('كل المشاريع');
     expect(trailFor('/projects', { user: ADMIN, ctx, translate: t }).title).toBe('المشاريع');
-    // Pages being built have a real entry, route title and a guard.
-    for (const id of ['portfolios', 'timeLog', 'reports', 'workload', 'communication', 'attachments', 'orgStructure']) {
+    // A9 pages built in this round are real pages now.
+    for (const id of ['portfolios', 'timeLog', 'reports', 'workload']) expect(navLeaves().find((n) => n.id === id)!.soon, id).toBeUndefined();
+    // Pages still being built have a real entry, route title and a guard.
+    for (const id of ['communication', 'attachments', 'orgStructure']) {
       const leaf = navLeaves().find((n) => n.id === id)!;
       expect(leaf.soon, id).toBe(true);
       expect(leaf.permission, id).toBeTruthy();
@@ -344,7 +346,7 @@ describe('loading states (rule 9)', () => {
     const { api } = await renderApp('admin1@demo.nuzli.example', '/projects');
     // Hold the project list: the page must show its skeleton meanwhile.
     api.projects.list = () => new Promise(() => undefined);
-    await screen.findByRole('heading', { name: 'المشاريع', level: 1 }, { timeout: 5000 });
+    await screen.findByRole('heading', { name: 'كل المشاريع', level: 1 }, { timeout: 5000 });
     await waitFor(() => expect(document.querySelector('#main .nz-skel-wrap')).not.toBeNull());
     expect(document.querySelector('#main .mantine-Loader-root')).toBeNull();
   });

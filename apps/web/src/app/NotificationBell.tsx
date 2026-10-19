@@ -10,6 +10,7 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import { IconBell } from '@tabler/icons-react';
+import { useAuthStore } from '../stores/auth';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -72,7 +73,7 @@ export function useOpenNotification() {
       await api.notifications.markRead(n.id).catch(() => undefined);
       await qc.invalidateQueries({ queryKey: ['notifications'] });
     }
-    const link = notificationLink(n);
+    const link = notificationLink(n, useAuthStore.getState().user?.role);
     if (link) navigate(link);
   };
 }

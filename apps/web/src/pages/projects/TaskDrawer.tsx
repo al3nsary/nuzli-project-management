@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+/**
+ * The admin task drawer inside a project (A9). Tabs in the URL (`?ttab=`): details (with deadline,
+ * bar colour, budget and hours for HOUR projects — saved through `writes.updateTask` so Ctrl+Z
+ * undoes it), checklist, labels & custom fields, the task chat, attachments, time log and
+ * activity. `lg` on desktop, full screen on phones.
+ */
+import { useMemo, useState } from 'react';
 import {
   ActionIcon,
   Alert,
-  Anchor,
+  Badge,
   Button,
+  ColorInput,
   Drawer,
-  FileButton,
   Group,
   NumberInput,
   Select,
@@ -18,63 +24,88 @@ import {
   Textarea,
   useDirection,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
-import { IconLink, IconPaperclip, IconRefresh, IconTrash } from '@tabler/icons-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, can, type GanttDto, type Priority, type TaskDto, type TaskStatus } from '@nuzli/shared';
+import { IconFlag, IconLink, IconRefresh, IconTrash } from '@tabler/icons-react';
+import { can, type Priority, type TaskStatus } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { ApiError, errorMessage } from '../../api/errors';
-import { useSupervisors, useUsers } from '../../api/queries';
-import {
-  qk4,
-  useProjectAccess,
-  useTaskActivity,
-  useTaskAttachments,
-  useTaskComments,
-} from '../../api/projectQueries';
-import type { useProjectWrites } from '../../api/projectWrites';
+import { useSupervisors } from '../../api/queries';
+import { useTaskActivity } from '../../api/projectQueries';
+import type { ProjectWrites } from '../../api/projectWrites';
+import { unitOf, type GanttView, type TaskView } from '../../api/hoursWire';
 import { useAuthStore } from '../../stores/auth';
 import { FormError } from '../../components/ui';
-import { formatDate, formatDateTime, formatNumber, t, tKey } from '../../i18n';
-import { calendarOf } from '../../features/gantt/batch';
+import { formatDate, formatDateTime, formatLocalTime, formatMoney, formatNumber, t, tKey } from '../../i18n';
+import { calendarOf, checkNewLink, engineState } from '../../features/gantt/batch';
 import { linkMessage } from '../../features/gantt/Gantt';
-import { checkNewLink, engineState } from '../../features/gantt/batch';
 import { useTabParam } from '../../lib/useUrlState';
+import { TaskChat } from '../../features/chat/TaskChat';
+import { TaskChecklist } from '../../features/tasks/TaskChecklist';
+import { TaskTimeLog } from '../../features/tasks/TaskTimeLog';
+import { TaskAttachments } from '../../features/tasks/TaskAttachments';
+import { TaskLabelsFieldsEditor, TaskLabelsFieldsView } from '../../features/tasks/TaskLabelsFields';
+import { taskWhen } from '../../features/tasks/when';
 import { AssigneeChip, PRIORITIES, TASK_STATUSES, TaskStatusBadge, priorityLabel, taskStatusLabel, taskTypeLabel } from './parts';
+import '../../features/tasks/tasks.css';
 
-type Writes = ReturnType<typeof useProjectWrites>;
+type Writes = ProjectWrites;
 
-export function TaskDrawer({ data, taskId, writes, onClose }: { data: GanttDto; taskId: string | null; writes: Writes; onClose(): void }) {
+const TABS = ['details', 'checklist', 'meta', 'comments', 'files', 'time', 'activity'] as const;
+
+/** Bar colour swatches (task data colours, not chrome): indigo, blue, teal, green, amber, orange, red, purple, grey. */
+const BAR_SWATCHES = ['#303F9F', '#1565C0', '#00838F', '#2E7D32', '#A35C00', '#E65100', '#C62828', '#6A1B9A', '#546E7A'];
+
+export function TaskDrawer({ data, taskId, writes, onClose }: { data: GanttView; taskId: string | null; writes: Writes; onClose(): void }) {
   const task = data.tasks.find((x) => x.id === taskId) ?? null;
   // The tab is in the URL (?ttab=) so a link can open a task on its comments.
-  const [tab, setTab] = useTabParam('ttab', ['details', 'comments', 'files', 'activity'] as const, 'details');
+  const [tab, setTab] = useTabParam('ttab', TABS, 'details');
   const { dir } = useDirection();
+  const phone = useMediaQuery('(max-width: 767px)') ?? false;
   return (
     <Drawer
       opened={Boolean(task)}
       onClose={onClose}
       position={dir === 'rtl' ? 'left' : 'right'} // inline-end
-      size="lg"
+      size={phone ? '100%' : 'lg'}
       title={task ? `${task.wbs} · ${task.name}` : ''}
-      styles={{ title: { fontWeight: 700 } }}
+      styles={{ title: { fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, body: { paddingBlockStart: 0 } }}
     >
       {task ? (
         <Tabs value={tab} onChange={setTab} keepMounted={false}>
-          <Tabs.List mb="md">
+          <Tabs.List mb="md" className="nz-drawer-tabs">
             <Tabs.Tab value="details">{t('task.tab.details')}</Tabs.Tab>
+            <Tabs.Tab value="checklist">
+              {task.checklist?.total
+                ? t('a9s.drawer.tabChecklistCount', { done: formatNumber(task.checklist.done), total: formatNumber(task.checklist.total) })
+                : t('a9s.drawer.tabChecklist')}
+            </Tabs.Tab>
+            <Tabs.Tab value="meta">{t('a9s.drawer.tabMeta')}</Tabs.Tab>
             <Tabs.Tab value="comments">{t('task.tab.comments', { count: formatNumber(task.commentCount) })}</Tabs.Tab>
             <Tabs.Tab value="files">{t('task.tab.files', { count: formatNumber(task.attachmentCount) })}</Tabs.Tab>
+            <Tabs.Tab value="time">{t('a9s.drawer.tabTime')}</Tabs.Tab>
             <Tabs.Tab value="activity">{t('task.tab.activity')}</Tabs.Tab>
           </Tabs.List>
           <Tabs.Panel value="details">
             <TaskDetails key={`${task.id}:${task.version}`} data={data} task={task} writes={writes} onClose={onClose} />
           </Tabs.Panel>
+          <Tabs.Panel value="checklist">
+            <TaskChecklistTab task={task} />
+          </Tabs.Panel>
+          <Tabs.Panel value="meta">
+            <MetaTab data={data} task={task} writes={writes} />
+          </Tabs.Panel>
           <Tabs.Panel value="comments">
-            <TaskComments data={data} task={task} />
+            <div className="nz-drawer-chat">
+              <TaskChat taskId={task.id} taskName={task.name} projectId={task.projectId} assignee={task.assignee} />
+            </div>
           </Tabs.Panel>
           <Tabs.Panel value="files">
-            <TaskFiles task={task} />
+            <TaskAttachments taskId={task.id} projectId={task.projectId} assigneeId={task.assignee?.id ?? null} />
+          </Tabs.Panel>
+          <Tabs.Panel value="time">
+            <TimeTab task={task} />
           </Tabs.Panel>
           <Tabs.Panel value="activity">
             <TaskActivity task={task} />
@@ -85,33 +116,68 @@ export function TaskDrawer({ data, taskId, writes, onClose }: { data: GanttDto; 
   );
 }
 
+function TaskChecklistTab({ task }: { task: TaskView }) {
+  const user = useAuthStore((s) => s.user);
+  const mode = can(user, 'tasks.manage') ? 'admin' : task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned') ? 'assignee' : 'read';
+  return <TaskChecklist taskId={task.id} projectId={task.projectId} mode={mode} />;
+}
+
+function MetaTab({ data, task, writes }: { data: GanttView; task: TaskView; writes: Writes }) {
+  const user = useAuthStore((s) => s.user);
+  return can(user, 'tasks.manage') ? <TaskLabelsFieldsEditor data={data} task={task} writes={writes} /> : <TaskLabelsFieldsView taskId={task.id} />;
+}
+
+function TimeTab({ task }: { task: TaskView }) {
+  const user = useAuthStore((s) => s.user);
+  const admin = can(user, 'tasks.manage');
+  const mine = task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned');
+  return <TaskTimeLog taskId={task.id} admin={admin} canLog={admin || mine} />;
+}
+
 // ---------------------------------------------------------------- details
 
-function TaskDetails({ data, task, writes, onClose }: { data: GanttDto; task: TaskDto; writes: Writes; onClose(): void }) {
+const isHex = (v: string) => /^#[0-9a-fA-F]{6}$/.test(v);
+
+function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: TaskView; writes: Writes; onClose(): void }) {
   const api = useApi();
   const user = useAuthStore((s) => s.user);
   const admin = can(user, 'tasks.manage');
   const mine = task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned');
   const isGroup = data.tasks.some((x) => x.parentId === task.id);
+  const hours = unitOf(data.project) === 'HOUR';
+  const currency = data.project.currency ?? 'SAR';
   const supervisors = useSupervisors(admin);
   const cal = useMemo(() => calendarOf(data.calendar), [data.calendar]);
   const [form, setForm] = useState({
     name: task.name,
     type: task.type,
-    startDate: task.startDate,
+    startDate: hours ? task.startDate.slice(0, 16) : task.startDate.slice(0, 10),
     durationDays: task.durationDays,
+    durationHours: task.durationHours ?? 0,
     progress: task.progress,
     status: task.status,
     priority: task.priority,
     assigneeId: task.assignee?.id ?? null,
     description: task.description ?? '',
+    deadline: task.deadline ?? '',
+    barColor: task.barColor ?? '',
+    plannedCost: task.plannedCost ?? 0,
+    actualCost: task.actualCost ?? 0,
   });
   const [error, setError] = useState<unknown>(null);
+  const [colorError, setColorError] = useState<string | null>(null);
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
-  const endPreview = form.type === 'MILESTONE' ? cal.addWorkingDays(form.startDate || task.startDate, 0) : cal.endFromDuration(form.startDate || task.startDate, Math.max(1, form.durationDays || 1));
+  const endPreview =
+    form.type === 'MILESTONE'
+      ? cal.addWorkingDays(form.startDate || task.startDate, 0)
+      : cal.endFromDuration(form.startDate || task.startDate, Math.max(1, form.durationDays || 1));
 
   const save = async () => {
     setError(null);
+    if (form.barColor && !isHex(form.barColor)) {
+      setColorError(t('a9s.drawer.colorInvalid'));
+      return;
+    }
     const patch: Record<string, unknown> = { version: task.version };
     if (form.progress !== task.progress) patch.progress = form.progress;
     if (form.status !== task.status) patch.status = form.status;
@@ -120,10 +186,20 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttDto; task: Ta
       if (form.priority !== task.priority) patch.priority = form.priority;
       if ((form.assigneeId ?? null) !== (task.assignee?.id ?? null)) patch.assigneeId = form.assigneeId;
       if ((form.description || null) !== (task.description || null) && form.description.trim()) patch.description = form.description;
+      if ((form.deadline || null) !== (task.deadline ?? null)) patch.deadline = form.deadline || null;
+      const color = form.barColor ? form.barColor.toUpperCase() : null;
+      if (color !== (task.barColor ? task.barColor.toUpperCase() : null)) patch.barColor = color;
       if (!isGroup) {
         if (form.type !== task.type) patch.type = form.type;
-        if (form.startDate !== task.startDate) patch.startDate = form.startDate;
-        if (form.durationDays !== task.durationDays && form.type !== 'MILESTONE') patch.durationDays = form.durationDays;
+        if (hours) {
+          if (form.startDate !== task.startDate.slice(0, 16)) patch.startDate = form.startDate;
+          if (form.type !== 'MILESTONE' && form.durationHours !== (task.durationHours ?? 0)) patch.durationHours = form.durationHours;
+        } else {
+          if (form.startDate !== task.startDate.slice(0, 10)) patch.startDate = form.startDate;
+          if (form.durationDays !== task.durationDays && form.type !== 'MILESTONE') patch.durationDays = form.durationDays;
+        }
+        if (form.plannedCost !== (task.plannedCost ?? 0)) patch.plannedCost = form.plannedCost;
+        if (form.actualCost !== (task.actualCost ?? 0)) patch.actualCost = form.actualCost;
       }
     }
     if (Object.keys(patch).length === 1) {
@@ -131,8 +207,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttDto; task: Ta
       return;
     }
     try {
-      const res = await writes.run(() => api.tasks.update(task.id, patch as never));
-      writes.merge([res.task, ...res.affected]);
+      const res = await writes.updateTask(task.id, patch as never, t('undo.label.edit'));
       notifications.show({
         color: 'ok',
         message: res.affected.length ? t('task.savedShifted', { count: formatNumber(res.affected.length) }) : t('common.saved'),
@@ -150,9 +225,8 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttDto; task: Ta
       confirmProps: { color: 'breach' },
       onConfirm: async () => {
         try {
-          const res = await writes.run(() => api.tasks.archive(task.id));
+          const res = await writes.archive([task.id]);
           onClose();
-          await writes.refresh();
           notifications.show({ color: 'ok', message: t('task.archived', { count: formatNumber(res.archivedIds.length) }) });
         } catch (err) {
           notifications.show({ color: 'breach', message: errorMessage(err) });
@@ -161,6 +235,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttDto; task: Ta
     });
 
   const readOnly = !admin && !mine;
+  const money = (v: number) => formatMoney(v, currency);
   return (
     <Stack>
       {writes.conflict ? <ConflictAlert onRefresh={() => void writes.refresh()} /> : null}
@@ -174,11 +249,22 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttDto; task: Ta
           {t('task.supervisorHint')}
         </Alert>
       ) : null}
-      <Group gap="xs">
+      <Group gap="xs" wrap="wrap">
         <TaskStatusBadge status={task.status} />
         <Text size="sm" c="dimmed">
           {taskTypeLabel(isGroup ? 'GROUP' : task.type)}
         </Text>
+        {task.deadline ? (
+          <span className="nz-deadline" data-passed={task.deadlinePassed || undefined}>
+            <IconFlag size={14} aria-hidden />
+            {task.deadlinePassed ? t('a9s.deadline.passed', { date: formatDate(task.deadline) }) : t('a9s.deadline.on', { date: formatDate(task.deadline) })}
+          </span>
+        ) : null}
+        {task.overBudget ? (
+          <Badge color="breach" variant="light" radius="xl">
+            {t('a9s.drawer.overBudget')}
+          </Badge>
+        ) : null}
       </Group>
       <TextInput label={t('task.name')} value={form.name} onChange={(e) => set('name', e.currentTarget.value)} disabled={!admin} required />
       {!isGroup ? (
@@ -186,26 +272,156 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttDto; task: Ta
           label={t('task.type')}
           data={(['TASK', 'MILESTONE'] as const).map((x) => ({ value: x, label: taskTypeLabel(x) }))}
           value={form.type === 'GROUP' ? 'TASK' : form.type}
-          onChange={(v) => v && set('type', v as TaskDto['type'])}
+          onChange={(v) => v && set('type', v as TaskView['type'])}
           disabled={!admin}
           allowDeselect={false}
         />
       ) : null}
+
+      {hours ? (
+        <>
+          <SimpleGrid cols={{ base: 1, xs: 2 }}>
+            <TextInput
+              type="datetime-local"
+              label={t('a9s.drawer.startTime')}
+              value={form.startDate}
+              step={900}
+              onChange={(e) => set('startDate', e.currentTarget.value)}
+              disabled={!admin || isGroup}
+            />
+            <NumberInput
+              label={t('a9s.drawer.durationHours')}
+              description={t('a9s.drawer.durationHoursHint')}
+              min={form.type === 'MILESTONE' ? 0 : 0.25}
+              max={87_600}
+              step={0.25}
+              decimalScale={2}
+              value={form.type === 'MILESTONE' ? 0 : form.durationHours}
+              onChange={(v) => set('durationHours', Math.max(0.25, Math.round((Number(v) || 0.25) * 4) / 4))}
+              disabled={!admin || isGroup || form.type === 'MILESTONE'}
+            />
+          </SimpleGrid>
+          <Text size="sm" c="dimmed">
+            {t('a9s.drawer.whenNow', { when: taskWhen(task) })}
+          </Text>
+        </>
+      ) : (
+        <>
+          <SimpleGrid cols={{ base: 1, xs: 2 }}>
+            <TextInput type="date" label={t('task.start')} value={form.startDate} onChange={(e) => set('startDate', e.currentTarget.value)} disabled={!admin || isGroup} />
+            <NumberInput
+              label={t('task.duration')}
+              description={t('task.durationHint')}
+              min={form.type === 'MILESTONE' ? 0 : 1}
+              max={3650}
+              value={form.type === 'MILESTONE' ? 0 : form.durationDays}
+              onChange={(v) => set('durationDays', Number(v) || 1)}
+              disabled={!admin || isGroup || form.type === 'MILESTONE'}
+              allowDecimal={false}
+            />
+          </SimpleGrid>
+          <Text size="sm" c="dimmed">
+            {t('task.endComputed', { date: formatDate(isGroup ? task.endDate : endPreview) })}
+          </Text>
+        </>
+      )}
+
       <SimpleGrid cols={{ base: 1, xs: 2 }}>
-        <TextInput type="date" label={t('task.start')} value={form.startDate} onChange={(e) => set('startDate', e.currentTarget.value)} disabled={!admin || isGroup} />
-        <NumberInput
-          label={t('task.duration')}
-          description={t('task.durationHint')}
-          min={form.type === 'MILESTONE' ? 0 : 1}
-          max={3650}
-          value={form.type === 'MILESTONE' ? 0 : form.durationDays}
-          onChange={(v) => set('durationDays', Number(v) || 1)}
-          disabled={!admin || isGroup || form.type === 'MILESTONE'}
+        <TextInput
+          type="date"
+          label={t('a9s.drawer.deadline')}
+          description={t('a9s.drawer.deadlineHint')}
+          value={form.deadline}
+          onChange={(e) => set('deadline', e.currentTarget.value)}
+          disabled={!admin}
+          rightSection={
+            admin && form.deadline ? (
+              <ActionIcon variant="subtle" color="gray" size="sm" aria-label={t('a9s.drawer.clearDeadline')} onClick={() => set('deadline', '')}>
+                <IconTrash size={14} />
+              </ActionIcon>
+            ) : null
+          }
+        />
+        <ColorInput
+          label={t('a9s.drawer.barColor')}
+          description={t('a9s.drawer.barColorHint')}
+          placeholder={t('a9s.drawer.barColorDefault')}
+          format="hex"
+          swatches={BAR_SWATCHES}
+          swatchesPerRow={9}
+          value={form.barColor}
+          onChange={(v) => {
+            setColorError(null);
+            set('barColor', v);
+          }}
+          disabled={!admin}
+          withEyeDropper={false}
+          error={colorError}
+          rightSection={
+            admin && form.barColor ? (
+              <ActionIcon variant="subtle" color="gray" size="sm" aria-label={t('a9s.drawer.clearColor')} onClick={() => set('barColor', '')}>
+                <IconTrash size={14} />
+              </ActionIcon>
+            ) : null
+          }
         />
       </SimpleGrid>
-      <Text size="sm" c="dimmed">
-        {t('task.endComputed', { date: formatDate(isGroup ? task.endDate : endPreview) })}
-      </Text>
+
+      <div className="surface-card nz-drawer-budget">
+        <Text fw={600} size="sm" mb={6}>
+          {t('a9s.drawer.budget')}
+        </Text>
+        {isGroup ? (
+          <SimpleGrid cols={2} spacing="xs">
+            <div>
+              <Text size="xs" c="dimmed">
+                {t('a9s.drawer.plannedCost')}
+              </Text>
+              <Text fw={600} className="num">
+                {money(task.plannedCost ?? 0)}
+              </Text>
+            </div>
+            <div>
+              <Text size="xs" c="dimmed">
+                {t('a9s.drawer.actualCost')}
+              </Text>
+              <Text fw={600} className="num" c={task.overBudget ? 'var(--red)' : undefined}>
+                {money(task.actualCost ?? 0)}
+              </Text>
+            </div>
+            <Text size="xs" c="dimmed" style={{ gridColumn: '1 / -1' }}>
+              {t('a9s.drawer.groupSums')}
+            </Text>
+          </SimpleGrid>
+        ) : (
+          <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="xs">
+            <NumberInput
+              label={t('a9s.drawer.plannedCost')}
+              min={0}
+              decimalScale={2}
+              thousandSeparator=","
+              value={form.plannedCost}
+              onChange={(v) => set('plannedCost', Math.max(0, Number(v) || 0))}
+              rightSection={<Text size="xs" c="dimmed">{currency === 'SAR' ? t('money.sar') : currency}</Text>}
+              rightSectionWidth={44}
+              disabled={!admin}
+            />
+            <NumberInput
+              label={t('a9s.drawer.actualCost')}
+              min={0}
+              decimalScale={2}
+              thousandSeparator=","
+              value={form.actualCost}
+              onChange={(v) => set('actualCost', Math.max(0, Number(v) || 0))}
+              rightSection={<Text size="xs" c="dimmed">{currency === 'SAR' ? t('money.sar') : currency}</Text>}
+              rightSectionWidth={44}
+              disabled={!admin}
+              error={form.actualCost > form.plannedCost && form.plannedCost > 0 ? t('a9s.drawer.overBy', { value: money(form.actualCost - form.plannedCost) }) : undefined}
+            />
+          </SimpleGrid>
+        )}
+      </div>
+
       <div>
         <Text size="sm" fw={500} mb={4} id="task-progress-label">
           {t('task.progressValue', { value: formatNumber(Math.round(form.progress)) })}
@@ -263,7 +479,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttDto; task: Ta
       <Textarea label={t('task.description')} autosize minRows={2} value={form.description} onChange={(e) => set('description', e.currentTarget.value)} disabled={!admin} />
       <Dependencies data={data} task={task} writes={writes} editable={admin} />
       {!readOnly ? (
-        <Group justify="space-between" mt="sm">
+        <Group justify="space-between" mt="sm" className="nz-drawer-actions">
           {admin ? (
             <Button variant="subtle" color="breach" leftSection={<IconTrash size={16} />} onClick={archive}>
               {t('task.archive')}
@@ -290,7 +506,7 @@ export function ConflictAlert({ onRefresh }: { onRefresh(): void }) {
   );
 }
 
-function Dependencies({ data, task, writes, editable }: { data: GanttDto; task: TaskDto; writes: Writes; editable: boolean }) {
+function Dependencies({ data, task, writes, editable }: { data: GanttView; task: TaskView; writes: Writes; editable: boolean }) {
   const api = useApi();
   const names = new Map(data.tasks.map((x) => [x.id, x]));
   const preds = data.dependencies.filter((d) => d.successorId === task.id);
@@ -380,262 +596,11 @@ function Dependencies({ data, task, writes, editable }: { data: GanttDto; task: 
   );
 }
 
-// ---------------------------------------------------------------- comments with @mentions
-
-interface Person {
-  id: string;
-  fullName: string;
-}
-
-function useMentionCandidates(data: GanttDto): Person[] {
-  const user = useAuthStore((s) => s.user);
-  const admin = can(user, 'users.read');
-  const admins = useUsers({ role: 'ADMIN', status: 'ACTIVE', pageSize: 200 }, admin);
-  const access = useProjectAccess(data.project.id, can(user, 'projects.manage'));
-  return useMemo(() => {
-    const m = new Map<string, Person>();
-    m.set(data.project.owner.id, data.project.owner);
-    for (const x of data.tasks) if (x.assignee) m.set(x.assignee.id, { id: x.assignee.id, fullName: x.assignee.fullName });
-    for (const u of admins.data?.items ?? []) m.set(u.id, { id: u.id, fullName: u.fullName });
-    for (const a of access.data ?? []) m.set(a.user.id, { id: a.user.id, fullName: a.user.fullName });
-    if (user) m.delete(user.id);
-    return [...m.values()].sort((a, b) => a.fullName.localeCompare(b.fullName, 'ar'));
-  }, [data, admins.data, access.data, user]);
-}
-
-function TaskComments({ data, task }: { data: GanttDto; task: TaskDto }) {
-  const api = useApi();
-  const qc = useQueryClient();
-  const user = useAuthStore((s) => s.user);
-  const comments = useTaskComments(task.id);
-  const people = useMentionCandidates(data);
-  const [body, setBody] = useState('');
-  const [mentions, setMentions] = useState<Map<string, string>>(new Map());
-  const [query, setQuery] = useState<{ start: number; text: string } | null>(null);
-  const [active, setActive] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const canComment = can(user, 'tasks.comment');
-
-  const matches = query ? people.filter((p) => p.fullName.includes(query.text)).slice(0, 6) : [];
-
-  const onChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    const v = e.currentTarget.value;
-    setBody(v);
-    const caret = e.currentTarget.selectionStart ?? v.length;
-    const before = v.slice(0, caret);
-    const at = before.lastIndexOf('@');
-    if (at >= 0 && (at === 0 || /\s/.test(before[at - 1]!)) && !/\n/.test(before.slice(at)) && before.length - at <= 30) {
-      setQuery({ start: at, text: before.slice(at + 1) });
-      setActive(0);
-    } else setQuery(null);
-  };
-
-  const pick = (p: Person) => {
-    if (!query) return;
-    const caret = query.start + 1 + query.text.length;
-    const next = `${body.slice(0, query.start)}@${p.fullName} ${body.slice(caret)}`;
-    setBody(next);
-    setMentions((m) => new Map(m).set(p.id, p.fullName));
-    setQuery(null);
-    requestAnimationFrame(() => ref.current?.focus());
-  };
-
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!query || !matches.length) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setActive((a) => (a + 1) % matches.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setActive((a) => (a - 1 + matches.length) % matches.length);
-    } else if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
-      pick(matches[active]!);
-    } else if (e.key === 'Escape') setQuery(null);
-  };
-
-  const send = async () => {
-    const text = body.trim();
-    if (!text) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // Only mentions whose name is still in the text are sent.
-      const ids = [...mentions].filter(([, name]) => text.includes(`@${name}`)).map(([id]) => id);
-      await api.tasks.addComment(task.id, { body: text, mentions: ids });
-      setBody('');
-      setMentions(new Map());
-      await qc.invalidateQueries({ queryKey: qk4.comments(task.id) });
-      void qc.invalidateQueries({ queryKey: qk4.gantt(task.projectId) });
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Stack>
-      {comments.data?.length ? (
-        comments.data.map((c) => (
-          <div key={c.id} className="surface-card" style={{ padding: 12 }}>
-            <Group justify="space-between" gap="xs">
-              <Text fw={600} size="sm">
-                {c.author.fullName}
-              </Text>
-              <Text size="xs" c="dimmed">
-                {formatDateTime(c.createdAt)}
-              </Text>
-            </Group>
-            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-              {c.body}
-            </Text>
-          </div>
-        ))
-      ) : (
-        <Text c="dimmed" size="sm">
-          {comments.isLoading ? t('app.loading') : t('task.noComments')}
-        </Text>
-      )}
-      {canComment ? (
-        <Stack gap={6}>
-          <FormError error={error} />
-          <Textarea
-            ref={ref}
-            label={t('task.newComment')}
-            description={t('task.mentionHint')}
-            autosize
-            minRows={3}
-            value={body}
-            onChange={onChange}
-            onKeyDown={onKeyDown}
-            aria-autocomplete="list"
-            aria-controls="nz-mentions"
-            aria-expanded={Boolean(query && matches.length)}
-          />
-          {query && matches.length ? (
-            <div id="nz-mentions" role="listbox" aria-label={t('task.mentionList')} className="nz-mention-list">
-              {matches.map((p, i) => (
-                <button key={p.id} type="button" role="option" aria-selected={i === active} className="nz-mention-item" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(p)}>
-                  {p.fullName}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <Group justify="flex-end">
-            <Button onClick={() => void send()} loading={busy} disabled={!body.trim()}>
-              {t('task.sendComment')}
-            </Button>
-          </Group>
-        </Stack>
-      ) : null}
-    </Stack>
-  );
-}
-
-// ---------------------------------------------------------------- attachments
-
-function TaskFiles({ task }: { task: TaskDto }) {
-  const api = useApi();
-  const qc = useQueryClient();
-  const user = useAuthStore((s) => s.user);
-  const files = useTaskAttachments(task.id);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const canUpload = can(user, 'tasks.manage') || task.assignee?.id === user?.id;
-
-  const refresh = async () => {
-    await qc.invalidateQueries({ queryKey: qk4.attachments(task.id) });
-    void qc.invalidateQueries({ queryKey: qk4.gantt(task.projectId) });
-  };
-
-  const upload = async (file: File | null) => {
-    if (!file) return;
-    setError(null);
-    if (!(ALLOWED_UPLOAD_TYPES as readonly string[]).includes(file.type)) {
-      setError(ApiError.of('FILE_TYPE_NOT_ALLOWED', 415));
-      return;
-    }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setError(ApiError.of('FILE_TOO_LARGE', 413));
-      return;
-    }
-    setBusy(true);
-    try {
-      const p = await api.files.presign({ entityType: 'task', entityId: task.id, kind: 'ATTACHMENT', contentType: file.type as never, sizeBytes: file.size });
-      await api.files.upload(p, file);
-      await api.files.confirm(p.fileId);
-      await refresh();
-      notifications.show({ color: 'ok', message: t('task.fileUploaded') });
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const open = async (fileId: string) => {
-    try {
-      const { url } = await api.tasks.attachmentUrl(task.id, fileId);
-      window.open(url, '_blank', 'noopener');
-    } catch (err) {
-      setError(err);
-    }
-  };
-
-  const remove = async (fileId: string) => {
-    try {
-      await api.tasks.removeAttachment(task.id, fileId);
-      await refresh();
-    } catch (err) {
-      setError(err);
-    }
-  };
-
-  return (
-    <Stack>
-      <FormError error={error} />
-      {files.data?.length ? (
-        files.data.map((f, i) => (
-          <Group key={f.id} justify="space-between" wrap="nowrap" className="surface-card" p="sm">
-            <div style={{ minWidth: 0 }}>
-              <Anchor component="button" type="button" onClick={() => void open(f.id)}>
-                {t('task.fileName', { n: formatNumber(i + 1), type: f.mimeType === 'application/pdf' ? 'PDF' : t('task.image') })}
-              </Anchor>
-              <Text size="xs" c="dimmed">
-                {t('task.fileMeta', { by: f.uploadedBy?.fullName ?? t('common.unknownUser'), at: formatDateTime(f.createdAt), size: formatNumber(Math.ceil(f.sizeBytes / 1024)) })}
-              </Text>
-            </div>
-            {can(user, 'tasks.manage') || f.uploadedBy?.id === user?.id ? (
-              <ActionIcon variant="subtle" color="breach" aria-label={t('task.removeFile')} onClick={() => void remove(f.id)}>
-                <IconTrash size={16} />
-              </ActionIcon>
-            ) : null}
-          </Group>
-        ))
-      ) : (
-        <Text c="dimmed" size="sm">
-          {files.isLoading ? t('app.loading') : t('task.noFiles')}
-        </Text>
-      )}
-      {canUpload ? (
-        <FileButton onChange={(f) => void upload(f)} accept={ALLOWED_UPLOAD_TYPES.join(',')}>
-          {(props) => (
-            <Button {...props} variant="light" leftSection={<IconPaperclip size={16} />} loading={busy}>
-              {t('task.attachFile')}
-            </Button>
-          )}
-        </FileButton>
-      ) : null}
-    </Stack>
-  );
-}
-
 // ---------------------------------------------------------------- activity
 
-function TaskActivity({ task }: { task: TaskDto }) {
+const SHOWN_FIELDS = ['startDate', 'endDate', 'progress', 'status', 'durationDays', 'durationHours', 'name', 'assigneeId', 'priority', 'deadline', 'barColor', 'plannedCost', 'actualCost', 'labelIds'];
+
+function TaskActivity({ task }: { task: TaskView }) {
   const activity = useTaskActivity(task.id);
   if (activity.isLoading) return <Text c="dimmed">{t('app.loading')}</Text>;
   if (!activity.data?.length) return <Text c="dimmed">{t('task.noActivity')}</Text>;
@@ -644,10 +609,10 @@ function TaskActivity({ task }: { task: TaskDto }) {
       {activity.data.map((a) => {
         const after = (a.after && typeof a.after === 'object' ? a.after : {}) as Record<string, unknown>;
         const auto = after.auto === true;
-        const fields = Object.keys(after).filter((k) => ['startDate', 'endDate', 'progress', 'status', 'durationDays', 'name', 'assigneeId'].includes(k));
+        const fields = Object.keys(after).filter((k) => SHOWN_FIELDS.includes(k));
         return (
           <div key={a.id} style={{ paddingBlock: 8, borderBlockEnd: '1px solid var(--line)' }}>
-            <Group justify="space-between" gap="xs">
+            <Group justify="space-between" gap="xs" wrap="nowrap">
               <Text size="sm" fw={600}>
                 {tKey(`audit.action.${a.action}`, 'audit.action.other')}
                 {auto ? (
@@ -656,7 +621,7 @@ function TaskActivity({ task }: { task: TaskDto }) {
                   </Text>
                 ) : null}
               </Text>
-              <Text size="xs" c="dimmed">
+              <Text size="xs" c="dimmed" style={{ flex: '0 0 auto' }}>
                 {formatDateTime(a.at)}
               </Text>
             </Group>
@@ -674,8 +639,15 @@ function TaskActivity({ task }: { task: TaskDto }) {
 function describe(field: string, value: unknown): string {
   const label = tKey(`audit.fieldName.${field}`, 'audit.field');
   if (field === 'status') return `${label}: ${taskStatusLabel(String(value))}`;
+  if (field === 'priority') return `${label}: ${priorityLabel(String(value))}`;
   if (field === 'progress') return `${label}: ${formatNumber(Number(value))}٪`;
-  if (field === 'startDate' || field === 'endDate') return `${label}: ${formatDate(String(value))}`;
-  if (field === 'assigneeId') return label;
+  if (field === 'plannedCost' || field === 'actualCost') return `${label}: ${formatMoney(Number(value))}`;
+  if (field === 'durationHours') return `${label}: ${formatNumber(Number(value))}`;
+  if (field === 'startDate' || field === 'endDate' || field === 'deadline') {
+    if (value === null || value === undefined || value === '') return `${label}: ${t('common.none')}`;
+    const s = String(value);
+    return `${label}: ${formatDate(s.slice(0, 10))}${s.length > 10 ? ` ${formatLocalTime(s)}` : ''}`;
+  }
+  if (field === 'assigneeId' || field === 'barColor' || field === 'labelIds') return label;
   return `${label}: ${String(value)}`;
 }
