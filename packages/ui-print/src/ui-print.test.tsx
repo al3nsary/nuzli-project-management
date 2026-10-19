@@ -297,11 +297,11 @@ describe('photo area (owner request A8)', () => {
     expect(CARD_BASE_CSS).toMatch(/\.nz-photo \{[^}]*object-fit: cover/);
   });
 
-  it('without a photo: initials of the first and last name on #E8EAF6 in #303F9F, with a silhouette', () => {
+  it('without a photo: initials of the first and last name on #f0edfd in #5030e5, with a silhouette', () => {
     const html = render(<WorkCard template={template()} data={data} />);
     expect(html).toContain('data-photo="placeholder"');
-    expect(html).toContain('background:#E8EAF6');
-    expect(html).toContain('color:#303F9F');
+    expect(html).toContain('background:#f0edfd');
+    expect(html).toContain('color:#5030e5');
     expect(html).toContain('nz-photo-silhouette');
     expect(html).toContain('>م‌ق</span>');
     expect(html).not.toContain('<img class="nz-photo"');
@@ -402,7 +402,7 @@ describe('worker foreman marker (owner request A10)', () => {
           expect(html).toContain('data-foreman="true"');
           expect(html).toContain('مشرف عمّال');
           expect(html).toContain('class="nz-helmet"');
-          expect(html).toContain('#303F9F');
+          expect(html).toContain('#5030e5');
           expect(html).not.toMatch(/\d(px)\b/);
           // The ribbon comes right after the name.
           expect(html.indexOf('data-field="role"')).toBeGreaterThan(html.indexOf('class="nz-name"'));
@@ -423,7 +423,7 @@ describe('worker foreman marker (owner request A10)', () => {
 
   it('frames a foreman photo in indigo; the text label is always there (not colour only)', () => {
     const html = render(<WorkCard template={template()} data={{ ...data, isForeman: true } as CardData} />);
-    expect(html).toMatch(/nz-photo-frame[^>]*border:0\.5mm solid #303F9F/);
+    expect(html).toMatch(/nz-photo-frame[^>]*border:0\.5mm solid #5030e5/);
     expect(html).toMatch(/nz-role-text">مشرف عمّال</);
   });
 });

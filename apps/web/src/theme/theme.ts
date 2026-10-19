@@ -7,24 +7,24 @@ import {
 } from '@mantine/core';
 
 /*
- * Mantine follows the Nozoly identity (owner request A9): white surfaces, Nozoly indigo as the
- * primary colour. The colour names of phases 1–4 are kept so screens did not have to change:
- * `field` is now Nozoly indigo, `ok` = --live, `signal` = --amber, `breach` = --red,
- * `info` = --blue; `gold` (the Muhsen-era accent) now resolves to indigo as well.
+ * Mantine follows the Nozoly identity (owner requests A9 and A11): white surfaces, Nozoly violet
+ * as the primary colour. The colour names of phases 1–4 are kept so screens did not have to change:
+ * `field` is Nozoly violet, `ok` = --live, `signal` = --amber, `breach` = --red,
+ * `info` = --blue; `gold` and `indigo` resolve to the same violet.
  */
 
-/** Nozoly indigo: #303F9F at 6 (light primary), #3F51B5 at 5 (dark primary, white text 6.9:1). */
+/** Nozoly violet: #5030E5 at 6 (light primary, white text 7.3:1), #6A4FF0 at 5 (dark primary). */
 const field: MantineColorsTuple = [
-  '#e8eaf6',
-  '#c5cae9',
-  '#9fa8da',
-  '#7986cb',
-  '#5c6bc0',
-  '#3f51b5',
-  '#303f9f',
-  '#283593',
-  '#1a237e',
-  '#121858',
+  '#f0edfd',
+  '#d9d1fa',
+  '#bdb0f7',
+  '#a18ff3',
+  '#8268ef',
+  '#6a4ff0',
+  '#5030e5',
+  '#4426cc',
+  '#371da8',
+  '#261478',
 ];
 /** --red #C62828 (light, index 6) and #EF6461 (dark, index 4). */
 const breach: MantineColorsTuple = [
@@ -80,16 +80,16 @@ const info: MantineColorsTuple = [
 ];
 /** Neutrals from --void to --ink (light). */
 const slate: MantineColorsTuple = [
-  '#f1f3f6',
-  '#eef0f4',
-  '#e6e8ec',
-  '#d5d9e0',
-  '#a3a9b5',
-  '#6f7787',
-  '#5e6676',
-  '#3d4452',
-  '#2a303c',
-  '#1f2430',
+  '#f5f5f5',
+  '#eeeef0',
+  '#ebeaf0',
+  '#d9d7e1',
+  '#b3b0bf',
+  '#787486',
+  '#6a667a',
+  '#55516a',
+  '#2b2547',
+  '#0d062d',
 ];
 /** Mantine dark ramp: [0] text … [4] borders, [6] cards/inputs, [7] body — neutral night. */
 const dark: MantineColorsTuple = [
@@ -105,8 +105,8 @@ const dark: MantineColorsTuple = [
   '#0f1115',
 ];
 
-const SHADOW = '0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.03)';
-const LIFT = '0 4px 12px -2px rgba(16,24,40,.08), 0 16px 36px -10px rgba(16,24,40,.14)';
+const SHADOW = '0 1px 2px rgba(13,6,45,.04), 0 1px 3px rgba(13,6,45,.03)';
+const LIFT = '0 4px 12px -2px rgba(13,6,45,.08), 0 16px 36px -10px rgba(13,6,45,.16)';
 
 /** Light badges, alerts and theme icons use the status pills (tokens follow the scheme). */
 const PILL: Record<string, { b: string; t: string }> = {
@@ -160,14 +160,14 @@ export const theme = createTheme({
     dark,
   },
   white: '#ffffff',
-  black: '#1f2430',
+  black: '#0d062d',
   fontFamily: "'IBM Plex Sans Arabic', 'Segoe UI', system-ui, sans-serif",
   fontFamilyMonospace: "'IBM Plex Mono', ui-monospace, monospace",
   headings: {
     fontFamily: "'Readex Pro Variable', 'IBM Plex Sans Arabic', sans-serif",
     fontWeight: '600',
     sizes: {
-      h1: { fontSize: '1.625rem', lineHeight: '1.3' },
+      h1: { fontSize: '2rem', lineHeight: '1.25' },
       h2: { fontSize: '1.3rem', lineHeight: '1.35' },
       h3: { fontSize: '1.0625rem', lineHeight: '1.4' },
       h4: { fontSize: '0.9375rem', lineHeight: '1.4' },
@@ -177,7 +177,7 @@ export const theme = createTheme({
   lineHeights: { xs: '1.6', sm: '1.7', md: '1.75', lg: '1.6', xl: '1.5' },
   spacing: { xs: '8px', sm: '12px', md: '16px', lg: '24px', xl: '32px' },
   // --r4 chips, --r3 inputs and buttons, --r cards, --r2 dialogs.
-  radius: { xs: '4px', sm: '6px', md: '8px', lg: '12px', xl: '16px' },
+  radius: { xs: '4px', sm: '6px', md: '6px', lg: '16px', xl: '20px' },
   defaultRadius: 'md',
   shadows: { xs: SHADOW, sm: SHADOW, md: SHADOW, lg: LIFT, xl: LIFT },
   focusRing: 'auto',
@@ -190,10 +190,10 @@ export const theme = createTheme({
     Drawer: { defaultProps: { overlayProps: { backgroundOpacity: 1, color: 'var(--scrim)', blur: 4 } } },
     Popover: { defaultProps: { radius: 'lg', shadow: 'lg' } },
     Menu: { defaultProps: { radius: 'lg', shadow: 'lg' } },
-    Badge: { defaultProps: { radius: 'xl', variant: 'light' } },
+    Badge: { defaultProps: { radius: 'xs', variant: 'light' } },
     Tooltip: { defaultProps: { radius: 'sm', withArrow: true, openDelay: 250 } },
     Table: { defaultProps: { highlightOnHover: true, striped: false, verticalSpacing: 'sm' } },
-    Button: { defaultProps: { radius: 'md' }, styles: { root: { minHeight: 40, fontWeight: 600 } } },
+    Button: { defaultProps: { radius: 'sm' }, styles: { root: { minHeight: 40, fontWeight: 600 } } },
     TextInput: { defaultProps: { size: 'md' } },
     PasswordInput: { defaultProps: { size: 'md' } },
     Select: { defaultProps: { size: 'md' } },

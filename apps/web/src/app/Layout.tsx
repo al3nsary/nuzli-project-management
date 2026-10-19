@@ -16,7 +16,7 @@ import { RoleBottomBar, hasBottomBar } from './MonitorBottomBar';
 /** Scroll positions per history entry (rule 6): restored on back/forward, top on a new page. */
 const scrollPositions = new Map<string, number>();
 
-/** The stage scrolls (Muhsen Control `.view`), so the side and the top bar never move. */
+/** The stage scrolls, so the side and the top bar never move. */
 export function stageScroller(): HTMLElement | null {
   return typeof document === 'undefined' ? null : document.getElementById('nz-stage');
 }

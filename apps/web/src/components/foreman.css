@@ -1,16 +1,16 @@
 /* A10 (ADR-129): the worker foreman everywhere — indigo, helmet and the words «مشرف عمّال».
    Logical properties only; the bar sits on the inline start (right in RTL). */
 :root {
-  --foreman: #3949ab;
+  --foreman: #5030e5;
   --foreman-ink: #ffffff;
-  --foreman-tint: #e8eaf6;
-  --foreman-text: #283593;
+  --foreman-tint: #f0edfd;
+  --foreman-text: #4426cc;
 }
 :root[data-mantine-color-scheme='dark'] {
-  --foreman: #5c6bc0;
+  --foreman: #7b61f0;
   --foreman-ink: #ffffff;
-  --foreman-tint: rgba(121, 134, 203, 0.18);
-  --foreman-text: #c5cae9;
+  --foreman-tint: rgba(150, 128, 255, 0.18);
+  --foreman-text: #d9d1fa;
 }
 
 .nz-foreman-badge {
