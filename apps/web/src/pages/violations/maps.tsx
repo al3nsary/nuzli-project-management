@@ -193,7 +193,7 @@ export function ClusterMap({
     const b = bbox ? bboxToBounds(bbox) : null;
     if (b) {
       areaRef.current = L.rectangle(b, {
-        color: '#303F9F',
+        color: '#5030e5',
         weight: 2,
         dashArray: '6 4',
         fillOpacity: 0.06,
@@ -212,7 +212,7 @@ export function ClusterMap({
     let rect: L.Rectangle | null = null;
     const down = (e: L.LeafletMouseEvent) => {
       start = e.latlng;
-      rect = L.rectangle(L.latLngBounds(start, start), { color: '#303F9F', weight: 2, fillOpacity: 0.08 }).addTo(map);
+      rect = L.rectangle(L.latLngBounds(start, start), { color: '#5030e5', weight: 2, fillOpacity: 0.08 }).addTo(map);
     };
     const move = (e: L.LeafletMouseEvent) => {
       if (start && rect) rect.setBounds(L.latLngBounds(start, e.latlng));

@@ -1,6 +1,6 @@
-/* A10: the task chat icon (indigo speech bubble + count + red unread badge). Logical properties only. */
+/* A10: the task chat icon (violet speech bubble + count + red unread badge). Logical properties only. */
 .nz-chatbtn {
-  --cb: #3949ab;
+  --cb: #5030e5;
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -37,7 +37,7 @@
   color: var(--cb);
 }
 .nz-chatbtn:focus-visible {
-  outline: 2px solid var(--focus, #3949ab);
+  outline: 2px solid var(--focus, #7b61f0);
   outline-offset: 2px;
 }
 /* The unread count sits inside the pill (never clipped by the grid row). */
@@ -56,5 +56,5 @@
   font-weight: 700;
 }
 :root[data-mantine-color-scheme='dark'] .nz-chatbtn {
-  --cb: #9fa8da;
+  --cb: #bdb0f7;
 }

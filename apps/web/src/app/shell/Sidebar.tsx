@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Tooltip } from '@mantine/core';
 import { useFocusTrap, useMergedRef } from '@mantine/hooks';
@@ -16,10 +16,9 @@ import {
 import { can } from '@nuzli/shared';
 import { NAV_GROUPS, type BadgeKind, type NavNode } from '../nav';
 import { formatNumber, t } from '../../i18n';
-import { MuhsenSystemLine, NozolyLogo } from '../../components/Brand';
+import { NozolyLogo } from '../../components/Brand';
 import { useAuthStore } from '../../stores/auth';
 import { useProjects } from '../../api/projectQueries';
-import { useFigma } from '../../theme/design';
 import { useShellStore } from './store';
 import { sumBadges } from './useNavModel';
 import { dirSign } from '../../lib/direction';
@@ -189,29 +188,26 @@ function ThoughtsCard({ onPick }: { onPick(): void }) {
 }
 
 /**
- * The side navigation, GanttPRO-style (owner request A9): a white panel with the Nozoly logo and
- * the fold button on top, the prominent «+ إنشاء مشروع جديد» button (admins), then the items in
- * GanttPRO's order with quiet hairline separators; the active item is indigo on an indigo tint
- * with a 3px bar on its inline-start edge. «منظومة مُحسن» sits quietly at the foot.
- * Desktop: 256px or the 68px rail (Ctrl+B). Phones: a drawer from the inline start.
+ * The side navigation (owner requests A9 and A11, the Figma project dashboard): a white panel with
+ * the Nozoly logo and the fold button on top, the «+ إنشاء مشروع جديد» button (admins), the
+ * items in order with quiet hairline separators, «مشاريعي» with a colour dot per project, and the
+ * «وقت الأفكار» card at the foot. The active item sits on the violet tint.
+ * Desktop: 250px or the 68px rail (Ctrl+B). Phones: a drawer from the inline start.
  */
 export function Sidebar({
   tree,
   chain,
   badges,
   mobile,
-  footer,
   canCreate = false,
 }: {
   tree: NavNode[];
   chain: string[];
   badges: Record<BadgeKind, number>;
   mobile: boolean;
-  footer?: ReactNode;
   /** Shows «+ إنشاء مشروع جديد» (opens the existing create-project dialog). */
   canCreate?: boolean;
 }) {
-  const figma = useFigma();
   const user = useAuthStore((s) => s.user);
   const mini = useShellStore((s) => s.mini) && !mobile;
   const drawer = useShellStore((s) => s.drawer);
@@ -349,19 +345,12 @@ export function Sidebar({
             </div>
           );
         })}
-        {figma && !mini ? <MyProjects canCreate={canCreate} onPick={ctx.onPick} /> : null}
+        {mini ? null : <MyProjects canCreate={canCreate} onPick={ctx.onPick} />}
       </div>
 
-      {figma ? (
-        mini || !can(user, 'tasks.comment') ? null : (
-          <div className="nz-side-foot">
-            <ThoughtsCard onPick={ctx.onPick} />
-          </div>
-        )
-      ) : (
+      {mini || !can(user, 'tasks.comment') ? null : (
         <div className="nz-side-foot">
-          {footer}
-          <MuhsenSystemLine mini={mini} />
+          <ThoughtsCard onPick={ctx.onPick} />
         </div>
       )}
     </nav>

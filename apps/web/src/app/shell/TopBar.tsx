@@ -29,8 +29,6 @@ import { formatNumber, t } from '../../i18n';
 import { roleLabel } from '../../components/ui';
 import { UserPhotoAvatar } from '../../components/UserAvatar';
 import { NotificationBell } from '../NotificationBell';
-import { DesignToggle } from '../../components/DesignToggle';
-import { useFigma } from '../../theme/design';
 import { useSessionActions } from '../useSessionActions';
 import { useShellStore } from './store';
 import type { Trail } from '../nav';
@@ -61,7 +59,7 @@ export function BackButton({ parent, label }: { parent: string; label: string })
   );
 }
 
-/** Network and sync state (Muhsen `.chip` with the live pulse). */
+/** Network and sync state (a chip with the live pulse). */
 function SyncChip() {
   const online = useOnline();
   const user = useAuthStore((s) => s.user);
@@ -224,8 +222,9 @@ function UserMenu() {
 }
 
 /**
- * The top bar (Muhsen `.top`): 66px, blurred, deeper shadow once the page scrolls. Page title
- * (h2) with the breadcrumb line, then the chips: sync, palette (Ctrl+K), bell and the user.
+ * The top bar (the Figma dashboard): the search field on the inline start (it opens the command
+ * palette, Ctrl+K), then sync, shortcuts, bell and the user. The page title is the page's own h1;
+ * breadcrumbs and Back sit in a quiet strip under the bar on pages below the top level.
  */
 export function TopBar({ trail, mobile }: { trail: Trail; mobile: boolean }) {
   const setDrawer = useShellStore((s) => s.setDrawer);
@@ -243,126 +242,65 @@ export function TopBar({ trail, mobile }: { trail: Trail; mobile: boolean }) {
   }, []);
   const below = trail.crumbs.length > 0 && Boolean(trail.parent);
   const parentLabel = trail.crumbs[trail.crumbs.length - 1]?.label ?? '';
-  const figma = useFigma();
   const setSheet = useShellStore((s) => s.setSheet);
 
-  if (figma) {
-    return (
-      <>
-        <header className={deep ? 'nz-top deep' : 'nz-top'}>
-          {mobile ? (
-            <button
-              type="button"
-              className="nz-iconbtn"
-              onClick={() => setDrawer(true)}
-              aria-label={t('common.openMenu')}
-              aria-expanded={drawer}
-              aria-controls="nz-side"
-            >
-              <IconMenu2 size={20} stroke={1.8} />
-            </button>
-          ) : null}
+  return (
+    <>
+      <header className={deep ? 'nz-top deep' : 'nz-top'}>
+        {mobile ? (
           <button
             type="button"
-            className="nz-searchbar"
-            onClick={() => setPalette(true)}
-            aria-label={t('palette.openAria')}
-            aria-keyshortcuts="Control+K"
+            className="nz-iconbtn"
+            onClick={() => setDrawer(true)}
+            aria-label={t('common.openMenu')}
+            aria-expanded={drawer}
+            aria-controls="nz-side"
           >
-            <IconSearch size={20} stroke={1.5} aria-hidden />
-            <span className="nz-searchbar-label">{t('palette.searchAnything')}</span>
-            <kbd className="nz-kbd nz-search-kbd">{`${t('kbd.ctrl')} K`}</kbd>
+            <IconMenu2 size={20} stroke={1.8} />
           </button>
-          <h2 className="sr-only" key={location.pathname}>
-            {trail.status && trail.status !== 'ok' ? '' : trail.title}
-          </h2>
-          <div className="nz-top-sp" />
-          <div className="nz-top-chips">
-            <SyncChip />
-            <DesignToggle />
-            <Tooltip label={t('shortcuts.title')}>
-              <button type="button" className="nz-iconbtn nz-help" onClick={() => setSheet(true)} aria-label={t('shortcuts.title')}>
-                <IconMessageQuestion size={22} stroke={1.5} aria-hidden />
-              </button>
-            </Tooltip>
-            <NotificationBell />
-            <UserMenu />
-          </div>
-        </header>
-        {below ? (
-          <div className="nz-crumbbar">
-            <BackButton parent={trail.parent!} label={t('nav.backTo', { page: parentLabel })} />
-            <nav aria-label={t('nav.breadcrumbs')} className="nz-crumb">
-              <ol>
-                {trail.crumbs.map((c, i) => (
-                  <li key={`${c.to ?? ''}-${i}`}>{c.to ? <Link to={c.to}>{c.label}</Link> : <span>{c.label}</span>}</li>
-                ))}
-                <li className="sr-only" aria-current="page">
-                  {trail.title}
-                </li>
-              </ol>
-            </nav>
-          </div>
         ) : null}
-      </>
-    );
-  }
-
-  return (
-    <header className={deep ? 'nz-top deep' : 'nz-top'}>
-      {mobile ? (
         <button
           type="button"
-          className="nz-iconbtn"
-          onClick={() => setDrawer(true)}
-          aria-label={t('common.openMenu')}
-          aria-expanded={drawer}
-          aria-controls="nz-side"
+          className="nz-searchbar"
+          onClick={() => setPalette(true)}
+          aria-label={t('palette.openAria')}
+          aria-keyshortcuts="Control+K"
         >
-          <IconMenu2 size={20} stroke={1.8} />
+          <IconSearch size={20} stroke={1.5} aria-hidden />
+          <span className="nz-searchbar-label">{t('palette.searchAnything')}</span>
+          <kbd className="nz-kbd nz-search-kbd">{`${t('kbd.ctrl')} K`}</kbd>
         </button>
-      ) : null}
-      {below ? <BackButton parent={trail.parent!} label={t('nav.backTo', { page: parentLabel })} /> : null}
-      <div className="nz-top-title" key={location.pathname}>
-        {trail.status && trail.status !== 'ok' ? null : <h2>{trail.title}</h2>}
-        {below ? (
+        <h2 className="sr-only" key={location.pathname}>
+          {trail.status && trail.status !== 'ok' ? '' : trail.title}
+        </h2>
+        <div className="nz-top-sp" />
+        <div className="nz-top-chips">
+          <SyncChip />
+          <Tooltip label={t('shortcuts.title')}>
+            <button type="button" className="nz-iconbtn nz-help" onClick={() => setSheet(true)} aria-label={t('shortcuts.title')}>
+              <IconMessageQuestion size={22} stroke={1.5} aria-hidden />
+            </button>
+          </Tooltip>
+          <NotificationBell />
+          <UserMenu />
+        </div>
+      </header>
+      {below ? (
+        <div className="nz-crumbbar">
+          <BackButton parent={trail.parent!} label={t('nav.backTo', { page: parentLabel })} />
           <nav aria-label={t('nav.breadcrumbs')} className="nz-crumb">
             <ol>
               {trail.crumbs.map((c, i) => (
-                <li key={`${c.to ?? ''}-${i}`}>
-                  {c.to ? <Link to={c.to}>{c.label}</Link> : <span>{c.label}</span>}
-                </li>
+                <li key={`${c.to ?? ''}-${i}`}>{c.to ? <Link to={c.to}>{c.label}</Link> : <span>{c.label}</span>}</li>
               ))}
               <li className="sr-only" aria-current="page">
                 {trail.title}
               </li>
             </ol>
           </nav>
-        ) : trail.group && trail.group !== trail.title ? (
-          <div className="nz-crumb">
-            <span>{trail.group}</span>
-          </div>
-        ) : null}
-      </div>
-      <div className="nz-top-sp" />
-      <div className="nz-top-chips">
-        <SyncChip />
-        <DesignToggle />
-        <button
-          type="button"
-          className="nz-iconbtn nz-search"
-          onClick={() => setPalette(true)}
-          aria-label={t('palette.openAria')}
-          aria-keyshortcuts="Control+K"
-        >
-          <IconSearch size={17} stroke={1.8} aria-hidden />
-          <span className="nz-search-label">{t('palette.button')}</span>
-          <kbd className="nz-kbd nz-search-kbd">{`${t('kbd.ctrl')} K`}</kbd>
-        </button>
-        <NotificationBell />
-        <UserMenu />
-      </div>
-    </header>
+        </div>
+      ) : null}
+    </>
   );
 }
 

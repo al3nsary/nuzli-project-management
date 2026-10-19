@@ -18,7 +18,7 @@ export function hasBottomBar(role: Role | undefined): boolean {
 
 /**
  * The bottom tab bar (phones only, < 768px): the role's three destinations and
- * «المزيد», which opens the side drawer. Safe-area insets and the Muhsen tabs shadow.
+ * «المزيد», which opens the side drawer. Safe-area insets.
  */
 export function RoleBottomBar({
   role,
