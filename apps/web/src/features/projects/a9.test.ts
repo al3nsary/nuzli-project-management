@@ -57,6 +57,27 @@ describe('undo / redo (ADR-095)', () => {
     expect(inverseOf({}, [])).toBeNull();
   });
 
+  it('A10 QA: undoing a move of an HOUR task across days restores its hours (durationDays must not outrank endDate)', async () => {
+    await admin();
+    const p = await api.projects.create({ name: 'ساعات', startDate: '2026-11-02', durationUnit: 'HOUR' });
+    const h = await api.tasks.create(p.id, { name: 'س', startDate: '2026-11-02T13:00', durationHours: 2 });
+    expect(h.durationDays).toBe(1);
+    // The Gantt drag: a later start on the next day keeps the hours, so durationDays (touched days) moves.
+    const fwd = await api.tasks.batch(p.id, { changes: [{ id: h.id, version: h.version, startDate: '2026-11-02T17:00' }] });
+    const moved = fwd.tasks.find((x) => x.id === h.id)!;
+    expect(moved.durationHours).toBe(2);
+    expect(moved.endDate.slice(0, 10)).not.toBe(moved.startDate.slice(0, 10));
+    expect(Object.keys(fwd.previous?.[h.id] ?? {})).toEqual(expect.arrayContaining(['startDate', 'endDate', 'durationDays']));
+    const undo = inverseOf(fwd.previous, fwd.tasks) as { changes: Array<Record<string, unknown>> };
+    expect(undo.changes[0]).not.toHaveProperty('durationDays');
+    const back = await api.tasks.batch(p.id, { changes: undo.changes as never[] });
+    expect(back.tasks.find((x) => x.id === h.id)).toMatchObject({ startDate: h.startDate, endDate: h.endDate, durationHours: 2, durationDays: 1 });
+    // …and the redo moves it again, still 2 h.
+    const redo = inverseOf(back.previous, back.tasks) as { changes: Array<Record<string, unknown>> };
+    const again = await api.tasks.batch(p.id, { changes: redo.changes as never[] });
+    expect(again.tasks.find((x) => x.id === h.id)).toMatchObject({ startDate: moved.startDate, endDate: moved.endDate, durationHours: 2 });
+  });
+
   it('undo then redo round-trips through the batch endpoint; a concurrent edit makes the redo 409', async () => {
     const { p, g } = await project();
     const a = g.tasks.find((x) => x.name === 'أ')!;

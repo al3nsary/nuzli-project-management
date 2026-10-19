@@ -65,6 +65,10 @@ for (const key of ar.keys()) if (!en.has(key)) problems.push(`en.ts: missing key
 for (const key of en.keys()) if (!ar.has(key)) problems.push(`ar.ts: missing key "${key}"`);
 for (const [key, value] of ar)
   if (!value || !value.trim()) problems.push(`ar.ts: empty value for "${key}"`);
+// A10 QA: digits are Western by default and Arabic-Indic only by the user's setting, which formats
+// NUMBERS; a digit typed into a message would ignore it («آخر ٣٠ يومًا»). Only the setting's own sample keeps them.
+for (const [key, value] of ar)
+  if (key !== 'profile.digits.arab' && /[٠-٩]/.test(value)) problems.push(`ar.ts: "${key}" has Arabic-Indic digits typed in — write Western digits or pass a number`);
 
 // 3. Latin text in JSX
 for (const file of walk(src)) {

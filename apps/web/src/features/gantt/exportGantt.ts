@@ -97,7 +97,7 @@ export function ganttSvg(o: ExportOptions): { svg: string; width: number; height
       const x1 = dayStartX(scale, s.fromDay);
       const x2 = dayEndX(scale, s.toDay);
       parts.push(`<line x1="${x1}" x2="${x1}" y1="${y}" y2="${y + HEAD}" stroke="${C.line}"/>`);
-      if (x1 - x2 > 18) parts.push(`<text x="${(x1 + x2) / 2}" y="${y + 15}" text-anchor="middle" font-size="10" fill="${color}">${esc(s.label)}</text>`);
+      if (x1 - x2 > 18) parts.push(`<text x="${(x1 + x2) / 2}" y="${y + 15}" text-anchor="middle" font-size="10" fill="${color}" direction="rtl">${esc(s.label)}</text>`);
     }
   };
   parts.push(`<rect x="0" y="${TITLE}" width="${scale.width}" height="${HEAD * heads}" fill="${C.ground}"/>`);
@@ -235,7 +235,7 @@ export function printGantt(o: Omit<ExportOptions, 'dayWidth' | 'fontCss'>): void
 @media print {
   body > *:not(#nz-gantt-print) { display: none !important; }
   #nz-gantt-print { display: block !important; }
-  #nz-gantt-print svg { width: 100%; height: auto; }
+  #nz-gantt-print svg { width: 100%; height: auto; direction: ltr; }
 }
 @media screen { #nz-gantt-print { display: none; } }`;
   document.head.appendChild(style);

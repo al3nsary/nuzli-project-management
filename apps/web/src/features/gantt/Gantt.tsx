@@ -1470,7 +1470,7 @@ const TimeHeader = memo(function TimeHeader(p: {
         <line className={classes.headSep} x1={x1} x2={x1} y1={y} y2={y + HEADER_ROW} />
         {/* A label is drawn only where it fits (≈ 6 px per character at 11 px). */}
         {label.length * 7 + 6 <= w ? (
-          <text className={cls} x={x2 + w / 2} y={y + 16} textAnchor="middle">
+          <text className={cls} x={x2 + w / 2} y={y + 16} textAnchor="middle" direction="rtl">
             {label}
           </text>
         ) : null}
@@ -1506,7 +1506,7 @@ const TimeHeader = memo(function TimeHeader(p: {
       {showNow ? (
         <g>
           <rect className={classes.todayPill} x={nowX - lw / 2} y={h - 19} width={lw} height={17} rx={8.5} />
-          <text className={classes.todayText} x={nowX} y={h - 6.5} textAnchor="middle">
+          <text className={classes.todayText} x={nowX} y={h - 6.5} textAnchor="middle" direction="rtl">
             {label}
           </text>
         </g>
@@ -1654,7 +1654,7 @@ const Bar = memo(function Bar(p: {
       <g data-task-id={task.id} data-bar className={`${classes.bar} ${p.dragging ? classes.dragging : ''}`} data-handle="move" aria-label={aria} {...hoverProps}>
         {deadline}
         <path d={`M${cx} ${cy - r}L${cx + r} ${cy}L${cx} ${cy + r}L${cx - r} ${cy}Z`} className={task.status === 'DONE' ? classes.milestoneDone : classes.milestone} style={task.barColor ? { fill: task.barColor } : undefined} />
-        <text className={classes.barLabel} x={cx - r - 6} y={cy + 4} textAnchor="end">
+        <text className={classes.barLabel} x={cx - r - 6} y={cy + 4} textAnchor="start" direction="rtl">
           {task.name}
         </text>
         {p.editable ? <circle data-handle="link" className={classes.linkHandle} cx={cx - r - 6} cy={cy} r={5} /> : null}
@@ -1669,7 +1669,7 @@ const Bar = memo(function Bar(p: {
         <rect x={bar.startX - bar.progressW} y={bar.y} width={bar.progressW} height={bar.h} className={classes.groupProgress} rx={2} />
         <path d={`M${bar.x} ${bar.y + bar.h}l0 5l6 -5z`} className={classes.group} />
         <path d={`M${bar.startX} ${bar.y + bar.h}l0 5l-6 -5z`} className={classes.group} />
-        <text className={classes.rangeLabel} x={bar.x - 8} y={bar.y + bar.h / 2 + 4} textAnchor="end">
+        <text className={classes.rangeLabel} x={bar.x - 8} y={bar.y + bar.h / 2 + 4} textAnchor="start" direction="rtl">
           {rangeLabel(task, p.digits)}
         </text>
         {p.editable ? <circle data-handle="link" className={classes.linkHandle} cx={bar.x - 8} cy={bar.y + bar.h / 2} r={5} /> : null}
@@ -1716,12 +1716,12 @@ const Bar = memo(function Bar(p: {
         </g>
       ) : null}
       {late > 0 ? (
-        <text className={classes.overdueLabel} x={after} y={cy + 4} textAnchor="end">
+        <text className={classes.overdueLabel} x={after} y={cy + 4} textAnchor="start" direction="rtl">
           <title>{t('a9r.overdueTip')}</title>
           {overdueLabel(late)}
         </text>
       ) : task.assignee ? (
-        <text className={classes.barLabel} x={after} y={cy + 4} textAnchor="end">
+        <text className={classes.barLabel} x={after} y={cy + 4} textAnchor="start" direction="rtl">
           {task.assignee.fullName}
         </text>
       ) : null}

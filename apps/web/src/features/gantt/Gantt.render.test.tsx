@@ -111,3 +111,31 @@ describe('task name click vs double-click (A9 QA)', () => {
     vi.useRealTimers();
   });
 });
+
+describe('timeline labels read right-to-left (A10 QA)', () => {
+  it('every SVG text with Arabic in the timeline is direction="rtl" and anchored at its right edge', () => {
+    const data = makeGantt(6, 3);
+    const { container } = render(
+      <Gantt
+        data={data}
+        zoom="week"
+        showHijri={false}
+        digits="latn"
+        editable
+        gridMode="full"
+        viewport={{ width: 900, height: 600 }}
+        onOpenTask={() => {}}
+        onCommit={() => {}}
+        onLink={() => {}}
+        onLinkRefused={() => {}}
+      />,
+    );
+    const texts = [...container.querySelectorAll('svg text')].filter((n) => /[؀-ۿ]/.test(n.textContent ?? ''));
+    expect(texts.length).toBeGreaterThan(3);
+    for (const n of texts) {
+      // «29 سبتمبر – 12 أكتوبر» and «متأخرة 5 أيام» were laid out LTR inside the dir="ltr" timeline.
+      expect(n.getAttribute('direction')).toBe('rtl');
+      expect(n.getAttribute('text-anchor')).not.toBe('end');
+    }
+  });
+});

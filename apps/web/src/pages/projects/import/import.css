@@ -22,6 +22,8 @@
 }
 .nz-imp-source-item > .nz-imp-source {
   flex: 1;
+  /* A10 QA: a grid/flex item never grows past its column on a 360 px phone (the .mpp button was 307 px). */
+  min-width: 0;
 }
 .nz-imp-source {
   display: flex;
@@ -301,6 +303,18 @@
   border-color: var(--line2);
   min-height: 132px;
   cursor: default;
+}
+/* A10 QA: the MS Project buttons wrap their label instead of pushing the card off the screen. */
+.nz-imp-featured .mantine-Button-root {
+  max-width: 100%;
+  height: auto;
+  min-height: var(--button-height);
+  padding-block: 4px;
+}
+.nz-imp-featured .mantine-Button-label {
+  white-space: normal;
+  text-align: start;
+  line-height: 1.4;
 }
 button.nz-imp-featured {
   cursor: pointer;

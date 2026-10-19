@@ -66,6 +66,12 @@ export function inverseOf(previous: TaskPreviousMap | undefined, tasks: readonly
       if (k === 'description') descriptions.push({ id, description: (v as string | null) ?? null });
       else if (BATCH_FIELDS.has(k) && !(k === 'durationHours' && v === null)) fields[k] = v;
     }
+    // A10 QA: moving an HOUR task across a day boundary changes its touched-days `durationDays`
+    // but not its `durationHours`, so `previous` holds startDate + endDate + durationDays. Sent
+    // back as is, `durationDays` outranks `endDate` (shared applyScheduleEditHours) and becomes
+    // whole standard days: a 5 h task came back as 9 h. The end date restores the exact span.
+    const isHour = [fields.startDate, fields.endDate].some((d) => typeof d === 'string' && d.length > 10);
+    if (isHour && 'endDate' in fields && 'durationDays' in fields && !('durationHours' in fields)) delete fields.durationDays;
     if (Object.keys(fields).length) changes.push({ id, version, ...fields });
     else if (descriptions.some((d) => d.id === id)) changes.push({ id, version });
   }

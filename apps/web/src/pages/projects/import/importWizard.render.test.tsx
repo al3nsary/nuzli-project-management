@@ -228,3 +228,16 @@ describe('Jira form validation (instant Arabic messages)', () => {
     expect(jiraFieldErrors({ ...base, mode: 'jql', jql: 'project = OPS' })).toEqual({});
   });
 });
+
+describe('A10 QA — the source cards fit a 360 px phone', () => {
+  // jsdom has no layout; the browser check measured the MS Project card at 401 px in a 336 px column
+  // (the «.mpp — الملف الأصلي · يتطلّب الخادم» button does not wrap). These rules are the fix.
+  const css = readFileSync(join(__dirname, 'import.css'), 'utf8');
+  it('a card may shrink below its content width', () => {
+    expect(css).toMatch(/\.nz-imp-source-item > \.nz-imp-source \{[^}]*min-width: 0/);
+  });
+  it('the MS Project buttons wrap their label and never exceed the card', () => {
+    expect(css).toMatch(/\.nz-imp-featured \.mantine-Button-root \{[^}]*max-width: 100%[^}]*height: auto/);
+    expect(css).toMatch(/\.nz-imp-featured \.mantine-Button-label \{[^}]*white-space: normal/);
+  });
+});
