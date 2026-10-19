@@ -128,7 +128,9 @@ describe('DemoApi Phase 2 — teams and scope', () => {
     const me = await loginAs(SUP1);
     const teams = await api.teams.list({ status: 'ALL' });
     expect(teams.length).toBeGreaterThan(0);
-    expect(teams.every((t) => t.supervisor?.id === me.id)).toBe(true);
+    // A9 (ADR-100): «leads» = primary or co-supervisor; SUP1 co-leads team 4 in the demo seed.
+    expect(teams.every((t) => t.supervisors?.some((s) => s.id === me.id))).toBe(true);
+    expect(teams.some((t) => t.id === TEAM(4) && t.supervisor?.id !== me.id)).toBe(true);
     expect((await codeOf(api.teams.get(TEAM(3)))).code).toBe('NOT_FOUND');
     // Members: own teams and unassigned only.
     const members = await api.members.list({ pageSize: 200 });

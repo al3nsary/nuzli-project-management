@@ -24,7 +24,7 @@ import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { VestBand } from '../../theme/VestBand';
 import { formatDate, formatNumber, t } from '../../i18n';
-import { TeamStatusBadge } from './shared';
+import { SupervisorAvatars, TeamStatusBadge, supervisorsOf } from './shared';
 import { CreateTeamDialog } from './CreateTeamDialog';
 import { useOverlayParam } from '../../lib/useUrlState';
 
@@ -52,9 +52,14 @@ export function TeamCard({ team }: { team: TeamDto }) {
           <TeamStatusBadge status={team.status} />
         </Group>
         <Group justify="space-between" mt="sm" wrap="nowrap" gap="xs">
-          <Text size="sm" truncate>
-            {team.supervisor?.fullName ?? t('teams.noSupervisor')}
-          </Text>
+          <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+            <SupervisorAvatars supervisors={supervisorsOf(team)} size={24} max={3} />
+            <Text size="sm" truncate>
+              {supervisorsOf(team)
+                .map((s) => (s.isPrimary && (team.supervisors?.length ?? 1) > 1 ? t('teams.sup.namePrimary', { name: s.fullName }) : s.fullName))
+                .join('، ') || t('teams.noSupervisor')}
+            </Text>
+          </Group>
           <Group gap={4} wrap="nowrap" c="dimmed">
             <IconUsersGroup size={16} aria-hidden />
             <Text size="sm" className="num">

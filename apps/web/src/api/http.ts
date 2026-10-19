@@ -65,6 +65,12 @@ import type {
   TimeEntryDto,
   ViewPrefDto,
   WorkloadDto,
+  TeamSupervisorsDto,
+  OrgTreeDto,
+  OrgUnitDto,
+  OrgPositionDto,
+  ViolationOcrDto,
+  RegisterViolationMemberResultDto,
 } from '@nuzli/shared';
 import type { GanttView, ProjectView } from './hoursWire';
 import { ERRORS } from '@nuzli/shared';
@@ -337,6 +343,31 @@ export class HttpApi implements ApiClient {
       this.request<MemberDto>('POST', `/teams/${enc(teamId)}/members`, { body: input }),
     importMembers: (input) =>
       this.request<ImportMembersResultDto>('POST', '/members/import', { body: input }),
+    supervisorsOf: (id) => this.request<TeamSupervisorsDto>('GET', `/teams/${enc(id)}/supervisors`),
+    addSupervisor: (id, input) =>
+      this.request<TeamDto>('POST', `/teams/${enc(id)}/supervisors`, { body: input }),
+    removeSupervisor: (id, userId, input) =>
+      this.request<TeamDto>('DELETE', `/teams/${enc(id)}/supervisors/${enc(userId)}`, { body: input }),
+    setPrimarySupervisor: (id, userId, input) =>
+      this.request<TeamDto>('POST', `/teams/${enc(id)}/supervisors/${enc(userId)}/primary`, { body: input ?? {} }),
+    setForeman: (id, memberId) =>
+      this.request<TeamDetailDto>('POST', `/teams/${enc(id)}/foreman`, { body: { memberId } }),
+    clearForeman: (id) => this.request<TeamDetailDto>('DELETE', `/teams/${enc(id)}/foreman`),
+  };
+
+  org: ApiClient['org'] = {
+    tree: (q) =>
+      this.request<OrgTreeDto>('GET', `/org${toQueryString({ includeArchived: q?.includeArchived ? 'true' : undefined })}`),
+    createUnit: (input) => this.request<OrgUnitDto>('POST', '/org/units', { body: input }),
+    updateUnit: (id, input) => this.request<OrgUnitDto>('PATCH', `/org/units/${enc(id)}`, { body: input }),
+    moveUnit: (id, input) => this.request<OrgUnitDto>('POST', `/org/units/${enc(id)}/move`, { body: input }),
+    deleteUnit: (id) => this.request<void>('DELETE', `/org/units/${enc(id)}`),
+    createPosition: (input) => this.request<OrgPositionDto>('POST', '/org/positions', { body: input }),
+    updatePosition: (id, input) =>
+      this.request<OrgPositionDto>('PATCH', `/org/positions/${enc(id)}`, { body: input }),
+    movePosition: (id, input) =>
+      this.request<OrgPositionDto>('POST', `/org/positions/${enc(id)}/move`, { body: input }),
+    deletePosition: (id) => this.request<void>('DELETE', `/org/positions/${enc(id)}`),
   };
 
   members: ApiClient['members'] = {
@@ -467,6 +498,12 @@ export class HttpApi implements ApiClient {
     stats: (f) => this.request<ViolationStats>('GET', `/violations/stats${toViolationQueryString(f)}`),
     exportXlsx: (f) => this.requestBlob(`/violations/export.xlsx${toViolationQueryString(f)}`),
     dashboardPdf: (f) => this.requestBlob(`/violations/dashboard.pdf${toViolationQueryString(f)}`),
+    ocr: (id) => this.request<ViolationOcrDto>('GET', `/violations/${enc(id)}/ocr`),
+    retryOcr: (id) => this.request<{ queued: true }>('POST', `/violations/${enc(id)}/ocr/retry`),
+    assign: (id, input) => this.request<ViolationDto>('POST', `/violations/${enc(id)}/assign`, { body: input }),
+    unassign: (id, input) => this.request<ViolationDto>('POST', `/violations/${enc(id)}/unassign`, { body: input ?? {} }),
+    registerMember: (id, input) =>
+      this.request<RegisterViolationMemberResultDto>('POST', `/violations/${enc(id)}/register-member`, { body: input }),
   };
 
   logos: ApiClient['logos'] = {

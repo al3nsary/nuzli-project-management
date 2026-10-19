@@ -36,9 +36,11 @@ describe('Team formation page', () => {
     expect(names.join(' ')).not.toContain('الإرشاد والاستقبال');
     expect(names.join(' ')).not.toContain('الدعم المؤقت');
     expect(columns).toHaveLength(1 + 5);
-    // Column header shows the supervisor; member cards carry a drag handle.
+    // Column header shows every supervisor (A9: primary first); member cards carry a drag handle.
     const first = columns.find((c) => c.getAttribute('aria-label') === 'فريق فريق الصيانة الميدانية')!;
-    expect(within(first).getByText('فهد بن خالد الدوسري')).toBeInTheDocument();
+    expect(within(first).getByRole('group', { name: 'مشرفو الفريق: فهد بن خالد الدوسري (رئيسي)، ماجد بن علي الغامدي' })).toBeInTheDocument();
+    // The worker foreman is marked among the members (ADR-101), exactly once per team.
+    expect(within(first).getAllByText('مشرف عمّال')).toHaveLength(1);
     expect(within(first).getAllByRole('button', { name: /^اسحب / }).length).toBeGreaterThan(0);
     expect(document.documentElement).toHaveAttribute('dir', 'rtl');
   });

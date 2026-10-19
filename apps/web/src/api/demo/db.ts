@@ -18,7 +18,10 @@ import type {
   UserStatus,
   VisibilityMode,
   DependencyType,
+  OcrStatus,
+  OrgUnitKind,
 } from '@nuzli/shared';
+import type { ExtractedCard } from '../../features/violations/ocr/parse';
 
 /** A user row as the demo stores it: full national ID and a password hash, never sent to screens as is. */
 export interface DemoUser {
@@ -97,6 +100,8 @@ export interface DemoTeam {
   violationVisibility: VisibilityMode;
   archivedAt: string | null;
   archiveReason: string | null;
+  /** A9 (ADR-102): optional organisational unit. */
+  orgUnitId?: string | null;
 }
 
 /** A team member with the full national ID (screens only ever get the mask unless admin). */
@@ -122,6 +127,62 @@ export interface DemoMembership {
   validTo: string | null;
   movedById: string | null;
   reason: string | null;
+  /** A9 (ADR-101): WORKER (default) or the team's one FOREMAN (مشرف عمّال), on the open row. */
+  role?: 'WORKER' | 'FOREMAN';
+}
+
+/**
+ * A9 (ADR-100): one leadership row. "Leads the team" = an open row (primary or not); exactly one
+ * open primary per live team; `teams.supervisorId` mirrors the primary.
+ */
+export interface DemoTeamSupervisor {
+  id: string;
+  teamId: string;
+  userId: string;
+  isPrimary: boolean;
+  validFrom: string;
+  validTo: string | null;
+  addedById: string | null;
+  reason: string | null;
+}
+
+/** A9 (ADR-102): an organisational unit (tree by `parentId`). */
+export interface DemoOrgUnit {
+  id: string;
+  parentId: string | null;
+  name: string;
+  kind: OrgUnitKind;
+  code: string | null;
+  sort: number;
+  archivedAt: string | null;
+  createdAt: string;
+}
+
+/** A9 (ADR-102): a position held by a user, a member, or nobody (vacant). */
+export interface DemoOrgPosition {
+  id: string;
+  unitId: string;
+  title: string;
+  holderUserId: string | null;
+  holderMemberId: string | null;
+  reportsToPositionId: string | null;
+  sort: number;
+  createdAt: string;
+}
+
+/**
+ * A9 (ADR-104): the ID-card reading of one violation. The demo runs tesseract.js in the browser;
+ * the real API keeps the fields encrypted on the server. Raw OCR text is never stored.
+ */
+export interface DemoViolationOcr {
+  violationId: string;
+  fileId: string;
+  status: OcrStatus;
+  attempts: number;
+  error: string | null;
+  extracted: ExtractedCard | null;
+  extractedAt: string | null;
+  updatedAt: string;
 }
 
 export interface DemoSupervisorHistory {
@@ -221,6 +282,12 @@ export interface DemoViolation {
   deviceInfo: Record<string, unknown>;
   expectedIdPhotos: number;
   expectedEvidence: number;
+  /** A9: one PERSON photo is announced on every violation recorded since A9 (0 before). */
+  expectedPersonPhotos?: number;
+  /** A9: every supervisor of the team at `capturedAt` (primary first). */
+  supervisorIdsSnapshot?: string[];
+  assignedAt?: string | null;
+  assignedById?: string | null;
   status: ViolationStatus;
   cancelReason: string | null;
   responses: DemoViolationResponse[];
@@ -244,7 +311,17 @@ export interface DemoFile {
   /** Task attachments removed by an admin or the uploader (ADR-058). */
   deletedAt?: string | null;
   /** Seeded photos are drawn on a canvas on first view (never real photos). */
-  placeholder?: { label: string; hue: number; portrait?: boolean } | null;
+  placeholder?: { label: string; hue: number; portrait?: boolean; variant?: number; card?: DemoIdCardFace } | null;
+}
+
+/** A9 demo seed: what a synthetic «بطاقة تجريبية» shows (drawn on a canvas, read by the in-browser OCR). */
+export interface DemoIdCardFace {
+  name: string;
+  nameLatin?: string;
+  nationalId: string;
+  nationality: string;
+  birthDate: string;
+  expiryDate: string;
 }
 
 /** The fake bucket: object bytes by file id (ArrayBuffer, not Blob — see ADR-072). */
@@ -429,6 +506,10 @@ export class DemoDb extends Dexie {
   portfolios!: Table<DemoPortfolio, string>;
   timeEntries!: Table<DemoTimeEntry, string>;
   commentReads!: Table<DemoCommentRead, string>;
+  teamSupervisors!: Table<DemoTeamSupervisor, string>;
+  orgUnits!: Table<DemoOrgUnit, string>;
+  orgPositions!: Table<DemoOrgPosition, string>;
+  violationOcr!: Table<DemoViolationOcr, string>;
 
   constructor(name: string) {
     super(name);
@@ -511,6 +592,29 @@ export class DemoDb extends Dexie {
             t.labelIds ??= [];
           }),
       );
+    // A9 teams/org/violations (ADR-100..104): several supervisors (the old one-row history is
+    // copied as primary rows), the organisational structure and the ID-card reading.
+    this.version(6)
+      .stores({
+        teamSupervisors: 'id, teamId, userId',
+        orgUnits: 'id, parentId',
+        orgPositions: 'id, unitId',
+        violationOcr: 'violationId',
+      })
+      .upgrade(async (tx) => {
+        const history = (await tx.table('supervisorHistory').toArray()) as DemoSupervisorHistory[];
+        const rows: DemoTeamSupervisor[] = history.map((h) => ({
+          id: h.id,
+          teamId: h.teamId,
+          userId: h.supervisorId,
+          isPrimary: true,
+          validFrom: h.validFrom,
+          validTo: h.validTo,
+          addedById: h.changedById,
+          reason: h.reason,
+        }));
+        if (rows.length) await tx.table('teamSupervisors').bulkPut(rows);
+      });
   }
 
   /** Every table, for reset and wide transactions. */

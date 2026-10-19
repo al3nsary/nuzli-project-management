@@ -62,6 +62,7 @@ import {
   statusLabel,
 } from './parts';
 import { LocationMap } from './maps';
+import { AssignSection, UnassignButton, UnassignedBadge, canAssign } from './assign';
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -91,17 +92,22 @@ function PhotoThumb({
   file,
   index,
   onOpen,
+  label,
+  className,
 }: {
   violationId: string;
   file: ViolationFileDto;
   index: number;
   onOpen: (url: string, alt: string) => void;
+  /** A9: a named photo (the person) instead of «صورة N». */
+  label?: string;
+  className?: string;
 }) {
   const q = usePhotoUrl(violationId, file.id, file.ready);
-  const alt = t('record.photos.alt', { n: index + 1 });
+  const alt = label ?? t('record.photos.alt', { n: index + 1 });
   if (!file.ready) {
     return (
-      <Box className="nz-thumb nz-thumb--empty">
+      <Box className={['nz-thumb nz-thumb--empty', className].filter(Boolean).join(' ')}>
         <Text size="xs" c="dimmed" ta="center">
           {t('vdetail.photoPending')}
         </Text>
@@ -110,11 +116,11 @@ function PhotoThumb({
   }
   return (
     <UnstyledButton
-      className="nz-thumb"
+      className={['nz-thumb', className].filter(Boolean).join(' ')}
       onClick={() => q.data && onOpen(q.data.url, alt)}
-      aria-label={t('vdetail.openPhoto', { n: index + 1 })}
+      aria-label={label ? t('vdetail.openNamed', { name: label }) : t('vdetail.openPhoto', { n: index + 1 })}
     >
-      {q.data ? <img src={q.data.url} alt={alt} loading="lazy" /> : <Loader size="xs" m="auto" />}
+      {q.data ? <img src={q.data.url} alt={alt} loading="lazy" referrerPolicy="no-referrer" /> : <Loader size="xs" m="auto" />}
     </UnstyledButton>
   );
 }
@@ -390,6 +396,8 @@ export function ViolationDrawer({ id, onClose }: { id: string | null; onClose: (
   const canRespond = !!v && can(user, 'violations.respond') && user?.role === 'SUPERVISOR';
   const evidence = v?.files.filter((f) => f.kind === 'EVIDENCE') ?? [];
   const idCard = v?.files.find((f) => f.kind === 'ID_CARD');
+  const personPhoto = v?.files.find((f) => f.kind === 'PERSON');
+  const unassigned = !!v && !v.member;
   const readyEvidence = evidence.filter((f) => f.ready).length;
   const expected = v?.expectedPhotos?.evidence ?? evidence.length;
 
@@ -424,23 +432,62 @@ export function ViolationDrawer({ id, onClose }: { id: string | null; onClose: (
           </Box>
 
           <Card padding="md">
-            <Stack gap="xs">
-              <Text fw={600} size="lg">
-                {v.member?.fullName ?? t('violations.unassigned')}
-              </Text>
-              <Text className="mono ltr" size="sm" c="dimmed">
-                {v.member?.nationalIdMasked ?? ''}
-              </Text>
-              <Group gap="xs" wrap="wrap">
-                <SnapshotTeam team={v.team} />
-                {v.supervisor ? (
-                  <Text size="sm" c="dimmed">
-                    {t('vdetail.supervisorAtTime', { name: v.supervisor.fullName })}
+            <Group wrap="nowrap" align="flex-start" gap="md">
+              {personPhoto ? (
+                <PhotoThumb
+                  violationId={v.id}
+                  file={personPhoto}
+                  index={0}
+                  label={t('vdetail.personPhoto')}
+                  className="nz-person-thumb"
+                  onOpen={(url) => setViewer({ url, alt: t('vdetail.personPhoto') })}
+                />
+              ) : null}
+              <Stack gap="xs" style={{ minWidth: 0, flex: 1 }}>
+                <Group gap="xs" wrap="wrap">
+                  <Text fw={600} size="lg">
+                    {v.member?.fullName ?? t('vdetail.personUnknown')}
                   </Text>
+                  {unassigned ? <UnassignedBadge /> : null}
+                </Group>
+                {v.member ? (
+                  <Text className="mono ltr" size="sm" c="dimmed">
+                    {v.member.nationalIdMasked}
+                  </Text>
+                ) : (
+                  <Text size="sm" c="dimmed">
+                    {t('vdetail.unassignedHint')}
+                  </Text>
+                )}
+                <Group gap="xs" wrap="wrap">
+                  {v.member ? <SnapshotTeam team={v.team} /> : null}
+                  {v.supervisors && v.supervisors.length > 1 ? (
+                    <Text size="sm" c="dimmed">
+                      {t('vdetail.supervisorsAtTime', { names: v.supervisors.map((s) => s.fullName).join('، ') })}
+                    </Text>
+                  ) : v.supervisor ? (
+                    <Text size="sm" c="dimmed">
+                      {t('vdetail.supervisorAtTime', { name: v.supervisor.fullName })}
+                    </Text>
+                  ) : null}
+                </Group>
+                {v.member && v.assignedAt ? (
+                  <Group gap="xs" wrap="wrap">
+                    <Text size="xs" c="dimmed">
+                      {t('vdetail.assignedBy', { name: v.assignedBy?.fullName ?? t('common.system'), at: formatDateTime(v.assignedAt) })}
+                    </Text>
+                    {isAdmin ? <UnassignButton v={v} /> : null}
+                  </Group>
+                ) : v.member && isAdmin ? (
+                  <Group>
+                    <UnassignButton v={v} />
+                  </Group>
                 ) : null}
-              </Group>
-            </Stack>
+              </Stack>
+            </Group>
           </Card>
+
+          {unassigned && canAssign(user, v) ? <AssignSection v={v} /> : null}
 
           <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
             <Fact label={t('vdetail.capturedAt')}>{formatDateTime(v.capturedAt)}</Fact>

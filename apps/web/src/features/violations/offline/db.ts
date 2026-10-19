@@ -59,6 +59,8 @@ export interface OutboxDisplay {
   teamName: string | null;
   teamColor: string | null;
   typeName: string;
+  /** A9: recorded without a person (assigned later). */
+  unassigned?: boolean;
 }
 
 export type OutboxPayload = Omit<CreateViolationInput, 'clientSentAt'>;

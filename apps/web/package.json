@@ -11,7 +11,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "preview:demo": "vite preview --mode demo --port 4173"
+    "preview:demo": "vite preview --mode demo --port 4173",
+    "ocr:assets": "node scripts/copy-ocr-assets.mjs",
+    "predev": "node scripts/copy-ocr-assets.mjs",
+    "prebuild": "node scripts/copy-ocr-assets.mjs",
+    "prebuild:demo": "node scripts/copy-ocr-assets.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

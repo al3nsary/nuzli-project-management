@@ -9,6 +9,7 @@ import {
   Group,
   Modal,
   Pagination,
+  SegmentedControl,
   Stack,
   Tabs,
   Text,
@@ -19,6 +20,7 @@ import {
   IconCamera,
   IconCloudCheck,
   IconCloudOff,
+  IconLink,
   IconListDetails,
   IconRefresh,
   IconTrash,
@@ -43,29 +45,39 @@ import { useOnline } from '../../lib/useOnline';
 import { OutboxProgress, OutboxStatusBadge, SnapshotTeam, ViolationStatusBadge } from './parts';
 import { ViolationDrawer } from './ViolationDrawer';
 import { useOverlayParam } from '../../lib/useUrlState';
+import { UnassignedBadge, canAssign } from './assign';
 
-/** One server violation as a tappable card (phones first). */
+/** One server violation as a tappable card (phones first). A9: «غير مُسندة» + «إسناد» when unassigned. */
 export function ViolationRowCard({ v, onOpen }: { v: ViolationDto; onOpen: () => void }) {
+  const user = useAuthStore((s) => s.user);
+  const unassigned = !v.member;
   return (
-    <UnstyledButton className="nz-vcard" onClick={onOpen}>
-      <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm">
-        <Box style={{ minWidth: 0 }}>
-          <Text fw={600} truncate>
-            {v.member?.fullName ?? t('violations.unassigned')}
+    <div className="nz-vcard-wrap" data-unassigned={unassigned || undefined}>
+      <UnstyledButton className="nz-vcard" onClick={onOpen}>
+        <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm">
+          <Box style={{ minWidth: 0 }}>
+            <Text fw={600} truncate>
+              {v.member?.fullName ?? t('vdetail.personUnknown')}
+            </Text>
+            <Text size="sm" c="dimmed" truncate>
+              {v.type.name}
+            </Text>
+          </Box>
+          <ViolationStatusBadge status={v.status} />
+        </Group>
+        <Group justify="space-between" wrap="wrap" gap="xs" mt={8}>
+          {unassigned ? <UnassignedBadge /> : <SnapshotTeam team={v.team} />}
+          <Text size="xs" c="dimmed">
+            {formatDateTime(v.capturedAt)}
           </Text>
-          <Text size="sm" c="dimmed" truncate>
-            {v.type.name}
-          </Text>
-        </Box>
-        <ViolationStatusBadge status={v.status} />
-      </Group>
-      <Group justify="space-between" wrap="wrap" gap="xs" mt={8}>
-        <SnapshotTeam team={v.team} />
-        <Text size="xs" c="dimmed">
-          {formatDateTime(v.capturedAt)}
-        </Text>
-      </Group>
-    </UnstyledButton>
+        </Group>
+      </UnstyledButton>
+      {unassigned && canAssign(user, v) ? (
+        <Button size="compact-md" variant="light" leftSection={<IconLink size={15} />} className="nz-vcard-assign" onClick={onOpen}>
+          {t('ocr.assignAction')}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -219,10 +231,26 @@ export function PendingList() {
 
 function SentList() {
   const [page, setPage] = useState(1);
+  const [only, setOnly] = useState<'all' | 'unassigned'>('all');
   const overlay = useOverlayParam('open');
   const online = useOnline();
   const navigate = useNavigate();
-  const q = useMyViolations({ page, pageSize: 20 });
+  const q = useMyViolations({ page, pageSize: 20, ...(only === 'unassigned' ? { assigned: 'false' as const } : {}) });
+  const chips = (
+    <SegmentedControl
+      value={only}
+      onChange={(v) => {
+        setOnly(v as 'all' | 'unassigned');
+        setPage(1);
+      }}
+      data={[
+        { value: 'all', label: t('mine.filterAll') },
+        { value: 'unassigned', label: t('mine.filterUnassigned') },
+      ]}
+      fullWidth
+      mb="sm"
+    />
+  );
   if (q.isLoading) return <LoadingBlock variant="list" />;
   if (q.isError) {
     if (!online) {
@@ -237,17 +265,25 @@ function SentList() {
   const data = q.data;
   if (!data || data.total === 0) {
     return (
-      <EmptyState
-        icon={IconListDetails}
-        title={t('mine.emptyTitle')}
-        body={t('mine.emptyBody')}
-        action={{ label: t('nav.recordViolation'), onClick: () => navigate('/violations/new') }}
-      />
+      <>
+        {chips}
+        {only === 'unassigned' ? (
+          <EmptyState icon={IconListDetails} title={t('mine.noUnassigned')} body={t('mine.noUnassignedBody')} />
+        ) : (
+          <EmptyState
+            icon={IconListDetails}
+            title={t('mine.emptyTitle')}
+            body={t('mine.emptyBody')}
+            action={{ label: t('nav.recordViolation'), onClick: () => navigate('/violations/new') }}
+          />
+        )}
+      </>
     );
   }
   const pages = Math.ceil(data.total / data.pageSize);
   return (
     <Stack gap="sm">
+      {chips}
       {data.items.map((v) => (
         <ViolationRowCard key={v.id} v={v} onOpen={() => overlay.open(v.id)} />
       ))}

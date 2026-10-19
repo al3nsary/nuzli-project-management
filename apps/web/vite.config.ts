@@ -3,6 +3,17 @@ import { readFileSync } from 'node:fs';
 import { defineConfig, loadEnv, type PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { copyOcrAssets } from './scripts/copy-ocr-assets.mjs';
+
+/** A9: self-hosted OCR assets in public/ocr before dev and build (never a CDN, ADR-104). */
+function ocrAssets(): PluginOption {
+  return {
+    name: 'nuzli-ocr-assets',
+    buildStart() {
+      copyOcrAssets();
+    },
+  };
+}
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
   version: string;
@@ -27,6 +38,7 @@ export default defineConfig(({ mode }) => {
   const isDemo = mode === 'demo' || env.VITE_DEMO === '1';
   const isTest = Boolean(process.env.VITEST);
   const plugins: PluginOption[] = [react()];
+  if (!isTest) plugins.push(ocrAssets());
   if (!isTest) {
     plugins.push(
       VitePWA({
@@ -66,7 +78,8 @@ export default defineConfig(({ mode }) => {
         injectManifest: {
           globPatterns: ['**/*.{js,css,html,woff2}'],
           // Only the Arabic and basic Latin font subsets are needed offline.
-          globIgnores: ['**/*cyrillic*', '**/*greek*', '**/*vietnamese*', '**/*-ext-*'],
+          // The OCR worker/WASM/language data (~12 MB, demo only) load on demand, never precached.
+          globIgnores: ['**/*cyrillic*', '**/*greek*', '**/*vietnamese*', '**/*-ext-*', 'ocr/**'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         },
         devOptions: { enabled: false },

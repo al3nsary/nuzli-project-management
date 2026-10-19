@@ -1,6 +1,11 @@
 import {
   ALLOWED_IMAGE_TYPES,
+  ERRORS,
   MAX_UPLOAD_BYTES,
+  assignViolationSchema,
+  nationalIdKind,
+  registerViolationMemberSchema,
+  unassignViolationSchema,
   can,
   changeViolationStatusSchema,
   createViolationSchema,
@@ -15,10 +20,18 @@ import {
   type Paginated,
   type RosterEntry,
   type Settings,
+  type MemberDto,
   type ViolationDto,
+  type ViolationFileKind,
   type ViolationFilter,
+  type ViolationOcrDto,
+  type ViolationSuggestionDto,
   type ViolationTypeDto,
 } from '@nuzli/shared';
+import type { OcrEngine } from '../../features/violations/ocr/engine';
+import { rankByName } from '../../features/violations/ocr/nameSimilarity';
+import { groupOpenLeaders, leadersAt } from './leaders';
+import { createOcrRunner, type OcrRunner } from './ocrRunner';
 import type { ApiClient, ViolationListQuery } from '../client';
 import { ApiError } from '../errors';
 import { t } from '../../i18n';
@@ -39,18 +52,24 @@ import type {
   DemoFile,
   DemoMember,
   DemoMembership,
-  DemoSupervisorHistory,
+  DemoObject,
+  DemoReference,
   DemoTeam,
+  DemoTeamSupervisor,
   DemoUser,
   DemoViolation,
+  DemoViolationOcr,
   DemoViolationType,
 } from './db';
 import type { DemoInternals } from './phase2';
 import { sniffImageType } from './phase2';
-import { drawPlaceholder } from './placeholderImage';
+import { drawIdCard, drawPlaceholder, drawPortrait } from './placeholderImage';
 import { fail, newId, paginate, sameName, validate } from './util';
 
-export type Phase3Api = Pick<ApiClient, 'files' | 'violationTypes' | 'violations'>;
+export type Phase3Api = Pick<ApiClient, 'files' | 'violationTypes' | 'violations'> & {
+  /** @internal A9: the in-browser ID-card reading queue (tests await `ocrRunner.idle()`). */
+  ocrRunner: OcrRunner;
+};
 
 export interface Phase3Internals extends DemoInternals {
   /** Phase 4 hook: who may upload to a task (admins and the assignee, ADR-058). */
@@ -64,7 +83,12 @@ export interface Phase3Internals extends DemoInternals {
   afterPhotoConfirm?(file: DemoFile, actor: DemoUser): Promise<void>;
   /** True when the demo should behave as if the network were down (navigator offline or forced). */
   isOffline(): boolean;
+  /** A9: the OCR engine (tesseract.js in the browser; tests inject a fake). */
+  ocrEngine(): Promise<OcrEngine>;
 }
+
+/** What the Excel export and the lists say for a violation without a person (ADR-103). */
+const UNASSIGNED_EXPORT = '— لم تُسند إلى شخص بعد';
 
 /** URL scheme of the demo's fake bucket. */
 export const DEMO_STORAGE_SCHEME = 'demo-storage://';
@@ -79,7 +103,11 @@ interface World {
   colors: Map<string, DemoColor>;
   types: Map<string, DemoViolationType>;
   memberships: DemoMembership[];
-  supervisorHistory: DemoSupervisorHistory[];
+  /** A9 (ADR-100): every leadership row (snapshots at captured_at) and the open ones per team. */
+  leaderRows: DemoTeamSupervisor[];
+  leaders: Map<string, DemoTeamSupervisor[]>;
+  ocr: Map<string, DemoViolationOcr>;
+  reference: Map<string, DemoReference>;
   files: Map<string, DemoFile[]>;
   settings: Settings;
 }
@@ -100,7 +128,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
   }
 
   async function world(): Promise<World> {
-    const [users, members, teams, colors, types, memberships, supervisorHistory, files, settings] =
+    const [users, members, teams, colors, types, memberships, leaderRows, ocrRows, reference, files, settings] =
       await Promise.all([
         db.users.toArray(),
         db.members.toArray(),
@@ -108,7 +136,9 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         db.colors.toArray(),
         db.violationTypes.toArray(),
         db.memberships.toArray(),
-        db.supervisorHistory.toArray(),
+        db.teamSupervisors.toArray(),
+        db.violationOcr.toArray(),
+        db.reference.toArray(),
         db.files.where('violationId').notEqual('').toArray(),
         api.readSettings(),
       ]);
@@ -126,10 +156,28 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       colors: new Map(colors.map((c) => [c.id, c])),
       types: new Map(types.map((ty) => [ty.id, ty])),
       memberships,
-      supervisorHistory,
+      leaderRows,
+      leaders: groupOpenLeaders(leaderRows),
+      ocr: new Map(ocrRows.map((o) => [o.violationId, o])),
+      reference: new Map(reference.map((r) => [r.id, r])),
       files: byViolation,
       settings,
     };
+  }
+
+  /** A9: leads the team now (any open leadership row, primary or not). */
+  const leadsNow = (w: World, teamId: string, userId: string) =>
+    (w.leaders.get(teamId) ?? []).some((r) => r.userId === userId);
+
+  /** Team, primary and every supervisor at an instant (ADR-014, ADR-100). */
+  function snapshotAt(w: World, memberId: string, at: string) {
+    const membership = resolveTeamAt(
+      w.memberships.filter((m) => m.memberId === memberId),
+      at,
+    );
+    const teamId = membership?.teamId ?? null;
+    const sup = teamId ? leadersAt(w.leaderRows, teamId, at) : { primaryId: null, ids: [] as string[] };
+    return { teamId, supervisorId: sup.primaryId, supervisorIds: sup.ids };
   }
 
   const typeDto = (ty: DemoViolationType): ViolationTypeDto => ({
@@ -166,7 +214,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
     viewer: DemoUser,
     opts: { withResponses?: boolean } = {},
   ): ViolationDto {
-    const member = v.memberId ? (v.memberId ? w.members.get(v.memberId) : undefined) : undefined;
+    const member = v.memberId ? w.members.get(v.memberId) : undefined;
     const type = w.types.get(v.typeId);
     const files = (w.files.get(v.id) ?? []).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const dto: ViolationDto = {
@@ -179,6 +227,12 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       },
       team: teamSummary(w, v.teamIdSnapshot),
       supervisor: person(w, v.supervisorIdSnapshot),
+      assigned: v.memberId !== null,
+      supervisors: (v.supervisorIdsSnapshot ?? (v.supervisorIdSnapshot ? [v.supervisorIdSnapshot] : []))
+        .map((id) => person(w, id))
+        .filter((p): p is { id: string; fullName: string } => Boolean(p)),
+      assignedAt: v.assignedAt ?? null,
+      assignedBy: person(w, v.assignedById ?? null),
       recordedBy: person(w, v.recordedById) ?? { id: v.recordedById, fullName: '—' },
       type: type ? typeDto(type) : { id: v.typeId, name: '—', severity: null, isActive: false },
       description: v.description,
@@ -193,7 +247,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       cancelReason: v.cancelReason,
       files: files.map((f) => ({
         id: f.id,
-        kind: f.kind as 'ID_CARD' | 'EVIDENCE',
+        kind: f.kind as ViolationFileKind,
         mimeType: f.mimeType,
         ready: f.status === 'READY',
       })),
@@ -208,10 +262,14 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       editableUntil: new Date(
         Date.parse(v.receivedAt) + w.settings.VIOLATION_EDIT_WINDOW_MINUTES * 60_000,
       ).toISOString(),
-      expectedPhotos: { idCard: v.expectedIdPhotos, evidence: v.expectedEvidence },
+      expectedPhotos: { idCard: v.expectedIdPhotos, evidence: v.expectedEvidence, person: v.expectedPersonPhotos ?? 0 },
       clientSentAt: v.clientSentAt,
     };
     if (can(viewer, 'violations.manage')) dto.deviceInfo = { ...v.deviceInfo };
+    // A9: the OCR state for the people who assign the violation (admins and the recorder).
+    if (can(viewer, 'violations.manage') || v.recordedById === viewer.id) {
+      dto.ocrStatus = w.ocr.get(v.id)?.status ?? null;
+    }
     return dto;
   }
 
@@ -230,7 +288,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
     if (can(viewer, 'violations.readRecorded') && v.recordedById === viewer.id) return true;
     if (can(viewer, 'violations.readOwnTeams') && v.teamIdSnapshot) {
       const team = w.teams.get(v.teamIdSnapshot);
-      return !!team && team.supervisorId === viewer.id && teamVisible(w, team);
+      return !!team && leadsNow(w, team.id, viewer.id) && teamVisible(w, team);
     }
     return false;
   }
@@ -262,6 +320,13 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       longitude: v.longitude,
       memberName: (v.memberId ? w.members.get(v.memberId) : undefined)?.fullName ?? '',
     };
+  }
+
+  /** Recorder or admin; anyone else → 404 (ADR-103, like the API's loadForAssign). */
+  async function loadForAssign(id: string, viewer: DemoUser, w: World): Promise<DemoViolation> {
+    const v = await findScoped(id, viewer, w);
+    if (!can(viewer, 'violations.manage') && v.recordedById !== viewer.id) fail('NOT_FOUND');
+    return v;
   }
 
   function sortRows(rows: DemoViolation[], sort: string | undefined) {
@@ -302,25 +367,46 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
     return [...files, ...pending].filter((f) => f.kind === kind).length;
   }
 
-  const limitOf = (kind: string, s: Settings) => (kind === 'ID_CARD' ? 1 : s.VIOLATION_MAX_PHOTOS);
+  const limitOf = (kind: string, s: Settings) => (kind === 'ID_CARD' || kind === 'PERSON' ? 1 : s.VIOLATION_MAX_PHOTOS);
 
   // Object URLs of viewed photos, reused within the session.
   const urls = new Map<string, string>();
 
-  async function objectUrl(file: DemoFile): Promise<string> {
-    const cached = urls.get(file.id);
-    if (cached) return cached;
+  /** The stored bytes, or a seeded placeholder drawn on first use (person, card, evidence). */
+  async function objectOf(file: DemoFile): Promise<DemoObject | undefined> {
     let obj = await db.objects.get(file.id);
     if (!obj && file.placeholder) {
-      const img = await drawPlaceholder({
-        title: file.kind === 'ID_CARD' ? 'صورة هوية تجريبية' : 'صورة تجريبية',
-        subtitle: file.placeholder.label,
-        hue: file.placeholder.hue,
-        idCard: file.kind === 'ID_CARD',
-      });
+      const ph = file.placeholder;
+      const img =
+        file.kind === 'PERSON'
+          ? await drawPortrait({ hue: ph.hue, variant: ph.variant ?? 0 })
+          : file.kind === 'ID_CARD' && ph.card
+            ? await drawIdCard(ph.card)
+            : await drawPlaceholder({
+                title: file.kind === 'ID_CARD' ? 'صورة هوية تجريبية' : 'صورة تجريبية',
+                subtitle: ph.label,
+                hue: ph.hue,
+                idCard: file.kind === 'ID_CARD',
+              });
       obj = { key: file.id, data: img.data, type: img.type };
       await db.objects.put(obj);
     }
+    return obj;
+  }
+
+  const ocrRunner = createOcrRunner({
+    db,
+    engine: () => api.ocrEngine(),
+    imageOf: async (file) => {
+      const obj = await objectOf(file);
+      return new Blob(obj ? [obj.data] : [], { type: obj?.type ?? file.mimeType });
+    },
+  });
+
+  async function objectUrl(file: DemoFile): Promise<string> {
+    const cached = urls.get(file.id);
+    if (cached) return cached;
+    const obj = await objectOf(file);
     if (!obj) fail('NOT_FOUND');
     const blob = new Blob([obj.data], { type: obj.type });
     let url: string;
@@ -353,7 +439,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       if (data.entityType === 'logo' && (data.entityId || !can(actor, 'logos.manage'))) fail('FORBIDDEN');
       if (data.entityType === 'task') await api.beforeTaskPresign?.(data, actor);
       if (data.entityType === 'violation') {
-        if (!data.entityId || (data.kind !== 'ID_CARD' && data.kind !== 'EVIDENCE')) {
+        if (!data.entityId || (data.kind !== 'ID_CARD' && data.kind !== 'EVIDENCE' && data.kind !== 'PERSON')) {
           fail('VALIDATION_FAILED', { fieldErrors: { kind: [t('violations.err.kind')] } });
         }
         if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(data.contentType)) {
@@ -444,6 +530,10 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       if (confirmed?.entityType === 'user_photo' || confirmed?.entityType === 'member_photo') {
         await api.afterPhotoConfirm?.(confirmed, actor);
       }
+      // A9 (ADR-104): a confirmed ID-card photo queues the reading of the card.
+      if (confirmed?.entityType === 'violation' && confirmed.kind === 'ID_CARD' && confirmed.violationId) {
+        await ocrRunner.enqueue(confirmed.violationId, confirmed.id);
+      }
       return result;
     },
   };
@@ -530,8 +620,8 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         id: v.id,
         capturedAt: new Date(v.capturedAt),
         receivedAt: new Date(v.receivedAt),
-        memberName: (v.memberId ? w.members.get(v.memberId) : undefined)?.fullName ?? '—',
-        nationalIdMasked: maskNationalId((v.memberId ? w.members.get(v.memberId) : undefined)?.nationalId ?? ''),
+        memberName: v.memberId ? (w.members.get(v.memberId)?.fullName ?? '—') : UNASSIGNED_EXPORT,
+        nationalIdMasked: v.memberId ? maskNationalId(w.members.get(v.memberId)?.nationalId ?? '') : '',
         teamName: v.teamIdSnapshot ? w.teams.get(v.teamIdSnapshot)?.name ?? null : null,
         supervisorName: person(w, v.supervisorIdSnapshot)?.fullName ?? null,
         recordedByName: person(w, v.recordedById)?.fullName ?? '—',
@@ -636,28 +726,21 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
         if (data.expectedEvidencePhotos > w.settings.VIOLATION_MAX_PHOTOS) {
           throw ApiError.of('TOO_MANY_PHOTOS', 409);
         }
-        const at = data.capturedAt;
-        const membership = memberId
-          ? resolveTeamAt(
-              w.memberships.filter((m) => m.memberId === memberId),
-              at,
-            )
-          : null;
-        const teamId = membership?.teamId ?? null;
-        const sup = teamId
-          ? resolveTeamAt(
-              w.supervisorHistory.filter((h) => h.teamId === teamId),
-              at,
-            )
-          : null;
+        // ADR-014/100: team, primary and all supervisors at captured_at; none without a person.
+        const snap = memberId
+          ? snapshotAt(w, memberId, data.capturedAt)
+          : { teamId: null, supervisorId: null, supervisorIds: [] as string[] };
         const receivedAt = new Date().toISOString();
         const v: DemoViolation = {
           id: newId(),
           clientUuid: data.clientUuid,
           memberId,
           typeId: data.typeId,
-          teamIdSnapshot: teamId,
-          supervisorIdSnapshot: sup?.supervisorId ?? null,
+          teamIdSnapshot: snap.teamId,
+          supervisorIdSnapshot: snap.supervisorId,
+          supervisorIdsSnapshot: snap.supervisorIds,
+          assignedAt: null,
+          assignedById: null,
           recordedById: actor.id,
           description: data.description,
           notes: data.notes ?? null,
@@ -676,6 +759,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
           deviceInfo: pickDeviceInfo(data.deviceInfo),
           expectedIdPhotos: data.expectedIdPhotos,
           expectedEvidence: data.expectedEvidencePhotos,
+          expectedPersonPhotos: data.expectedPersonPhotos,
           status: 'SUBMITTED',
           cancelReason: null,
           responses: [],
@@ -701,7 +785,12 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       network();
       const viewer = await reader();
       const w = await world();
-      return toDto(await findScoped(id, viewer, w), w, viewer, { withResponses: true });
+      const v = await findScoped(id, viewer, w);
+      // Seeded cards are read lazily, the first time somebody who may assign opens them.
+      if (w.ocr.get(id)?.status === 'PENDING' && (can(viewer, 'violations.manage') || v.recordedById === viewer.id)) {
+        void ocrRunner.kick(id);
+      }
+      return toDto(v, w, viewer, { withResponses: true });
     },
 
     fileUrl: async (id, fileId) => {
@@ -868,7 +957,362 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       await api.actor('violations.export');
       throw ApiError.of('PDF_NOT_CONFIGURED', 501);
     },
+
+    // ---------------------------------------------------------- A9 (ADR-103/104)
+
+    ocr: async (id) => {
+      network();
+      const viewer = await reader();
+      if (!can(viewer, 'violations.manage') && !can(viewer, 'violations.create')) fail('NOT_FOUND');
+      const w = await world();
+      const v = await loadForAssign(id, viewer, w);
+      const job = w.ocr.get(id);
+      const empty: ViolationOcrDto['fields'] = {
+        nationalId: null,
+        name: null,
+        nameLatin: null,
+        birthDate: null,
+        expiryDate: null,
+        nationality: null,
+      };
+      if (!job) return { status: 'NONE', attempts: 0, extractedAt: null, fields: empty, suggestedMembers: [], suggestedUsers: [] };
+      if (job.status === 'PENDING') void ocrRunner.kick(id);
+      const f = job.status === 'DONE' ? job.extracted : null;
+      const full = can(viewer, 'nationalIds.readFull');
+      const fields: ViolationOcrDto['fields'] = f
+        ? {
+            nationalId: f.nationalId
+              ? {
+                  value: full ? f.nationalId.value : maskNationalId(f.nationalId.value),
+                  masked: maskNationalId(f.nationalId.value),
+                  full,
+                  confidence: f.nationalId.confidence,
+                  kind: nationalIdKind(f.nationalId.value) ?? 'RESIDENT',
+                }
+              : null,
+            name: f.name,
+            nameLatin: f.nameLatin,
+            birthDate: f.birthDate,
+            expiryDate: f.expiryDate,
+            nationality: f.nationality,
+          }
+        : empty;
+      const suggestedMembers: ViolationSuggestionDto[] = [];
+      let suggestedUsers: ViolationOcrDto['suggestedUsers'] = [];
+      if (f && !v.memberId) {
+        const open = new Map<string, DemoMembership>();
+        for (const m of w.memberships) if (m.validTo === null) open.set(m.memberId, m);
+        const suggest = (m: DemoMember, match: 'NATIONAL_ID' | 'NAME', score: number): ViolationSuggestionDto => {
+          const ms = open.get(m.id);
+          return {
+            memberId: m.id,
+            fullName: m.fullName,
+            nationalIdMasked: maskNationalId(m.nationalId),
+            team: ms ? teamSummary(w, ms.teamId) : null,
+            hasPhoto: Boolean(m.photoFileId),
+            match,
+            score,
+          };
+        };
+        if (f.nationalId) {
+          for (const m of w.members.values()) {
+            if (m.nationalId === f.nationalId.value) suggestedMembers.push(suggest(m, 'NATIONAL_ID', 1));
+          }
+          if (can(viewer, 'violations.manage')) {
+            suggestedUsers = [...w.users.values()]
+              .filter((u) => u.nationalId === f.nationalId!.value)
+              .map((u) => ({ id: u.id, fullName: u.fullName, role: u.role }));
+          }
+        }
+        if (f.name) {
+          const taken = new Set(suggestedMembers.map((s) => s.memberId));
+          const pool = [...w.members.values()].filter((m) => m.status === 'ACTIVE' && !taken.has(m.id));
+          for (const r of rankByName(f.name.value, pool, { threshold: 0.45, limit: 5 })) {
+            suggestedMembers.push(suggest(r, 'NAME', r.score));
+          }
+        }
+      }
+      // Like ID-card photo views (ADR-050): every view is audited, flagged when the full ID was returned.
+      await api.writeAudit({
+        actorId: viewer.id,
+        action: 'violation.ocr_viewed',
+        entityType: 'violation',
+        entityId: id,
+        before: null,
+        after: { status: job.status, fullNationalId: full && !!f?.nationalId, suggestions: suggestedMembers.length },
+      });
+      return {
+        status: job.status,
+        attempts: job.attempts,
+        extractedAt: job.extractedAt,
+        error: job.status === 'FAILED' ? job.error : null,
+        fields,
+        suggestedMembers,
+        suggestedUsers,
+      };
+    },
+
+    retryOcr: async (id) => {
+      network();
+      const viewer = await api.actor('violations.manage');
+      const w = await world();
+      const v = await findScoped(id, viewer, w);
+      if (!(await ocrRunner.retry(id))) {
+        const card = (w.files.get(v.id) ?? []).find((f) => f.kind === 'ID_CARD' && f.status === 'READY');
+        if (!card) fail('NOT_FOUND');
+        await ocrRunner.enqueue(v.id, card.id);
+      }
+      return { queued: true as const };
+    },
+
+    assign: async (id, input) => {
+      network();
+      const viewer = await reader();
+      const data = validate(assignViolationSchema, input);
+      const w = await world();
+      const current = await loadForAssign(id, viewer, w);
+      if (current.memberId === data.memberId) return toDto(current, w, viewer, { withResponses: true });
+      if (current.memberId) fail('VIOLATION_ALREADY_ASSIGNED');
+      if (!w.members.get(data.memberId)) {
+        fail('VALIDATION_FAILED', { fieldErrors: { memberId: [t('violations.err.member')] } });
+      }
+      await db.transaction('rw', [db.violations, db.audit], async () => {
+        await assignInTx(id, data.memberId, viewer, w, 'assign');
+      });
+      const after = await world();
+      return toDto((await db.violations.get(id))!, after, viewer, { withResponses: true });
+    },
+
+    unassign: async (id, input) => {
+      network();
+      const viewer = await api.actor('violations.manage');
+      const data = validate(unassignViolationSchema, input ?? {});
+      const w = await world();
+      const current = await findScoped(id, viewer, w);
+      if (!current.memberId) return toDto(current, w, viewer, { withResponses: true });
+      const next: DemoViolation = {
+        ...current,
+        memberId: null,
+        teamIdSnapshot: null,
+        supervisorIdSnapshot: null,
+        supervisorIdsSnapshot: [],
+        assignedAt: null,
+        assignedById: null,
+      };
+      await db.transaction('rw', [db.violations, db.audit], async () => {
+        await db.violations.put(next);
+        await api.writeAudit({
+          actorId: viewer.id,
+          action: 'violation.unassigned',
+          entityType: 'violation',
+          entityId: id,
+          before: {
+            memberId: current.memberId,
+            teamIdSnapshot: current.teamIdSnapshot,
+            supervisorIdsSnapshot: current.supervisorIdsSnapshot ?? [],
+          },
+          after: { memberId: null, reason: data.reason ?? null },
+        });
+      });
+      return toDto(next, w, viewer, { withResponses: true });
+    },
+
+    registerMember: async (id, input) => {
+      network();
+      const viewer = await api.actor();
+      const isAdmin = can(viewer, 'members.manage');
+      if (!isAdmin && !can(viewer, 'members.manageOwn')) fail('FORBIDDEN');
+      const data = validate(registerViolationMemberSchema, input);
+      const w = await world();
+      // A supervisor cannot see an unassigned violation; their right comes from the team they lead.
+      const v = isAdmin ? await findScoped(id, viewer, w) : await db.violations.get(id);
+      if (!v) fail('NOT_FOUND');
+      if (v.memberId) fail(isAdmin ? 'VIOLATION_ALREADY_ASSIGNED' : 'NOT_FOUND');
+      if (!data.teamId && !isAdmin) fail('FORBIDDEN', { field: 'teamId' });
+      if (data.teamId) {
+        const team = w.teams.get(data.teamId);
+        if (!team) fail('NOT_FOUND', { field: 'teamId' });
+        if (!isAdmin && !leadsNow(w, team.id, viewer.id)) fail('NOT_FOUND');
+        if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
+      }
+      for (const [field, kind, refId] of [
+        ['jobTitleId', 'job-titles', data.jobTitleId],
+        ['departmentId', 'departments', data.departmentId],
+      ] as const) {
+        if (refId && w.reference.get(refId)?.kind !== kind) {
+          fail('VALIDATION_FAILED', { fieldErrors: { [field]: [ERRORS.NOT_FOUND] } });
+        }
+      }
+      const dup = await db.members.where('nationalId').equals(data.nationalId).first();
+      if (dup) {
+        // Admins learn which member holds the ID (assign that one instead); others get the generic answer (ADR-067).
+        if (isAdmin) {
+          fail('NATIONAL_ID_TAKEN', { fieldErrors: { nationalId: [ERRORS.NATIONAL_ID_TAKEN] }, existingMemberId: dup.id });
+        }
+        await api.writeAudit({
+          actorId: viewer.id,
+          action: 'member.duplicate_rejected',
+          entityType: 'member',
+          entityId: null,
+          before: null,
+          after: { route: 'violations.register_member', rows: 1, violationId: id },
+        });
+        fail('NATIONAL_ID_NOT_ACCEPTED', { fieldErrors: { nationalId: [ERRORS.NATIONAL_ID_NOT_ACCEPTED] } });
+      }
+      // The PERSON photo becomes the member photo (a copy: the violation keeps its own).
+      const personFile = data.usePersonPhoto
+        ? (w.files.get(v.id) ?? []).find((f) => f.kind === 'PERSON' && f.status === 'READY')
+        : undefined;
+      const personBytes = personFile ? await objectOf(personFile) : undefined;
+      const now = new Date().toISOString();
+      const memberId = newId();
+      const photoId = personBytes ? newId() : null;
+      // The person was evidently on that team when recorded: the membership starts at captured_at.
+      const membership: DemoMembership | null = data.teamId
+        ? {
+            id: newId(),
+            memberId,
+            teamId: data.teamId,
+            validFrom: v.capturedAt < now ? v.capturedAt : now,
+            validTo: null,
+            movedById: viewer.id,
+            reason: t('violations.register.membershipReason'),
+            role: 'WORKER',
+          }
+        : null;
+      await db.transaction(
+        'rw',
+        [db.members, db.memberships, db.files, db.objects, db.violations, db.audit],
+        async () => {
+          if (photoId && personBytes && personFile) {
+            await db.objects.put({ key: photoId, data: personBytes.data, type: personBytes.type });
+            await db.files.add({
+              id: photoId,
+              entityType: 'member_photo',
+              entityId: memberId,
+              kind: 'PHOTO',
+              mimeType: personBytes.type,
+              sizeBytes: personBytes.data.byteLength,
+              status: 'READY',
+              createdById: viewer.id,
+              createdAt: now,
+              expiresAt: now,
+              violationId: null,
+            });
+          }
+          await db.members.add({
+            id: memberId,
+            fullName: data.fullName,
+            nationalId: data.nationalId,
+            jobTitleId: data.jobTitleId ?? null,
+            jobTitleText: data.jobTitleId ? null : (data.jobTitleText ?? null),
+            departmentId: data.departmentId ?? null,
+            departmentText: data.departmentId ? null : (data.departmentText ?? null),
+            status: 'ACTIVE',
+            photoFileId: photoId,
+            createdAt: now,
+          });
+          if (membership) await db.memberships.add(membership);
+          await api.writeAudit({
+            actorId: viewer.id,
+            action: 'member.created',
+            entityType: 'member',
+            entityId: memberId,
+            before: null,
+            after: {
+              fullName: data.fullName,
+              nationalIdMasked: maskNationalId(data.nationalId),
+              teamId: data.teamId ?? null,
+              fromViolationId: id,
+            },
+          });
+          if (photoId) {
+            await api.writeAudit({
+              actorId: viewer.id,
+              action: 'member.photo_updated',
+              entityType: 'member',
+              entityId: memberId,
+              before: { photoFileId: null },
+              after: { photoFileId: photoId, fromViolationId: id },
+            });
+          }
+          await api.writeAudit({
+            actorId: viewer.id,
+            action: 'violation.member_registered',
+            entityType: 'violation',
+            entityId: id,
+            before: null,
+            after: { memberId, teamId: data.teamId ?? null, photoCopied: Boolean(photoId) },
+          });
+          await assignInTx(id, memberId, viewer, { ...w, memberships: membership ? [...w.memberships, membership] : w.memberships }, 'register');
+        },
+      );
+      const after = await world();
+      const m = after.members.get(memberId)!;
+      const ms = after.memberships.find((x) => x.memberId === memberId && x.validTo === null);
+      const refName = (rid: string | null) => (rid ? (after.reference.get(rid)?.name ?? null) : null);
+      const member: MemberDto = {
+        id: m.id,
+        fullName: m.fullName,
+        nationalIdMasked: maskNationalId(m.nationalId),
+        ...(can(viewer, 'nationalIds.readFull') ? { nationalId: m.nationalId } : {}),
+        jobTitle: refName(m.jobTitleId) ?? m.jobTitleText,
+        jobTitleId: m.jobTitleId,
+        department: refName(m.departmentId) ?? m.departmentText,
+        departmentId: m.departmentId,
+        status: m.status,
+        team: ms ? teamSummary(after, ms.teamId) : null,
+        photoFileId: m.photoFileId,
+        hasPhoto: Boolean(m.photoFileId),
+        isForeman: false,
+      };
+      let violation: ViolationDto | null = null;
+      try {
+        const row = await findScoped(id, viewer, after);
+        violation = toDto(row, after, viewer, { withResponses: true });
+      } catch {
+        violation = null; // e.g. a supervisor whose team hides violations
+      }
+      return { member, violation };
+    },
   };
 
-  return { files, violationTypes, violations };
+  /**
+   * Links the member and resolves the snapshot at captured_at (ADR-103). Runs inside a
+   * transaction over violations + audit; a concurrent assignment of another person → 409.
+   */
+  async function assignInTx(id: string, memberId: string, viewer: DemoUser, w: World, via: 'assign' | 'register') {
+    const v = await db.violations.get(id);
+    if (!v) fail('NOT_FOUND');
+    if (v.memberId) {
+      if (v.memberId === memberId) return;
+      fail('VIOLATION_ALREADY_ASSIGNED');
+    }
+    const snap = snapshotAt(w, memberId, v.capturedAt);
+    await db.violations.put({
+      ...v,
+      memberId,
+      teamIdSnapshot: snap.teamId,
+      supervisorIdSnapshot: snap.supervisorId,
+      supervisorIdsSnapshot: snap.supervisorIds,
+      assignedAt: new Date().toISOString(),
+      assignedById: viewer.id,
+    });
+    await api.writeAudit({
+      actorId: viewer.id,
+      action: 'violation.assigned',
+      entityType: 'violation',
+      entityId: id,
+      before: { memberId: null },
+      after: {
+        memberId,
+        via,
+        teamIdSnapshot: snap.teamId,
+        supervisorIdSnapshot: snap.supervisorId,
+        supervisorIdsSnapshot: snap.supervisorIds,
+      },
+    });
+  }
+
+  return { files, violationTypes, violations, ocrRunner };
 }

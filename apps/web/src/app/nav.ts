@@ -148,14 +148,14 @@ export const NAV: NavNode[] = [
     permission: 'projects.readAll',
   },
   // ------------------------------------------------------------------ التواصل (A9)
+  // Supervisors see both too, scoped to the tasks assigned to them (ADR-092, ADR-097).
   {
     id: 'communication',
-    path: '/communication',
+    path: '/hub',
     label: 'nav.communication',
     icon: IconMessages,
     group: 'collab',
-    permission: 'projects.readAll',
-    soon: true,
+    permission: 'tasks.comment',
   },
   {
     id: 'attachments',
@@ -163,8 +163,7 @@ export const NAV: NavNode[] = [
     label: 'nav.attachments',
     icon: IconPaperclip,
     group: 'collab',
-    permission: 'projects.readAll',
-    soon: true,
+    anyOf: ['projects.readAll', 'tasks.readAssigned'],
   },
   {
     id: 'notifications',
@@ -208,12 +207,11 @@ export const NAV: NavNode[] = [
   },
   {
     id: 'orgStructure',
-    path: '/org-structure',
+    path: '/org',
     label: 'nav.orgStructure',
     icon: IconSitemap,
     group: 'teams',
-    permission: 'teams.readAll',
-    soon: true,
+    permission: 'org.read',
   },
   {
     id: 'cardsGroup',

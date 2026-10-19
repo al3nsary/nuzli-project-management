@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
 import { Button, Card, Group, SimpleGrid, Stack, Text, ThemeIcon } from '@mantine/core';
-import { IconCamera, IconCloudUpload, IconUsers } from '@tabler/icons-react';
+import { IconCamera, IconCloudUpload, IconUserQuestion, IconUsers } from '@tabler/icons-react';
+import { useMyViolations } from '../../api/queries';
+import { useOnline } from '../../lib/useOnline';
 import { useAuthStore } from '../../stores/auth';
 import { formatDateTime, formatNumber, t } from '../../i18n';
 import { useRosterInfo, useUnsyncedCount } from '../../features/violations/offline/runtime';
@@ -10,6 +12,10 @@ export function MonitorHome() {
   const user = useAuthStore((s) => s.user);
   const pending = useUnsyncedCount(user?.id);
   const roster = useRosterInfo();
+  const online = useOnline();
+  // A9: what I recorded without a person, still waiting to be assigned (I may assign any time).
+  const unassigned = useMyViolations({ assigned: 'false', pageSize: 1 }, online);
+  const waiting = unassigned.data?.total ?? 0;
   return (
     <Stack gap="md" maw={640}>
       <Button component={Link} to="/violations/new" size="lg" color="breach" leftSection={<IconCamera size={22} />} h={64}>
@@ -54,6 +60,26 @@ export function MonitorHome() {
             </div>
           </Group>
         </Card>
+        {waiting ? (
+          <Card padding="md" data-tone="wait">
+            <Group gap="sm" wrap="nowrap" align="flex-start">
+              <ThemeIcon variant="light" color="signal" size={40} radius="md" aria-hidden>
+                <IconUserQuestion size={22} />
+              </ThemeIcon>
+              <div>
+                <Text size="sm" c="dimmed">
+                  {t('home.unassigned')}
+                </Text>
+                <Text className="display num" fz="1.75rem" lh={1.2}>
+                  {formatNumber(waiting)}
+                </Text>
+                <Button component={Link} to="/violations/mine" variant="subtle" size="compact-sm" px={0}>
+                  {t('home.openUnassigned')}
+                </Button>
+              </div>
+            </Group>
+          </Card>
+        ) : null}
       </SimpleGrid>
       <Text size="sm" c="dimmed">
         {t('home.monitorHint')}

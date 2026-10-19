@@ -18,11 +18,12 @@ import {
   IconShieldCheck,
   IconUserCheck,
   IconUserOff,
+  IconUserQuestion,
   IconUsersGroup,
 } from '@tabler/icons-react';
 import { can, type Role } from '@nuzli/shared';
 import { useAuthStore } from '../stores/auth';
-import { useAudit, useRegistrations, useTeams, useUsers } from '../api/queries';
+import { useAudit, useRegistrations, useTeams, useUsers, useViolationStats } from '../api/queries';
 import { TeamBadge } from '../theme/TeamBadge';
 import { formatDateTime, formatNumber, t, tKey } from '../i18n';
 import { MonitorHome } from './violations/MonitorHome';
@@ -90,6 +91,26 @@ function TeamsKpi() {
         onClick={() => navigate(pending ? '/teams?status=PENDING_APPROVAL' : '/teams')}
       >
         {pending ? t('dash.reviewTeams') : t('dash.openTeams')}
+      </Button>
+    </Card>
+  );
+}
+
+/** A9 (ADR-103): violations recorded without a person, waiting to be assigned. */
+function UnassignedViolationsKpi() {
+  const navigate = useNavigate();
+  const stats = useViolationStats({});
+  const n = stats.data?.unassigned ?? 0;
+  return (
+    <Card className="nz-kpi-card" data-tone={n ? 'wait' : undefined}>
+      <Group justify="space-between" align="flex-start" wrap="nowrap">
+        <Kpi label={t('dash.unassignedViolations')} value={n} loading={stats.isLoading} tone={n ? 'var(--amber)' : 'dimmed'} />
+        <ThemeIcon size={40} radius="xl" variant="light" color={n ? 'signal' : 'slate'} aria-hidden>
+          <IconUserQuestion size={22} />
+        </ThemeIcon>
+      </Group>
+      <Button mt="md" fullWidth variant={n ? 'filled' : 'light'} onClick={() => navigate('/violations?assigned=false')}>
+        {n ? t('dash.assignViolations') : t('dash.noUnassigned')}
       </Button>
     </Card>
   );
@@ -187,6 +208,8 @@ function AdminDashboard() {
         </Card>
 
         <TeamsKpi />
+
+        <UnassignedViolationsKpi />
 
         <ProjectsKpi />
 

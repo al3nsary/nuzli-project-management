@@ -72,6 +72,12 @@ import type {
   TimeEntryDto,
   ViewPrefDto,
   WorkloadDto,
+  TeamSupervisorsDto,
+  OrgTreeDto,
+  OrgUnitDto,
+  OrgPositionDto,
+  ViolationOcrDto,
+  RegisterViolationMemberResultDto,
 } from '@nuzli/shared';
 import type { z } from 'zod';
 import type {
@@ -141,6 +147,18 @@ import type {
   updateLabelSchema,
   updatePortfolioSchema,
   updateTimeEntrySchema,
+  addTeamSupervisorSchema,
+  removeTeamSupervisorSchema,
+  setPrimarySupervisorSchema,
+  createOrgUnitSchema,
+  updateOrgUnitSchema,
+  moveOrgUnitSchema,
+  createOrgPositionSchema,
+  updateOrgPositionSchema,
+  moveOrgPositionSchema,
+  assignViolationSchema,
+  unassignViolationSchema,
+  registerViolationMemberSchema,
 } from '@nuzli/shared';
 import type {
   CalendarView,
@@ -352,6 +370,33 @@ export interface ApiClient {
     setViolationVisibility(id: string, mode: VisibilityMode): Promise<TeamDto>;
     addMember(teamId: string, input: In<typeof memberInputSchema>): Promise<MemberDto>;
     importMembers(input: In<typeof importMembersSchema>): Promise<ImportMembersResultDto>;
+    // A9 (ADR-100/101): several supervisors and the worker foreman.
+    /** `GET /teams/:id/supervisors` — current supervisors (primary first) and the full history. */
+    supervisorsOf(id: string): Promise<TeamSupervisorsDto>;
+    /** Admin. 409 SUPERVISOR_ALREADY_IN_TEAM, 400 NOT_A_SUPERVISOR. */
+    addSupervisor(id: string, input: In<typeof addTeamSupervisorSchema>): Promise<TeamDto>;
+    /** Admin. The primary needs `newPrimaryUserId` (409 PRIMARY_SUPERVISOR_REQUIRED); the last one → 409 LAST_SUPERVISOR. */
+    removeSupervisor(id: string, userId: string, input: In<typeof removeTeamSupervisorSchema>): Promise<TeamDto>;
+    setPrimarySupervisor(id: string, userId: string, input?: In<typeof setPrimarySupervisorSchema>): Promise<TeamDto>;
+    /** Admin or a leading supervisor. 409 FOREMAN_NOT_MEMBER / FOREMAN_HAS_ACCOUNT. */
+    setForeman(id: string, memberId: string): Promise<TeamDetailDto>;
+    clearForeman(id: string): Promise<TeamDetailDto>;
+  };
+
+  /** A9 organisational structure (ADR-102): admins manage, admins and supervisors read. */
+  org: {
+    tree(query?: { includeArchived?: boolean }): Promise<OrgTreeDto>;
+    createUnit(input: In<typeof createOrgUnitSchema>): Promise<OrgUnitDto>;
+    updateUnit(id: string, input: In<typeof updateOrgUnitSchema>): Promise<OrgUnitDto>;
+    /** 409 ORG_CYCLE under itself or a descendant. */
+    moveUnit(id: string, input: In<typeof moveOrgUnitSchema>): Promise<OrgUnitDto>;
+    /** 409 ORG_UNIT_NOT_EMPTY while it has child units, positions or teams. */
+    deleteUnit(id: string): Promise<void>;
+    createPosition(input: In<typeof createOrgPositionSchema>): Promise<OrgPositionDto>;
+    /** 409 ORG_REPORTS_CYCLE. */
+    updatePosition(id: string, input: In<typeof updateOrgPositionSchema>): Promise<OrgPositionDto>;
+    movePosition(id: string, input: In<typeof moveOrgPositionSchema>): Promise<OrgPositionDto>;
+    deletePosition(id: string): Promise<void>;
   };
 
   members: {
@@ -447,6 +492,17 @@ export interface ApiClient {
     exportXlsx(filter?: ViolationFilter): Promise<Blob>;
     /** Throws `PDF_NOT_CONFIGURED` (501) until the pdf service exists. */
     dashboardPdf(filter?: ViolationFilter): Promise<Blob>;
+    // A9 (ADR-103/104): violations without a person and the ID-card reading.
+    /** Admin or the recorder; audited `violation.ocr_viewed`; the number is masked without `nationalIds.readFull`. */
+    ocr(id: string): Promise<ViolationOcrDto>;
+    /** Admin: read the card again. */
+    retryOcr(id: string): Promise<{ queued: true }>;
+    /** Admin or the recorder (any time). Team and supervisors resolved at captured_at. 409 VIOLATION_ALREADY_ASSIGNED. */
+    assign(id: string, input: In<typeof assignViolationSchema>): Promise<ViolationDto>;
+    /** Admin. */
+    unassign(id: string, input?: In<typeof unassignViolationSchema>): Promise<ViolationDto>;
+    /** Admin, or a supervisor leading `teamId`: creates the member from the card and assigns. */
+    registerMember(id: string, input: In<typeof registerViolationMemberSchema>): Promise<RegisterViolationMemberResultDto>;
   };
 
   logos: {

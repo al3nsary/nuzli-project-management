@@ -203,7 +203,8 @@ describe('TaskChat with DemoApi', () => {
     vi.spyOn(api.tasks, 'addComment').mockRejectedValueOnce(
       new ApiError(400, 'VALIDATION_FAILED', 'تحقق', { fieldErrors: { mentions: ['يمكن الإشارة فقط إلى من يستطيع فتح هذه المهمة'] } }),
     );
-    const input = screen.getByRole('textbox', { name: 'نص الملاحظة' });
+    // Under a loaded test run the composer can mount a moment after the log.
+    const input = await screen.findByRole('textbox', { name: 'نص الملاحظة' }, { timeout: 8000 });
     fireEvent.change(input, { target: { value: 'تنبيه @أحد' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(await screen.findByRole('alert')).toHaveTextContent('يمكن الإشارة فقط إلى من يستطيع فتح هذه المهمة');

@@ -30,6 +30,6 @@ export const useViolationFilters = create<FilterState>((set) => ({
 
 /** How many filters differ from "everything in the last 30 days". */
 export function activeFilterCount(f: ViolationFilter): number {
-  const keys: (keyof ViolationFilter)[] = ['teamId', 'memberId', 'recordedBy', 'typeId', 'status', 'severity', 'bbox'];
+  const keys: (keyof ViolationFilter)[] = ['teamId', 'memberId', 'recordedBy', 'typeId', 'status', 'severity', 'bbox', 'assigned'];
   return keys.filter((k) => f[k]).length;
 }

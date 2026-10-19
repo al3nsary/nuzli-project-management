@@ -43,12 +43,17 @@ import {
   IconArrowsExchange,
   IconChevronLeft,
   IconChevronRight,
+  IconDots,
   IconGripVertical,
+  IconHelmet,
+  IconHelmetOff,
   IconHistory,
   IconSearch,
   IconUserOff,
   IconX,
 } from '@tabler/icons-react';
+import { Menu } from '@mantine/core';
+import { ForemanBadge, SupervisorAvatars, supervisorsOf } from './shared';
 import type { MemberDto, TeamDto, TeamSummaryDto } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { errorMessage } from '../../api/errors';
@@ -120,12 +125,15 @@ const MemberCard = memo(function MemberCard({
   selected,
   onToggle,
   onOpen,
+  onForeman,
   dragging,
 }: {
   member: MemberDto;
   selected: boolean;
   onToggle: (id: string, additive: boolean) => void;
   onOpen: (id: string) => void;
+  /** A9 (ADR-101): set (true) or clear (false) this member as the team's worker foreman. */
+  onForeman?: (member: MemberDto, on: boolean) => void;
   dragging: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -141,6 +149,7 @@ const MemberCard = memo(function MemberCard({
       ref={setNodeRef}
       className="nz-member-card vest"
       data-selected={selected || undefined}
+      data-foreman={member.isForeman || undefined}
       style={style}
       onClick={(e) => {
         if (e.ctrlKey || e.metaKey) {
@@ -168,22 +177,57 @@ const MemberCard = memo(function MemberCard({
         <MemberAvatar member={member} size={28} />
         <span className="nz-member-text">
           <span className="nz-member-name">{member.fullName}</span>
+          {member.isForeman ? (
+            <span className="nz-member-foreman">
+              <ForemanBadge size="xs" />
+            </span>
+          ) : null}
           <span className="nz-member-meta">
             {member.jobTitle ?? t('common.none')} ·{' '}
             <span className="ltr mono">{localizeDigits(member.nationalIdMasked)}</span>
           </span>
         </span>
       </button>
-      <ActionIcon
-        variant="subtle"
-        color="slate"
-        size={32}
-        onClick={() => onOpen(member.id)}
-        aria-label={t('members.historyOf', { name: member.fullName })}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <IconHistory size={16} />
-      </ActionIcon>
+      {onForeman && member.team ? (
+        <Menu position="bottom-end" width={220} shadow="md" withinPortal>
+          <Menu.Target>
+            <ActionIcon
+              variant="subtle"
+              color="slate"
+              size={32}
+              aria-label={t('formation.memberActions', { name: member.fullName })}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <IconDots size={16} />
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item leftSection={<IconHistory size={16} />} onClick={() => onOpen(member.id)}>
+              {t('members.history')}
+            </Menu.Item>
+            {member.isForeman ? (
+              <Menu.Item leftSection={<IconHelmetOff size={16} />} onClick={() => onForeman(member, false)}>
+                {t('teams.foreman.clear')}
+              </Menu.Item>
+            ) : (
+              <Menu.Item leftSection={<IconHelmet size={16} />} onClick={() => onForeman(member, true)}>
+                {t('teams.foreman.setShort')}
+              </Menu.Item>
+            )}
+          </Menu.Dropdown>
+        </Menu>
+      ) : (
+        <ActionIcon
+          variant="subtle"
+          color="slate"
+          size={32}
+          onClick={() => onOpen(member.id)}
+          aria-label={t('members.historyOf', { name: member.fullName })}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <IconHistory size={16} />
+        </ActionIcon>
+      )}
     </div>
   );
 });
@@ -195,6 +239,7 @@ function BoardColumn({
   onToggle,
   onToggleAll,
   onOpen,
+  onForeman,
   dragging,
 }: {
   column: Column;
@@ -203,6 +248,7 @@ function BoardColumn({
   onToggle: (id: string, additive: boolean) => void;
   onToggleAll: (ids: string[], on: boolean) => void;
   onOpen: (id: string) => void;
+  onForeman?: (member: MemberDto, on: boolean) => void;
   dragging: boolean;
 }) {
   const isUnassigned = column.team === null;
@@ -232,11 +278,20 @@ function BoardColumn({
             {formatNumber(members.length)}
           </Badge>
         </Group>
-        <Text size="xs" c="inherit" opacity={0.9} truncate>
-          {column.team
-            ? column.team.supervisor?.fullName ?? t('teams.noSupervisor')
-            : t('formation.unassignedHint')}
-        </Text>
+        {column.team ? (
+          <div className="nz-col-sups">
+            <SupervisorAvatars supervisors={supervisorsOf(column.team)} size={24} max={3} />
+            <Text size="xs" c="inherit" opacity={0.92} truncate>
+              {supervisorsOf(column.team)
+                .map((s) => (s.isPrimary ? t('teams.sup.namePrimary', { name: s.fullName }) : s.fullName))
+                .join('، ') || t('teams.noSupervisor')}
+            </Text>
+          </div>
+        ) : (
+          <Text size="xs" c="inherit" opacity={0.9} truncate>
+            {t('formation.unassignedHint')}
+          </Text>
+        )}
         {members.length ? (
           <Checkbox
             mt={6}
@@ -263,6 +318,7 @@ function BoardColumn({
               selected={selected.has(m.id)}
               onToggle={onToggle}
               onOpen={onOpen}
+              onForeman={onForeman}
               dragging={dragging}
             />
           ))
@@ -296,6 +352,23 @@ export function FormationPage() {
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: columnJump }),
   );
+
+  /** A9 (ADR-101): set or clear a team's worker foreman from its card. */
+  const setForeman = async (m: MemberDto, on: boolean) => {
+    if (!m.team) return;
+    try {
+      if (on) await api.teams.setForeman(m.team.id, m.id);
+      else await api.teams.clearForeman(m.team.id);
+      await invalidate();
+      await qc.invalidateQueries({ queryKey: ALL_MEMBERS_KEY });
+      notifications.show({
+        color: 'ok',
+        message: on ? t('teams.foreman.set', { name: m.fullName }) : t('teams.foreman.cleared', { name: m.fullName }),
+      });
+    } catch (err) {
+      notifications.show({ color: 'breach', message: errorMessage(err) });
+    }
+  };
 
   const teams = teamsQ.data ?? [];
   const members = membersQ.data ?? [];
@@ -538,6 +611,7 @@ export function FormationPage() {
                 onToggle={toggle}
                 onToggleAll={toggleAll}
                 onOpen={drawer.open}
+                onForeman={(m, on) => void setForeman(m, on)}
                 dragging={Boolean(activeId)}
               />
             ))}

@@ -28,7 +28,7 @@ export async function enqueueViolation(
   now: Date = new Date(),
 ): Promise<OutboxItem> {
   const id = input.payload.clientUuid;
-  const order = { ID_CARD: 0, EVIDENCE: 0 } as Record<ViolationFileKind, number>;
+  const order = { PERSON: 0, ID_CARD: 0, EVIDENCE: 0 } as Record<ViolationFileKind, number>;
   const files: OutboxFile[] = [];
   const photos: OutboxPhoto[] = [];
   for (const p of input.photos) {
@@ -56,8 +56,9 @@ export async function enqueueViolation(
       confirmed: false,
     });
   }
-  // The ID card goes first, then the evidence photos in the order they were taken.
-  photos.sort((a, b) => (a.kind === b.kind ? a.order - b.order : a.kind === 'ID_CARD' ? -1 : 1));
+  // A9: the person first, then the ID card (it queues the reading), then the evidence in order.
+  const rank: Record<string, number> = { PERSON: 0, ID_CARD: 1, EVIDENCE: 2 };
+  photos.sort((a, b) => (a.kind === b.kind ? a.order - b.order : (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9)));
   const at = now.toISOString();
   const item: OutboxItem = {
     id,

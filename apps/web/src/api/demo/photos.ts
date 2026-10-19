@@ -12,6 +12,7 @@ import { t } from '../../i18n';
 import type { DemoAudit, DemoDb, DemoFile, DemoMember, DemoTeam, DemoUser } from './db';
 import { drawPortrait } from './placeholderImage';
 import { fail } from './util';
+import { openLeaderIds } from './leaders';
 
 /**
  * Personal photos in the demo (owner request A8), with the same matrix as
@@ -38,6 +39,8 @@ type Decision = 'ALLOW' | 'FORBIDDEN' | 'NOT_FOUND';
 interface MemberScope {
   member: DemoMember;
   team: DemoTeam | null;
+  /** A9 (ADR-100): every user leading the team now (primary or co-supervisor). */
+  leaderIds: string[];
 }
 
 export interface PhotoHooks {
@@ -68,11 +71,11 @@ export function userPhotoWrite(viewer: DemoUser, targetId: string): Decision {
   return 'FORBIDDEN';
 }
 
-export function memberPhotoWrite(viewer: DemoUser, team: DemoTeam | null): Decision {
+export function memberPhotoWrite(viewer: DemoUser, team: DemoTeam | null, leaderIds: readonly string[] = team ? [team.supervisorId] : []): Decision {
   if (can(viewer, 'members.manage')) return 'ALLOW';
   if (!can(viewer, 'members.manageOwn')) return 'FORBIDDEN';
   if (!team) return 'FORBIDDEN';
-  if (team.supervisorId !== viewer.id) return 'NOT_FOUND';
+  if (!leaderIds.includes(viewer.id)) return 'NOT_FOUND';
   if (team.status === 'ARCHIVED') return 'FORBIDDEN';
   return 'ALLOW';
 }
@@ -86,7 +89,7 @@ function userPhotoRead(viewer: DemoUser, target: DemoUser): boolean {
 
 function memberPhotoRead(viewer: DemoUser, s: MemberScope): boolean {
   if (can(viewer, 'teams.readAll') || can(viewer, 'members.manage')) return true;
-  if (s.team && can(viewer, 'teams.readOwn') && s.team.supervisorId === viewer.id) return true;
+  if (s.team && can(viewer, 'teams.readOwn') && s.leaderIds.includes(viewer.id)) return true;
   return (
     can(viewer, 'violations.create') &&
     s.member.status === 'ACTIVE' &&
@@ -116,7 +119,8 @@ export function createPhotos(api: PhotoInternals): PhotoHooks {
       .filter((r) => r.validTo === null)
       .first();
     const team = open ? ((await db.teams.get(open.teamId)) ?? null) : null;
-    return { member, team };
+    const leaderIds = team ? await openLeaderIds(db, team.id) : [];
+    return { member, team, leaderIds };
   }
 
   /** NOT_FOUND / FORBIDDEN unless `viewer` may change the photo; answers the current file id. */
@@ -129,7 +133,7 @@ export function createPhotos(api: PhotoInternals): PhotoHooks {
     }
     const s = await memberScope(id);
     if (!s) fail('NOT_FOUND');
-    enforce(memberPhotoWrite(viewer, s.team));
+    enforce(memberPhotoWrite(viewer, s.team, s.leaderIds));
     return s.member.photoFileId;
   }
 
@@ -198,7 +202,7 @@ export function createPhotos(api: PhotoInternals): PhotoHooks {
 
   async function remove(type: PhotoEntityType, id: string, viewer: DemoUser) {
     let old: string | null = null;
-    await db.transaction('rw', [db.users, db.members, db.memberships, db.teams, db.files, db.objects, db.audit], async () => {
+    await db.transaction('rw', [db.users, db.members, db.memberships, db.teams, db.teamSupervisors, db.files, db.objects, db.audit], async () => {
       const current = await assertCanWrite(type, id, viewer);
       if (!current) return;
       await setPhoto(type, id, null);
@@ -280,7 +284,7 @@ export function createPhotos(api: PhotoInternals): PhotoHooks {
         throw ApiError.of('FILE_TYPE_NOT_ALLOWED', 400);
       }
       let old: string | null = null;
-      await db.transaction('rw', [db.users, db.members, db.memberships, db.teams, db.files, db.objects, db.audit], async () => {
+      await db.transaction('rw', [db.users, db.members, db.memberships, db.teams, db.teamSupervisors, db.files, db.objects, db.audit], async () => {
         const current = await assertCanWrite(type, id, actor);
         if (current === file.id) return;
         await setPhoto(type, id, file.id);

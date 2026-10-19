@@ -24,6 +24,11 @@ import {
   updateTeamColorSchema,
   updateTeamSchema,
   violationVisibilitySchema,
+  addTeamSupervisorSchema,
+  removeTeamSupervisorSchema,
+  setPrimarySupervisorSchema,
+  setForemanSchema,
+  type TeamDetailDto,
   type CardData,
   type CardPreviewSubjectDto,
   type CardSizeDto,
@@ -55,12 +60,35 @@ import type {
   DemoLogo,
   DemoMember,
   DemoMembership,
+  DemoOrgUnit,
   DemoReference,
   DemoTeam,
+  DemoTeamSupervisor,
   DemoTemplate,
   DemoUser,
 } from './db';
 import { fail, newId, paginate, rejectFullIdInUrl, sameName, validate } from './util';
+import {
+  closeAllLeaders,
+  groupOpenLeaders,
+  openLeaderIds,
+  openLeaders,
+  supervisorDtos,
+  switchPrimary,
+} from './leaders';
+
+/**
+ * A9 (ADR-100): the users leading a team now, attached to in-memory team rows as a
+ * non-enumerable property (never copied by spreads nor stored by IndexedDB). Rows read without
+ * it fall back to the primary only.
+ */
+function withLeaders<T extends DemoTeam>(team: T, ids: string[]): T {
+  Object.defineProperty(team, 'leaderIds', { value: ids, enumerable: false, configurable: true });
+  return team;
+}
+export const leaderIdsOf = (team: DemoTeam): string[] =>
+  (team as DemoTeam & { leaderIds?: string[] }).leaderIds ?? [team.supervisorId];
+const leads = (u: { id: string }, team: DemoTeam) => leaderIdsOf(team).includes(u.id);
 
 /** ADR-064: what the physical card carries — full only when the field is on and unmasked. */
 export function nationalIdPrintedFor(config: CardTemplateConfig): NationalIdPrinted {
@@ -107,6 +135,9 @@ interface World {
   open: Map<string, DemoMembership>;
   /** teamId → open membership count. */
   counts: Map<string, number>;
+  /** A9: teamId → open leadership rows, primary first. */
+  leaders: Map<string, DemoTeamSupervisor[]>;
+  orgUnits: Map<string, DemoOrgUnit>;
 }
 
 // ---------------------------------------------------------------- pure helpers
@@ -181,13 +212,17 @@ export function createPhase2(api: DemoInternals): Phase2Api {
   const tx = <T>(fn: () => Promise<T>) => db.transaction('rw', db.tables, fn);
 
   async function world(): Promise<World> {
-    const [users, colors, teams, reference, memberships] = await Promise.all([
+    const [users, colors, teams, reference, memberships, leaderRows, orgUnits] = await Promise.all([
       db.users.toArray(),
       db.colors.toArray(),
       db.teams.toArray(),
       db.reference.toArray(),
       db.memberships.toArray(),
+      db.teamSupervisors.toArray(),
+      db.orgUnits.toArray(),
     ]);
+    const leaders = groupOpenLeaders(leaderRows);
+    for (const tm of teams) withLeaders(tm, (leaders.get(tm.id) ?? []).map((r) => r.userId));
     const open = new Map<string, DemoMembership>();
     const counts = new Map<string, number>();
     for (const m of memberships) {
@@ -202,7 +237,31 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       reference: new Map(reference.map((r) => [r.id, r])),
       open,
       counts,
+      leaders,
+      orgUnits: new Map(orgUnits.map((o) => [o.id, o])),
     };
+  }
+
+  /** A team row with its current leaders attached (scope checks inside transactions). */
+  async function loadTeam(id: string): Promise<DemoTeam | undefined> {
+    const team = await db.teams.get(id);
+    return team ? withLeaders(team, await openLeaderIds(db, id)) : undefined;
+  }
+
+  /** Every leadership row of a team (all supervisors, primary or not), newest first. */
+  async function supervisorHistoryOf(id: string, w: World) {
+    const rows = await db.teamSupervisors.where('teamId').equals(id).toArray();
+    return rows
+      .sort((a, b) => b.validFrom.localeCompare(a.validFrom) || Number(b.isPrimary) - Number(a.isPrimary))
+      .map((h) => ({
+        id: h.id,
+        supervisor: person(w, h.userId) ?? { id: h.userId, fullName: t('common.unknownUser') },
+        isPrimary: h.isPrimary,
+        validFrom: h.validFrom,
+        validTo: h.validTo,
+        changedBy: person(w, h.addedById),
+        reason: h.reason,
+      }));
   }
 
   const person = (w: World, id: string | null) => {
@@ -219,6 +278,11 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       ...summary(team, w),
       status: team.status,
       supervisor: person(w, team.supervisorId),
+      supervisors: supervisorDtos(w.leaders.get(team.id) ?? [], w.users),
+      orgUnit: (() => {
+        const o = team.orgUnitId ? w.orgUnits.get(team.orgUnitId) : undefined;
+        return o ? { id: o.id, name: o.name, kind: o.kind } : null;
+      })(),
       memberCount: w.counts.get(team.id) ?? 0,
       createdAt: team.createdAt,
       violationVisibility: team.violationVisibility,
@@ -243,6 +307,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       team: team ? summary(team, w) : null,
       photoFileId: m.photoFileId,
       hasPhoto: Boolean(m.photoFileId),
+      isForeman: open?.role === 'FOREMAN',
     };
   }
 
@@ -250,21 +315,21 @@ export function createPhase2(api: DemoInternals): Phase2Api {
 
   const readsAll = (u: DemoUser) => can(u, 'teams.readAll');
   const canReadTeam = (u: DemoUser, team: DemoTeam) =>
-    readsAll(u) || (can(u, 'teams.readOwn') && team.supervisorId === u.id);
+    readsAll(u) || (can(u, 'teams.readOwn') && leads(u, team));
   function assertReadable(u: DemoUser, team: DemoTeam | undefined): asserts team is DemoTeam {
     if (!team || !canReadTeam(u, team)) fail('NOT_FOUND');
   }
   function assertManageable(u: DemoUser, team: DemoTeam | undefined): asserts team is DemoTeam {
     assertReadable(u, team);
     if (can(u, 'teams.manageAll')) return;
-    if (can(u, 'teams.manageOwn') && team.supervisorId === u.id) return;
+    if (can(u, 'teams.manageOwn') && leads(u, team)) return;
     fail('FORBIDDEN');
   }
   const canManageMemberIn = (u: DemoUser, team: DemoTeam | null | undefined) =>
-    can(u, 'members.manage') || (!!team && can(u, 'members.manageOwn') && team.supervisorId === u.id);
+    can(u, 'members.manage') || (!!team && can(u, 'members.manageOwn') && leads(u, team));
   /** Supervisors see their own teams' members and unassigned people (apps/api memberScopeWhere). */
   const canSeeMember = (u: DemoUser, team: DemoTeam | null | undefined) =>
-    readsAll(u) || can(u, 'members.manage') || !team || team.supervisorId === u.id;
+    readsAll(u) || can(u, 'members.manage') || !team || leads(u, team);
   const memberTeam = (w: World, memberId: string) => {
     const open = w.open.get(memberId);
     return open ? w.teams.get(open.teamId) ?? null : null;
@@ -309,12 +374,16 @@ export function createPhase2(api: DemoInternals): Phase2Api {
   async function assertMayLeadAnother(supervisorId: string, exceptTeamId?: string) {
     const settings = await api.readSettings();
     if (settings.ALLOW_MULTIPLE_TEAMS_PER_SUPERVISOR) return;
-    const leads = await db.teams
-      .where('supervisorId')
+    // A9: per person — any open leadership row (primary or co-supervisor) of another live team.
+    const rows = await db.teamSupervisors
+      .where('userId')
       .equals(supervisorId)
-      .filter((tm) => tm.id !== exceptTeamId && RESERVING.has(tm.status))
-      .count();
-    if (leads > 0) fail('MULTIPLE_TEAMS_DISABLED');
+      .filter((r) => r.validTo === null && r.teamId !== exceptTeamId)
+      .toArray();
+    for (const r of rows) {
+      const tm = await db.teams.get(r.teamId);
+      if (tm && RESERVING.has(tm.status)) fail('MULTIPLE_TEAMS_DISABLED', { userId: supervisorId });
+    }
   }
 
   async function assertNationalIdFree(nationalId: string, exceptMemberId?: string) {
@@ -348,6 +417,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       .filter((h) => h.validTo === null)
       .toArray();
     for (const r of rows) await db.supervisorHistory.update(r.id, { validTo: at });
+    await closeAllLeaders(db, teamId, at);
   }
 
   async function insertMember(
@@ -389,7 +459,8 @@ export function createPhase2(api: DemoInternals): Phase2Api {
   const colors: Phase2Api['colors'] = {
     available: async (excludeTeamId) => {
       const u = await readerOfTeams();
-      const [all, teams] = await Promise.all([db.colors.toArray(), db.teams.toArray()]);
+      const all = await db.colors.toArray();
+      const teams = [...(await world()).teams.values()];
       let exclude = excludeTeamId;
       // A supervisor may only keep the colour of a team they lead.
       const team = exclude ? teams.find((tm) => tm.id === exclude) : undefined;
@@ -500,8 +571,11 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       const members = (await db.members.bulkGet(memberIds))
         .filter((m): m is DemoMember => Boolean(m))
         .sort(byFullName)
-        .map((m) => memberDto(m, w));
-      return { ...teamDto(team, w), members };
+        .map((m) => memberDto(m, w))
+        // A9 (ADR-101): the worker foreman first, then the workers by name.
+        .sort((a, b) => Number(!!b.isForeman) - Number(!!a.isForeman));
+      const foreman = members.find((m) => m.isForeman);
+      return { ...teamDto(team, w), members, foreman: foreman ? { id: foreman.id, fullName: foreman.fullName } : null };
     },
 
     create: async (input) => {
@@ -556,10 +630,25 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           supervisorId = sup.id;
         } else if (data.supervisorId) {
           supervisorId = (await assertSupervisor(data.supervisorId)).id;
+        } else if (data.supervisorIds?.length) {
+          supervisorId = (await assertSupervisor(data.primarySupervisorId ?? data.supervisorIds[0]!)).id;
         } else {
           fail('VALIDATION_FAILED', { fieldErrors: { supervisorId: [t('teams.supervisorRequired')] } });
         }
-        await assertMayLeadAnother(supervisorId);
+        // A9 (ADR-100): the whole set (admin only); primary = new supervisor › supervisorId › chosen › first.
+        const extra = isAdmin ? (data.supervisorIds ?? []).filter((id) => id !== supervisorId) : [];
+        const primaryId =
+          isAdmin && !data.newSupervisor && data.primarySupervisorId ? data.primarySupervisorId : supervisorId;
+        const allIds = [...new Set([supervisorId, ...extra])];
+        for (const id of extra) await assertSupervisor(id);
+        for (const id of allIds) await assertMayLeadAnother(id);
+        supervisorId = primaryId;
+        if (data.orgUnitId) {
+          if (!isAdmin) fail('FORBIDDEN', { field: 'orgUnitId' });
+          const unit = await db.orgUnits.get(data.orgUnitId);
+          if (!unit) fail('VALIDATION_FAILED', { fieldErrors: { orgUnitId: [ERRORS.NOT_FOUND] } });
+          if (unit.archivedAt) fail('ORG_UNIT_ARCHIVED');
+        }
         await assertColorFree(data.colorId);
 
         const pending = !isAdmin && settings.REQUIRE_APPROVAL_FOR_SUPERVISOR_TEAMS;
@@ -574,17 +663,21 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           violationVisibility: 'INHERIT',
           archivedAt: null,
           archiveReason: null,
+          orgUnitId: data.orgUnitId ?? null,
         };
         await db.teams.add(created);
-        await db.supervisorHistory.add({
-          id: newId(),
-          teamId: created.id,
-          supervisorId,
-          validFrom: at,
-          validTo: null,
-          changedById: u.id,
-          reason: null,
-        });
+        for (const id of allIds) {
+          await db.teamSupervisors.add({
+            id: newId(),
+            teamId: created.id,
+            userId: id,
+            isPrimary: id === supervisorId,
+            validFrom: at,
+            validTo: null,
+            addedById: u.id,
+            reason: null,
+          });
+        }
         for (const [i, m] of data.members.entries()) {
           try {
             await insertMember(m, created.id, u.id, at);
@@ -627,6 +720,8 @@ export function createPhase2(api: DemoInternals): Phase2Api {
             status: created.status,
             colorId: created.colorId,
             supervisorId,
+            supervisorIds: allIds,
+            ...(created.orgUnitId ? { orgUnitId: created.orgUnitId } : {}),
             members: data.members.length + data.existingMemberIds.length,
           },
         });
@@ -653,14 +748,23 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       const data = validate(updateTeamSchema, input);
       let after!: DemoTeam;
       await tx(async () => {
-        const team = await db.teams.get(id);
+        const team = await loadTeam(id);
         assertManageable(u, team);
         if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
         if (data.colorId && data.colorId !== team.colorId) await assertColorFree(data.colorId, id);
+        if (data.orgUnitId !== undefined) {
+          if (!can(u, 'teams.manageAll')) fail('FORBIDDEN', { field: 'orgUnitId' });
+          if (data.orgUnitId) {
+            const unit = await db.orgUnits.get(data.orgUnitId);
+            if (!unit) fail('VALIDATION_FAILED', { fieldErrors: { orgUnitId: [ERRORS.NOT_FOUND] } });
+            if (unit.archivedAt) fail('ORG_UNIT_ARCHIVED');
+          }
+        }
         after = {
           ...team,
           ...(data.name ? { name: data.name } : {}),
           ...(data.colorId ? { colorId: data.colorId } : {}),
+          ...(data.orgUnitId !== undefined ? { orgUnitId: data.orgUnitId } : {}),
         };
         await db.teams.put(after);
         await api.writeAudit({
@@ -668,8 +772,8 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           action: 'team.updated',
           entityType: 'team',
           entityId: id,
-          before: { name: team.name, colorId: team.colorId },
-          after: { name: after.name, colorId: after.colorId },
+          before: { name: team.name, colorId: team.colorId, orgUnitId: team.orgUnitId ?? null },
+          after: { name: after.name, colorId: after.colorId, orgUnitId: after.orgUnitId ?? null },
         });
       });
       return teamDto(after, await world());
@@ -692,7 +796,9 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           before: { status: team.status },
           after: { status: 'ACTIVE' },
         });
-        await api.notify(team.supervisorId, 'TEAM_APPROVED', { teamId: id, name: team.name });
+        for (const userId of await openLeaderIds(db, id)) {
+          await api.notify(userId, 'TEAM_APPROVED', { teamId: id, name: team.name });
+        }
       });
       return teamDto(after, await world());
     },
@@ -707,6 +813,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
         if (team.status !== 'PENDING_APPROVAL') fail('NOT_PENDING_TEAM');
         const at = new Date().toISOString();
         after = { ...team, status: 'ARCHIVED', archivedAt: at, archiveReason: data.reason };
+        const notifyIds = await openLeaderIds(db, id);
         await db.teams.put(after);
         await closeTeamMemberships(id, at);
         await closeSupervisorHistory(id, at);
@@ -718,11 +825,9 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           before: { status: team.status },
           after: { status: 'ARCHIVED', reason: data.reason },
         });
-        await api.notify(team.supervisorId, 'TEAM_REJECTED', {
-          teamId: id,
-          name: team.name,
-          reason: data.reason,
-        });
+        for (const userId of notifyIds) {
+          await api.notify(userId, 'TEAM_REJECTED', { teamId: id, name: team.name, reason: data.reason });
+        }
       });
       return teamDto(after, await world());
     },
@@ -732,7 +837,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       const data = validate(archiveTeamSchema, input);
       let after!: DemoTeam;
       await tx(async () => {
-        const team = await db.teams.get(id);
+        const team = await loadTeam(id);
         assertManageable(u, team);
         if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
         const at = new Date().toISOString();
@@ -765,20 +870,23 @@ export function createPhase2(api: DemoInternals): Phase2Api {
         after = team;
         if (team.supervisorId === data.supervisorId) return;
         await assertMayLeadAnother(data.supervisorId, id);
-        // One timestamp closes the old row and opens the new one.
+        // A9 (ADR-100): replaces the primary at one instant; co-supervisors stay.
         const at = new Date().toISOString();
-        await closeSupervisorHistory(id, at);
-        await db.supervisorHistory.add({
-          id: newId(),
-          teamId: id,
-          supervisorId: data.supervisorId,
-          validFrom: at,
-          validTo: null,
-          changedById: u.id,
-          reason: data.reason ?? null,
-        });
+        const rows = await openLeaders(db, id);
+        if (!rows.some((r) => r.userId === data.supervisorId)) {
+          await db.teamSupervisors.add({
+            id: newId(),
+            teamId: id,
+            userId: data.supervisorId,
+            isPrimary: false,
+            validFrom: at,
+            validTo: null,
+            addedById: u.id,
+            reason: data.reason ?? null,
+          });
+        }
+        await switchPrimary(db, id, data.supervisorId, at, { actorId: u.id, reason: data.reason ?? null, removeOld: true });
         after = { ...team, supervisorId: data.supervisorId };
-        await db.teams.put(after);
         await api.writeAudit({
           actorId: u.id,
           action: 'team.supervisor_changed',
@@ -795,17 +903,175 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       const u = await readerOfTeams();
       const w = await world();
       assertReadable(u, w.teams.get(id));
-      const rows = await db.supervisorHistory.where('teamId').equals(id).toArray();
-      return rows
-        .sort((a, b) => b.validFrom.localeCompare(a.validFrom))
-        .map((h) => ({
-          id: h.id,
-          supervisor: person(w, h.supervisorId) ?? { id: h.supervisorId, fullName: t('common.unknownUser') },
-          validFrom: h.validFrom,
-          validTo: h.validTo,
-          changedBy: person(w, h.changedById),
-          reason: h.reason,
-        }));
+      return supervisorHistoryOf(id, w);
+    },
+
+    // -------------------------------------------------------- A9: several supervisors (ADR-100)
+
+    supervisorsOf: async (id) => {
+      const u = await readerOfTeams();
+      const w = await world();
+      assertReadable(u, w.teams.get(id));
+      return { current: supervisorDtos(w.leaders.get(id) ?? [], w.users), history: await supervisorHistoryOf(id, w) };
+    },
+
+    addSupervisor: async (id, input) => {
+      const u = await api.actor('teams.manageAll');
+      const data = validate(addTeamSupervisorSchema, input);
+      await tx(async () => {
+        const team = await db.teams.get(id);
+        if (!team) fail('NOT_FOUND');
+        if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
+        const rows = await openLeaders(db, id);
+        if (rows.some((r) => r.userId === data.userId)) fail('SUPERVISOR_ALREADY_IN_TEAM');
+        await assertSupervisor(data.userId);
+        await assertMayLeadAnother(data.userId, id);
+        const at = new Date().toISOString();
+        const isPrimary = data.isPrimary || !rows.length;
+        await db.teamSupervisors.add({
+          id: newId(),
+          teamId: id,
+          userId: data.userId,
+          isPrimary: false,
+          validFrom: at,
+          validTo: null,
+          addedById: u.id,
+          reason: data.reason ?? null,
+        });
+        let fromUserId: string | null = null;
+        if (isPrimary) ({ fromUserId } = await switchPrimary(db, id, data.userId, at, { actorId: u.id, reason: data.reason ?? null }));
+        await api.writeAudit({
+          actorId: u.id,
+          action: 'team.supervisor_added',
+          entityType: 'team',
+          entityId: id,
+          before: { supervisorIds: rows.map((r) => r.userId), primaryId: rows.find((r) => r.isPrimary)?.userId ?? null },
+          after: { userId: data.userId, isPrimary, previousPrimaryId: fromUserId, reason: data.reason ?? null },
+        });
+      });
+      const w = await world();
+      return teamDto(w.teams.get(id)!, w);
+    },
+
+    removeSupervisor: async (id, userId, input) => {
+      const u = await api.actor('teams.manageAll');
+      const data = validate(removeTeamSupervisorSchema, input);
+      await tx(async () => {
+        const team = await db.teams.get(id);
+        if (!team) fail('NOT_FOUND');
+        if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
+        const rows = await openLeaders(db, id);
+        const target = rows.find((r) => r.userId === userId);
+        if (!target) fail('NOT_FOUND', { field: 'userId' });
+        if (rows.length === 1) fail('LAST_SUPERVISOR');
+        const at = new Date().toISOString();
+        if (target.isPrimary) {
+          const next = data.newPrimaryUserId;
+          if (!next || next === userId) fail('PRIMARY_SUPERVISOR_REQUIRED', { field: 'newPrimaryUserId' });
+          if (!rows.some((r) => r.userId === next)) {
+            fail('VALIDATION_FAILED', { fieldErrors: { newPrimaryUserId: [t('teams.sup.successorInvalid')] } });
+          }
+          await switchPrimary(db, id, next, at, { actorId: u.id, reason: data.reason, removeOld: true });
+        } else if (target.validFrom === at) {
+          await db.teamSupervisors.delete(target.id);
+        } else {
+          await db.teamSupervisors.update(target.id, { validTo: at });
+        }
+        await api.writeAudit({
+          actorId: u.id,
+          action: 'team.supervisor_removed',
+          entityType: 'team',
+          entityId: id,
+          before: { userId, wasPrimary: target.isPrimary },
+          after: {
+            reason: data.reason,
+            primaryId: target.isPrimary ? data.newPrimaryUserId : (rows.find((r) => r.isPrimary)?.userId ?? null),
+          },
+        });
+      });
+      const w = await world();
+      return teamDto(w.teams.get(id)!, w);
+    },
+
+    setPrimarySupervisor: async (id, userId, input) => {
+      const u = await api.actor('teams.manageAll');
+      const data = validate(setPrimarySupervisorSchema, input ?? {});
+      await tx(async () => {
+        const team = await db.teams.get(id);
+        if (!team) fail('NOT_FOUND');
+        if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
+        const rows = await openLeaders(db, id);
+        const target = rows.find((r) => r.userId === userId);
+        if (!target) fail('NOT_FOUND', { field: 'userId' });
+        if (target.isPrimary) return;
+        const { fromUserId } = await switchPrimary(db, id, userId, new Date().toISOString(), {
+          actorId: u.id,
+          reason: data.reason ?? null,
+        });
+        await api.writeAudit({
+          actorId: u.id,
+          action: 'team.primary_supervisor_changed',
+          entityType: 'team',
+          entityId: id,
+          before: { primaryId: fromUserId },
+          after: { primaryId: userId, reason: data.reason ?? null },
+        });
+      });
+      const w = await world();
+      return teamDto(w.teams.get(id)!, w);
+    },
+
+    // -------------------------------------------------------- A9: worker foreman (ADR-101)
+
+    setForeman: async (id, memberId) => {
+      const u = await api.actor();
+      const data = validate(setForemanSchema, { memberId });
+      await tx(async () => {
+        const team = await loadTeam(id);
+        assertManageable(u, team);
+        if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
+        const open = await db.memberships.where('teamId').equals(id).filter((m) => m.validTo === null).toArray();
+        const row = open.find((m) => m.memberId === data.memberId);
+        if (!row) fail('FOREMAN_NOT_MEMBER');
+        // A member record only: demo members have no login account, so FOREMAN_HAS_ACCOUNT cannot arise.
+        if (row.role === 'FOREMAN') return;
+        const current = open.find((m) => m.role === 'FOREMAN');
+        if (current) await db.memberships.update(current.id, { role: 'WORKER' });
+        await db.memberships.update(row.id, { role: 'FOREMAN' });
+        await api.writeAudit({
+          actorId: u.id,
+          action: 'team.foreman_set',
+          entityType: 'team',
+          entityId: id,
+          before: { foremanId: current?.memberId ?? null },
+          after: { foremanId: data.memberId },
+        });
+      });
+      return teams.get(id);
+    },
+
+    clearForeman: async (id) => {
+      const u = await api.actor();
+      await tx(async () => {
+        const team = await loadTeam(id);
+        assertManageable(u, team);
+        const current = await db.memberships
+          .where('teamId')
+          .equals(id)
+          .filter((m) => m.validTo === null && m.role === 'FOREMAN')
+          .first();
+        if (!current) return;
+        await db.memberships.update(current.id, { role: 'WORKER' });
+        await api.writeAudit({
+          actorId: u.id,
+          action: 'team.foreman_cleared',
+          entityType: 'team',
+          entityId: id,
+          before: { foremanId: current.memberId },
+          after: { foremanId: null },
+        });
+      });
+      return teams.get(id);
     },
 
     setViolationVisibility: async (id, mode) => {
@@ -834,7 +1100,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       const data = validate(memberInputSchema, input);
       let member!: DemoMember;
       await tx(async () => {
-        const team = await db.teams.get(teamId);
+        const team = await loadTeam(teamId);
         assertReadable(u, team);
         if (!canManageMemberIn(u, team)) fail('FORBIDDEN');
         if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
@@ -859,7 +1125,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
       const u = await api.actor();
       const data = validate(importMembersSchema, input);
       return tx(async () => {
-        const team = await db.teams.get(data.teamId);
+        const team = await loadTeam(data.teamId);
         assertReadable(u, team);
         if (!canManageMemberIn(u, team)) fail('FORBIDDEN');
         if (team.status === 'ARCHIVED') fail('TEAM_ARCHIVED');
@@ -1018,6 +1284,17 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           const open = w.open.get(memberId);
           from.push(open ? w.teams.get(open.teamId)?.name ?? '' : t('formation.unassigned'));
           if (open) await db.memberships.update(open.id, { validTo: at });
+          // A9 (ADR-101): the foreman flag ends with the closed membership; the new one is WORKER.
+          if (open?.role === 'FOREMAN') {
+            await api.writeAudit({
+              actorId: u.id,
+              action: 'team.foreman_cleared',
+              entityType: 'team',
+              entityId: open.teamId,
+              before: { foremanId: memberId },
+              after: { foremanId: null, reason: t('teams.foreman.clearedByMove') },
+            });
+          }
           await db.memberships.add({
             id: newId(),
             memberId,
@@ -1446,8 +1723,12 @@ export function createPhase2(api: DemoInternals): Phase2Api {
         const team = w.teams.get(teamId);
         assertReadable(u, team);
         const color = w.colors.get(team.colorId);
-        const sup = w.users.get(team.supervisorId);
-        if (data.includeSupervisors && sup && !seen.has(`u:${sup.id}`)) {
+        // A9 (ADR-100): one card per current supervisor, the primary first.
+        const sups = (w.leaders.get(team.id) ?? [])
+          .map((r) => w.users.get(r.userId))
+          .filter((x): x is DemoUser => Boolean(x));
+        for (const sup of data.includeSupervisors ? sups : []) {
+          if (seen.has(`u:${sup.id}`)) continue;
           seen.add(`u:${sup.id}`);
           subjects.push({
             userId: sup.id,

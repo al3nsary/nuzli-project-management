@@ -782,7 +782,8 @@ a.nz-chip--wait:hover {
   justify-content: center;
   gap: 8px;
   padding: 8px 16px;
-  background: var(--p-wait-b);
+  /* Opaque even where the pill colour is translucent (dark mode): it sits over scrolled content. */
+  background: linear-gradient(var(--p-wait-b), var(--p-wait-b)), var(--panel);
   color: var(--p-wait-t);
   font-size: 12.5px;
   font-weight: 600;

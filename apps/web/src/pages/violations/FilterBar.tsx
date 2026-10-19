@@ -110,6 +110,18 @@ export function FilterBar({
         clearable
         size="sm"
       />
+      <Select
+        label={t('vfilter.assigned')}
+        placeholder={t('common.all')}
+        data={[
+          { value: 'true', label: t('vfilter.assigned.true') },
+          { value: 'false', label: t('vfilter.assigned.false') },
+        ]}
+        value={value.assigned ?? null}
+        onChange={(v) => onChange({ assigned: (v as 'true' | 'false' | null) ?? undefined })}
+        clearable
+        size="sm"
+      />
     </SimpleGrid>
   );
 

@@ -41,6 +41,10 @@ import { createPhotos, type PhotoHooks } from './photos';
 import { seedPhotos } from './seedPhotos';
 import { buildProjectSeed } from './seedProjects';
 import { seedViolations } from './seedViolations';
+import { seedA9Teams } from './seedA9Teams';
+import { createOrg } from './org';
+import type { OcrRunner } from './ocrRunner';
+import { browserOcrEngine, type OcrEngine } from '../../features/violations/ocr/engine';
 import { fail, hashPassword, newId, paginate, rejectFullIdInUrl, validate } from './util';
 import { DEMO_DB_NAME, DEMO_EXPIRES_IN, DEMO_PASSWORD } from './constants';
 
@@ -76,6 +80,15 @@ export class DemoApi implements ApiClient {
   files!: Phase3Api['files'];
   violationTypes!: Phase3Api['violationTypes'];
   violations!: Phase3Api['violations'];
+  /** @internal A9: the in-browser ID-card reading queue (tests: `await api.ocrRunner.idle()`). */
+  ocrRunner!: OcrRunner;
+  /** A9 (ADR-102). */
+  org: ApiClient['org'];
+  /**
+   * A9 (ADR-104): the OCR engine — tesseract.js in the browser with self-hosted data. Tests
+   * replace it with a fake that returns text.
+   */
+  ocrEngine: () => Promise<OcrEngine> = () => browserOcrEngine();
   projects!: Phase4Api['projects'];
   tasks!: Phase4Api['tasks'];
   dependencies!: Phase4Api['dependencies'];
@@ -121,6 +134,7 @@ export class DemoApi implements ApiClient {
       workload: a9.workload,
       hub: a9.hub,
     });
+    this.org = createOrg(this);
     this.photoHooks = createPhotos(this);
     this.photos = this.photoHooks.photos;
     const seed = loadSeed();
@@ -150,6 +164,7 @@ export class DemoApi implements ApiClient {
     await this.seedPhase3();
     await this.seedPhase4();
     await seedA9(this.db);
+    await seedA9Teams(this.db);
     await seedPhotos(this.db);
   }
 
@@ -244,6 +259,19 @@ export class DemoApi implements ApiClient {
       await db.colors.bulkPut(seed.colors);
       await db.teams.bulkPut(seed.teams);
       await db.supervisorHistory.bulkPut(seed.supervisorHistory);
+      // A9 (ADR-100): the same rows as leadership rows (each one the primary of its period).
+      await db.teamSupervisors.bulkPut(
+        seed.supervisorHistory.map((h) => ({
+          id: h.id,
+          teamId: h.teamId,
+          userId: h.supervisorId,
+          isPrimary: true,
+          validFrom: h.validFrom,
+          validTo: h.validTo,
+          addedById: h.changedById,
+          reason: h.reason,
+        })),
+      );
       await db.members.bulkPut(seed.members);
       await db.memberships.bulkPut(seed.memberships);
       await db.reference.bulkPut(seed.reference);

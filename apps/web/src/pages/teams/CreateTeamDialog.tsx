@@ -6,8 +6,9 @@ import {
   Button,
   Group,
   Modal,
+  MultiSelect,
+  Radio,
   SegmentedControl,
-  Select,
   SimpleGrid,
   Stack,
   Stepper,
@@ -68,7 +69,10 @@ export function CreateTeamDialog({ opened, onClose }: { opened: boolean; onClose
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [supMode, setSupMode] = useState<SupMode>('existing');
-  const [supervisorId, setSupervisorId] = useState<string | null>(null);
+  // A9 (ADR-100): several supervisors; one of them is the primary.
+  const [supervisorIds, setSupervisorIds] = useState<string[]>([]);
+  const [primaryId, setPrimaryId] = useState<string | null>(null);
+  const [coIds, setCoIds] = useState<string[]>([]);
   const [newSup, setNewSup] = useState(EMPTY_SUP);
   const [colorId, setColorId] = useState<string | null>(null);
   const [colorOverride, setColorOverride] = useState<TeamColorDto[] | null>(null);
@@ -84,7 +88,9 @@ export function CreateTeamDialog({ opened, onClose }: { opened: boolean; onClose
     setStep(0);
     setName('');
     setSupMode('existing');
-    setSupervisorId(null);
+    setSupervisorIds([]);
+    setPrimaryId(null);
+    setCoIds([]);
     setNewSup(EMPTY_SUP);
     setColorId(null);
     setColorOverride(null);
@@ -95,11 +101,16 @@ export function CreateTeamDialog({ opened, onClose }: { opened: boolean; onClose
     setRound((r) => r + 1);
   }, [opened]);
 
+  const primary = primaryId && supervisorIds.includes(primaryId) ? primaryId : (supervisorIds[0] ?? null);
   const payload = () => ({
     name,
     colorId: colorId ?? '',
-    ...(isAdmin && supMode === 'existing' && supervisorId ? { supervisorId } : {}),
-    ...(isAdmin && supMode === 'new' ? { newSupervisor: newSup } : {}),
+    ...(isAdmin && supMode === 'existing' && primary
+      ? supervisorIds.length > 1
+        ? { supervisorIds, primarySupervisorId: primary }
+        : { supervisorId: primary }
+      : {}),
+    ...(isAdmin && supMode === 'new' ? { newSupervisor: newSup, ...(coIds.length ? { supervisorIds: coIds } : {}) } : {}),
     members: [],
   });
 
@@ -112,7 +123,7 @@ export function CreateTeamDialog({ opened, onClose }: { opened: boolean; onClose
         if (!errs[key]) errs[key] = key === 'colorId' ? t('teams.chooseColor') : issue.message;
       }
     }
-    if (isAdmin && supMode === 'existing' && !supervisorId)
+    if (isAdmin && supMode === 'existing' && !supervisorIds.length)
       errs.supervisorId = t('teams.supervisorRequired');
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -207,17 +218,43 @@ export function CreateTeamDialog({ opened, onClose }: { opened: boolean; onClose
                 ]}
               />
               {supMode === 'existing' ? (
-                <Select
-                  aria-label={t('teams.supervisor')}
-                  placeholder={t('teams.chooseSupervisor')}
-                  data={(supervisors.data ?? []).map((s) => ({ value: s.id, label: s.fullName }))}
-                  value={supervisorId}
-                  onChange={setSupervisorId}
-                  searchable
-                  nothingFoundMessage={t('teams.noSupervisors')}
-                  error={errors.supervisorId}
-                />
+                <Stack gap="xs">
+                  <MultiSelect
+                    aria-label={t('teams.supervisor')}
+                    placeholder={supervisorIds.length ? undefined : t('teams.sup.chooseMany')}
+                    description={t('teams.sup.chooseManyHint')}
+                    data={(supervisors.data ?? []).map((s) => ({ value: s.id, label: s.fullName }))}
+                    value={supervisorIds}
+                    onChange={(ids) => {
+                      setSupervisorIds(ids);
+                      if (!primaryId || !ids.includes(primaryId)) setPrimaryId(ids[0] ?? null);
+                    }}
+                    searchable
+                    maxValues={10}
+                    nothingFoundMessage={t('teams.noSupervisors')}
+                    error={errors.supervisorId || errors.supervisorIds || errors.primarySupervisorId}
+                  />
+                  {supervisorIds.length > 1 ? (
+                    <Radio.Group
+                      label={t('teams.sup.primaryPick')}
+                      description={t('teams.sup.primaryPickHint')}
+                      value={primary}
+                      onChange={setPrimaryId}
+                    >
+                      <Group gap="md" mt={6}>
+                        {supervisorIds.map((id) => (
+                          <Radio
+                            key={id}
+                            value={id}
+                            label={(supervisors.data ?? []).find((s) => s.id === id)?.fullName ?? id}
+                          />
+                        ))}
+                      </Group>
+                    </Radio.Group>
+                  ) : null}
+                </Stack>
               ) : (
+                <>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <TextInput
                     label={t('register.fullName')}
@@ -251,6 +288,17 @@ export function CreateTeamDialog({ opened, onClose }: { opened: boolean; onClose
                     classNames={{ input: 'ltr mono' }}
                   />
                 </SimpleGrid>
+                <MultiSelect
+                  label={t('teams.sup.coOptional')}
+                  description={t('teams.sup.coOptionalHint')}
+                  data={(supervisors.data ?? []).map((s) => ({ value: s.id, label: s.fullName }))}
+                  value={coIds}
+                  onChange={setCoIds}
+                  searchable
+                  maxValues={9}
+                  nothingFoundMessage={t('teams.noSupervisors')}
+                />
+                </>
               )}
             </Stack>
           ) : (

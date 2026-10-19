@@ -59,6 +59,9 @@ export function matchesFilter(
   if (f.typeId && v.typeId !== f.typeId) return false;
   if (f.status && v.status !== f.status) return false;
   if (f.severity && v.severity !== f.severity) return false;
+  // A9 (ADR-103): `memberId` is '' while the violation has no person.
+  if (f.assigned === 'true' && !v.memberId) return false;
+  if (f.assigned === 'false' && v.memberId) return false;
   const box = parseBbox(f.bbox);
   if (box) {
     if (v.latitude < box.south || v.latitude > box.north) return false;
@@ -168,6 +171,7 @@ export function computeViolationStats(
 
   const newest = [...rows].sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
   return {
+    unassigned: rows.filter((r) => !r.memberId).length,
     total: rows.length,
     thisWeek,
     previousWeek,

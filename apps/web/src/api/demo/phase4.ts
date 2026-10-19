@@ -76,6 +76,7 @@ import { workbookToBlob } from '../../features/violations/excel';
 import type { DemoCalendar, DemoDependency, DemoFile, DemoProject, DemoTask, DemoUser } from './db';
 import type { DemoInternals } from './phase2';
 import { fail, newId, validate } from './util';
+import { drawPlaceholder, placeholderPdf } from './placeholderImage';
 
 export type Phase4Api = Pick<ApiClient, 'projects' | 'tasks' | 'dependencies' | 'calendars'>;
 
@@ -1231,7 +1232,16 @@ export function createPhase4(
       const viewer = await api.actor();
       await visibleTask(id, viewer);
       const file = await taskFile(id, fileId);
-      const obj = await db.objects.get(file.id);
+      let obj = await db.objects.get(file.id);
+      // A9 demo seed: placeholder attachments are drawn (or written) on first use, never real files.
+      if (!obj && file.placeholder) {
+        const img =
+          file.mimeType === 'application/pdf'
+            ? placeholderPdf()
+            : await drawPlaceholder({ title: 'مرفق تجريبي', subtitle: file.placeholder.label, hue: file.placeholder.hue });
+        obj = { key: file.id, data: img.data, type: img.type };
+        await db.objects.put(obj);
+      }
       if (!obj) fail('NOT_FOUND');
       const blob = new Blob([obj.data], { type: obj.type });
       const url = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(blob) : `demo-storage://${file.id}`;

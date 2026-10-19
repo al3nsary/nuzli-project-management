@@ -10,13 +10,13 @@ import { useAuthStore } from '../../stores/auth';
 export function canChangeMemberPhoto(
   user: Pick<UserDto, 'id' | 'role' | 'status'> | null | undefined,
   member: { team: { id: string } | null } | null | undefined,
-  teams: { id: string; status: string; supervisor: { id: string } | null }[] | undefined,
+  teams: { id: string; status: string; supervisor: { id: string } | null; supervisors?: { id: string }[] }[] | undefined,
 ): boolean {
   if (!user || !member) return false;
   if (can(user, 'members.manage')) return true;
   if (!can(user, 'members.manageOwn') || !member.team) return false;
   const team = teams?.find((x) => x.id === member.team!.id);
-  return Boolean(team && team.supervisor?.id === user.id && team.status !== 'ARCHIVED');
+  return Boolean(team && (team.supervisors?.some((s) => s.id === user.id) ?? team.supervisor?.id === user.id) && team.status !== 'ARCHIVED');
 }
 
 /** `canChangeMemberPhoto` with the viewer's teams loaded when needed (supervisors). */

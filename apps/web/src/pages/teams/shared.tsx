@@ -8,12 +8,15 @@ import {
   Loader,
   SimpleGrid,
   Text,
+  Tooltip,
   UnstyledButton,
 } from '@mantine/core';
-import { IconCheck, IconPalette } from '@tabler/icons-react';
+import { IconCheck, IconHelmet, IconPalette } from '@tabler/icons-react';
+import { PhotoAvatar } from '../../components/UserAvatar';
 import type { ReferenceItemDto, TeamColorDto, TeamStatus } from '@nuzli/shared';
 import { useReference } from '../../api/queries';
 import { t, tKey } from '../../i18n';
+import './teams-a9.css';
 
 const TEAM_STATUS_COLOR: Record<TeamStatus, string> = {
   PENDING_APPROVAL: 'signal',
@@ -153,4 +156,107 @@ export function refFields(
   if (!v) return {};
   const hit = (items ?? []).find((i) => i.isActive !== false && norm(i.name) === norm(v));
   return hit ? { [idKey]: hit.id } : { [textKey]: v };
+}
+
+// ---------------------------------------------------------------- A9: supervisors and the foreman
+
+type SupervisorLike = { id: string; fullName: string; isPrimary?: boolean; hasPhoto?: boolean };
+
+/** A team's supervisors (TeamDto.supervisors, else the single legacy supervisor), primary first. */
+export function supervisorsOf(team: {
+  supervisors?: SupervisorLike[];
+  supervisor: { id: string; fullName: string } | null;
+}): SupervisorLike[] {
+  if (team.supervisors?.length) return [...team.supervisors].sort((a, b) => Number(!!b.isPrimary) - Number(!!a.isPrimary));
+  return team.supervisor ? [{ ...team.supervisor, isPrimary: true }] : [];
+}
+
+/**
+ * Every supervisor of a team as overlapping avatars (owner request A9, ADR-100): the primary
+ * first with an indigo ring; each avatar's tooltip names the person and «رئيسي». `withNames`
+ * also prints «الاسم (رئيسي) · الاسم».
+ */
+export function SupervisorAvatars({
+  supervisors,
+  size = 28,
+  max = 4,
+  withNames = false,
+  selfId,
+}: {
+  supervisors: SupervisorLike[];
+  size?: number;
+  max?: number;
+  withNames?: boolean;
+  selfId?: string | null;
+}) {
+  if (!supervisors.length) {
+    return (
+      <Text size="sm" c="dimmed">
+        {t('teams.noSupervisor')}
+      </Text>
+    );
+  }
+  const shown = supervisors.slice(0, max);
+  const rest = supervisors.length - shown.length;
+  const label = supervisors
+    .map((s) => (s.isPrimary ? t('teams.sup.namePrimary', { name: s.fullName }) : s.fullName))
+    .join('، ');
+  return (
+    <span className="nz-sups" aria-label={t('teams.sup.aria', { names: label })} role="group">
+      <span className="nz-sups-stack" aria-hidden>
+        {shown.map((s) => (
+          <Tooltip key={s.id} label={s.isPrimary ? t('teams.sup.namePrimary', { name: s.fullName }) : s.fullName} withArrow>
+            <span className="nz-sups-item" data-primary={s.isPrimary || undefined}>
+              <PhotoAvatar
+                target={s.id === selfId ? { kind: 'me', id: s.id } : { kind: 'user', id: s.id }}
+                name={s.fullName}
+                hasPhoto={s.hasPhoto}
+                size={size}
+                ring={false}
+              />
+            </span>
+          </Tooltip>
+        ))}
+        {rest > 0 ? (
+          <span className="nz-sups-more" style={{ width: size, height: size }}>
+            +{rest}
+          </span>
+        ) : null}
+      </span>
+      {withNames ? (
+        <span className="nz-sups-names">
+          {supervisors.map((s, i) => (
+            <span key={s.id}>
+              {i > 0 ? ' · ' : ''}
+              {s.fullName}
+              {s.isPrimary ? <span className="nz-primary-chip">{t('teams.sup.primary')}</span> : null}
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The worker foreman (مشرف عمّال, ADR-101): a record only, no account and no permission — an
+ * indigo outline badge with a helmet, explained by its tooltip.
+ */
+export function ForemanBadge({ size = 'sm' }: { size?: 'xs' | 'sm' }) {
+  return (
+    <Tooltip label={t('teams.foreman.tooltip')} withArrow multiline maw={240}>
+      <Badge
+        variant="outline"
+        color="field"
+        size={size}
+        radius="sm"
+        className="nz-foreman-badge"
+        leftSection={<IconHelmet size={size === 'xs' ? 11 : 13} stroke={2} aria-hidden />}
+        tabIndex={0}
+        aria-label={`${t('teams.foreman.label')} — ${t('teams.foreman.tooltip')}`}
+      >
+        {t('teams.foreman.label')}
+      </Badge>
+    </Tooltip>
+  );
 }

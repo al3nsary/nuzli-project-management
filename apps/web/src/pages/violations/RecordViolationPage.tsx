@@ -34,6 +34,8 @@ import {
   IconRefresh,
   IconSearch,
   IconUser,
+  IconUserQuestion,
+  IconUserSearch,
   IconUsers,
   IconX,
 } from '@tabler/icons-react';
@@ -111,7 +113,13 @@ interface Photo {
 
 // ---------------------------------------------------------------- small pieces
 
-const STEPS = ['record.step.member', 'record.step.idCard', 'record.step.photos', 'record.step.details'] as const;
+/**
+ * A9 (owner decision 4, ADR-103): the monitor usually does not know the person. Order: the
+ * person's photo, the ID card, the evidence (all required), type and description, then the
+ * person — optional («لا أعرفه — سأسنده لاحقًا» by default). The card is read automatically later.
+ */
+const STEPS = ['record.step.person', 'record.step.idCard', 'record.step.photos', 'record.step.details', 'record.step.whoA9'] as const;
+const LAST = STEPS.length - 1;
 
 function StepBar({ step }: { step: number }) {
   return (
@@ -445,6 +453,60 @@ function MemberStep({
   );
 }
 
+/** Step 5: «أعرف الشخص» picker from the roster, or «لا أعرفه — سأسنده لاحقًا» (default). */
+function WhoStep({
+  known,
+  onKnown,
+  member,
+  onMember,
+}: {
+  known: boolean;
+  onKnown: (v: boolean) => void;
+  member: RosterRow | null;
+  onMember: (m: RosterRow | null) => void;
+}) {
+  return (
+    <Stack gap="sm">
+      <Text size="sm" c="dimmed">
+        {t('record.who.lead')}
+      </Text>
+      <Radio.Group value={known ? 'known' : 'unknown'} onChange={(v) => onKnown(v === 'known')} aria-label={t('record.step.whoA9')}>
+        <Stack gap={8}>
+          <Radio.Card value="unknown" className="nz-type-card nz-who-card" radius="md">
+            <Group wrap="nowrap" gap="sm" align="flex-start">
+              <Radio.Indicator mt={4} />
+              <ThemeIcon variant="light" color="field" size={36} radius="md" aria-hidden>
+                <IconUserQuestion size={20} />
+              </ThemeIcon>
+              <Box style={{ minWidth: 0 }}>
+                <Text fw={600}>{t('record.who.unknown')}</Text>
+                <Text size="sm" c="dimmed">
+                  {t('record.who.unknownHint')}
+                </Text>
+              </Box>
+            </Group>
+          </Radio.Card>
+          <Radio.Card value="known" className="nz-type-card nz-who-card" radius="md">
+            <Group wrap="nowrap" gap="sm" align="flex-start">
+              <Radio.Indicator mt={4} />
+              <ThemeIcon variant="light" color="field" size={36} radius="md" aria-hidden>
+                <IconUserSearch size={20} />
+              </ThemeIcon>
+              <Box style={{ minWidth: 0 }}>
+                <Text fw={600}>{t('record.who.known')}</Text>
+                <Text size="sm" c="dimmed">
+                  {t('record.who.knownHint')}
+                </Text>
+              </Box>
+            </Group>
+          </Radio.Card>
+        </Stack>
+      </Radio.Group>
+      {known ? <MemberStep selected={member} onSelect={onMember} /> : null}
+    </Stack>
+  );
+}
+
 // ---------------------------------------------------------------- page
 
 type Phase = { kind: 'form' } | { kind: 'saved'; id: string };
@@ -459,12 +521,14 @@ export function RecordViolationPage() {
   const wizard = useStepParam('step', STEPS.length);
   const [phase, setPhase] = useState<Phase>({ kind: 'form' });
   const [member, setMember] = useState<RosterRow | null>(null);
+  const [knowsPerson, setKnowsPerson] = useState(false);
+  const [personPhoto, setPersonPhoto] = useState<Photo | null>(null);
   const [idPhoto, setIdPhoto] = useState<Photo | null>(null);
   const [evidence, setEvidence] = useState<Photo[]>([]);
   const [typeId, setTypeId] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState<'id' | 'evidence' | 'save' | null>(null);
+  const [busy, setBusy] = useState<'person' | 'id' | 'evidence' | 'save' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -476,6 +540,8 @@ export function RecordViolationPage() {
     wizard.reset();
     setPhase({ kind: 'form' });
     setMember(null);
+    setKnowsPerson(false);
+    setPersonPhoto(null);
     setIdPhoto(null);
     setEvidence([]);
     setTypeId(null);
@@ -486,13 +552,14 @@ export function RecordViolationPage() {
     geo.retry();
   };
 
-  const addPhoto = async (file: File, kind: 'id' | 'evidence') => {
+  const addPhoto = async (file: File, kind: 'person' | 'id' | 'evidence') => {
     setBusy(kind);
     setError(null);
     try {
       const blob = await compressImage(file);
       const photo = { id: uuidv4(), blob };
-      if (kind === 'id') setIdPhoto(photo);
+      if (kind === 'person') setPersonPhoto(photo);
+      else if (kind === 'id') setIdPhoto(photo);
       else setEvidence((list) => (list.length >= form.maxPhotos ? list : [...list, photo]));
     } catch {
       setError(t('record.photoError'));
@@ -502,30 +569,51 @@ export function RecordViolationPage() {
   };
 
   // A step can only be shown once the steps before it are complete (deep links, back/forward).
-  const reachable = !member ? 0 : !idPhoto ? 1 : evidence.length === 0 ? 2 : 3;
+  const detailsDone = Boolean(typeId) && description.trim().length >= 3;
+  const reachable = !personPhoto ? 0 : !idPhoto ? 1 : evidence.length === 0 ? 2 : !detailsDone ? 3 : 4;
   const step = Math.min(wizard.step, reachable);
   useEffect(() => {
     if (phase.kind === 'form' && wizard.step > reachable) wizard.go(reachable, 'replace');
   }, [wizard.step, reachable, phase.kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const geoBlocked = geo.status === 'error' && (geo.error === 'denied' || geo.error === 'insecure');
-  const canNext = [Boolean(member), Boolean(idPhoto), evidence.length > 0, true][step];
+  const canNext = [Boolean(personPhoto), Boolean(idPhoto), evidence.length > 0, true, true][step];
+
+  /** Step 4 → 5 only with a type and a description (checked here, shown under the fields). */
+  const next = () => {
+    if (step === 3) {
+      const errs: Record<string, string> = {};
+      if (!typeId) errs.typeId = t('record.err.type');
+      if (description.trim().length < 3) errs.description = t('record.err.description');
+      setFieldErrors(errs);
+      if (Object.keys(errs).length) return;
+    }
+    wizard.next();
+  };
 
   const save = async () => {
-    if (!user || !member || !idPhoto) return;
+    if (!user || !personPhoto || !idPhoto || !evidence.length) return;
     const errs: Record<string, string> = {};
     if (!typeId) errs.typeId = t('record.err.type');
     if (description.trim().length < 3) errs.description = t('record.err.description');
     setFieldErrors(errs);
+    if (Object.keys(errs).length) {
+      wizard.go(3, 'replace');
+      return;
+    }
     if (!geo.fix) {
       setError(geoBlocked ? t('record.err.locationDenied') : t('record.err.location'));
       return;
     }
-    if (Object.keys(errs).length) return;
+    if (knowsPerson && !member) {
+      setError(t('record.who.pickOrUnknown'));
+      return;
+    }
+    const chosen = knowsPerson ? member : null;
     const type = types?.find((ty) => ty.id === typeId);
     const payload = {
       clientUuid: uuidv4(),
-      memberId: member.memberId,
+      ...(chosen ? { memberId: chosen.memberId } : {}),
       typeId: typeId as string,
       description: description.trim(),
       notes: notes.trim() || undefined,
@@ -536,6 +624,7 @@ export function RecordViolationPage() {
       deviceInfo: deviceInfo(),
       expectedIdPhotos: 1,
       expectedEvidencePhotos: evidence.length,
+      expectedPersonPhotos: 1,
     };
     const parsed = createViolationSchema.safeParse(payload);
     if (!parsed.success) {
@@ -548,14 +637,24 @@ export function RecordViolationPage() {
       const item = await enqueueViolation(offlineDb(), {
         userId: user.id,
         payload,
-        display: {
-          memberName: member.fullName,
-          nationalIdMasked: member.nationalIdMasked,
-          teamName: member.teamName,
-          teamColor: member.teamColor,
-          typeName: type?.name ?? '',
-        },
+        display: chosen
+          ? {
+              memberName: chosen.fullName,
+              nationalIdMasked: chosen.nationalIdMasked,
+              teamName: chosen.teamName,
+              teamColor: chosen.teamColor,
+              typeName: type?.name ?? '',
+            }
+          : {
+              memberName: t('violations.unassigned'),
+              nationalIdMasked: '',
+              teamName: null,
+              teamColor: null,
+              typeName: type?.name ?? '',
+              unassigned: true,
+            },
         photos: [
+          { kind: 'PERSON', blob: personPhoto.blob },
           { kind: 'ID_CARD', blob: idPhoto.blob },
           ...evidence.map((p) => ({ kind: 'EVIDENCE' as const, blob: p.blob })),
         ],
@@ -595,12 +694,41 @@ export function RecordViolationPage() {
       ) : null}
 
       <Card padding="md" mb="md">
-        {step === 0 ? <MemberStep selected={member} onSelect={setMember} /> : null}
+        {step === 0 ? (
+          <Stack gap="sm">
+            <Text size="sm" c="dimmed">
+              {t('record.person.lead')}
+            </Text>
+            {personPhoto ? (
+              <Stack gap="sm">
+                <Thumb blob={personPhoto.blob} alt={t('record.person.alt')} />
+                <Group>
+                  <CameraButton
+                    variant="tile"
+                    label={t('record.person.retake')}
+                    busy={busy === 'person'}
+                    onPick={(f) => void addPhoto(f, 'person')}
+                  />
+                </Group>
+              </Stack>
+            ) : (
+              <CameraButton
+                variant="big"
+                label={t('record.person.take')}
+                busy={busy === 'person'}
+                onPick={(f) => void addPhoto(f, 'person')}
+              />
+            )}
+            <Text size="xs" c="dimmed">
+              {t('record.person.privacy')}
+            </Text>
+          </Stack>
+        ) : null}
 
         {step === 1 ? (
           <Stack gap="sm">
             <Text size="sm" c="dimmed">
-              {t('record.idCard.lead')}
+              {t('record.idCard.leadA9')}
             </Text>
             {idPhoto ? (
               <Stack gap="sm">
@@ -756,6 +884,10 @@ export function RecordViolationPage() {
             ) : null}
           </Stack>
         ) : null}
+
+        {step === 4 ? (
+          <WhoStep known={knowsPerson} onKnown={setKnowsPerson} member={member} onMember={setMember} />
+        ) : null}
       </Card>
 
       <Box className="nz-record-actions">
@@ -767,8 +899,8 @@ export function RecordViolationPage() {
           >
             {t('record.back')}
           </Button>
-          {step < 3 ? (
-            <Button onClick={wizard.next} disabled={!canNext || busy !== null} style={{ flex: 1 }}>
+          {step < LAST ? (
+            <Button onClick={next} disabled={!canNext || busy !== null || (step === 3 && typesEmpty)} style={{ flex: 1 }}>
               {t('record.next')}
             </Button>
           ) : (
@@ -776,7 +908,7 @@ export function RecordViolationPage() {
               color="breach"
               onClick={() => void save()}
               loading={busy === 'save'}
-              disabled={geoBlocked || !geo.fix || typesEmpty}
+              disabled={geoBlocked || !geo.fix || typesEmpty || (knowsPerson && !member)}
               leftSection={<IconCheck size={18} />}
               style={{ flex: 1 }}
             >
@@ -784,7 +916,7 @@ export function RecordViolationPage() {
             </Button>
           )}
         </Group>
-        {step === 3 && (geoBlocked || !geo.fix) ? (
+        {step === LAST && (geoBlocked || !geo.fix) ? (
           <Text size="xs" c="var(--breach)" mt={6} ta="center">
             {geoBlocked ? t('record.err.locationDenied') : t('record.err.location')}
           </Text>

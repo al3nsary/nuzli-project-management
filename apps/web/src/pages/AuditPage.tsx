@@ -99,6 +99,24 @@ export const AUDIT_ACTIONS = [
   'calendar.updated',
   'calendar_exception.created',
   'calendar_exception.deleted',
+  // A9 teams, org structure, violations without a person (ADR-100..104)
+  'team.supervisor_added',
+  'team.supervisor_removed',
+  'team.primary_supervisor_changed',
+  'team.foreman_set',
+  'team.foreman_cleared',
+  'org.unit_created',
+  'org.unit_updated',
+  'org.unit_moved',
+  'org.unit_deleted',
+  'org.position_created',
+  'org.position_updated',
+  'org.position_moved',
+  'org.position_deleted',
+  'violation.assigned',
+  'violation.unassigned',
+  'violation.member_registered',
+  'violation.ocr_viewed',
 ] as const;
 
 const ENTITY_TYPES = [
@@ -121,6 +139,9 @@ const ENTITY_TYPES = [
   'violation',
   'violation_type',
   'violation_file',
+  'org_unit',
+  'org_position',
+  'member',
 ] as const;
 
 function display(value: unknown, field: string): string {

@@ -77,10 +77,12 @@ describe('RTL app shell', () => {
     }
   });
 
-  it('renders the pages being built with their guard and the «قيد الإنشاء» notice (A9)', async () => {
-    await renderAs('admin1@demo.nuzli.example', '/communication');
-    expect(await screen.findByRole('heading', { level: 1, name: 'مركز التواصل' })).toBeInTheDocument();
-    expect(screen.getByText('قيد الإنشاء — يصل في هذا الإصدار')).toBeInTheDocument();
+  it('opens the communication hub at /hub, also from the old /communication path (A9)', async () => {
+    const { router } = await renderAs('admin1@demo.nuzli.example', '/communication');
+    expect(await screen.findByRole('heading', { level: 1, name: 'مركز التواصل' }, { timeout: 8000 })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/hub');
+    expect(screen.queryByText('قيد الإنشاء — يصل في هذا الإصدار')).toBeNull();
+    expect(await screen.findByRole('tab', { name: /بها تعليقات جديدة/ }, { timeout: 8000 })).toBeInTheDocument();
   });
 
   it('forbids the pages being built to a monitor', async () => {

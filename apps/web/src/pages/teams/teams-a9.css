@@ -1,0 +1,159 @@
+/* A9 teams (ADR-100/101): several supervisors and the worker foreman. Logical properties only. */
+
+.nz-sups {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.nz-sups-stack {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Overlap toward the inline end; the primary sits first (inline start) with an indigo ring. */
+.nz-sups-item {
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--panel);
+  position: relative;
+}
+
+.nz-sups-item + .nz-sups-item {
+  margin-inline-start: -8px;
+}
+
+.nz-sups-item[data-primary] {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--primary);
+  z-index: 1;
+}
+
+.nz-sups-more {
+  display: inline-grid;
+  place-items: center;
+  margin-inline-start: -8px;
+  border-radius: 50%;
+  background: var(--panel2);
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.nz-sups-names {
+  font-size: 14px;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.nz-primary-chip {
+  display: inline-block;
+  margin-inline-start: 4px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--tint);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  vertical-align: 1px;
+}
+
+.nz-sup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nz-sup-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-block-end: 1px solid var(--line);
+  min-height: 56px;
+}
+
+.nz-sup-row:last-child {
+  border-block-end: 0;
+}
+
+.nz-sup-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nz-sup-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--ink);
+  flex-wrap: wrap;
+}
+
+/* The worker foreman: a subtle indigo bar on the inline start of the member row or card. */
+.nz-foreman-row > td:first-child,
+.nz-foreman-row > .mantine-Table-td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+[dir='rtl'] .nz-foreman-row > td:first-child,
+[dir='rtl'] .nz-foreman-row > .mantine-Table-td:first-child {
+  box-shadow: inset -3px 0 0 var(--primary);
+}
+
+.nz-foreman-badge {
+  flex: 0 0 auto;
+  border-color: var(--primary) !important;
+  color: var(--accent) !important;
+  background: var(--panel) !important;
+  cursor: help;
+  text-transform: none;
+  font-weight: 600;
+}
+
+.nz-foreman-badge:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Formation board: every supervisor in the column header, the foreman card marked. */
+.nz-col-sups {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-block-start: 4px;
+}
+
+.nz-col-sups .nz-sups-item {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.9);
+}
+
+.nz-col-sups .nz-sups-item[data-primary] {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.95), 0 0 0 4px rgb(0 0 0 / 0.35);
+}
+
+.nz-member-card[data-foreman] {
+  background: color-mix(in srgb, var(--tint) 40%, var(--panel));
+}
+
+.nz-member-card[data-foreman]::after {
+  content: '';
+  position: absolute;
+  inset-block: 6px;
+  inset-inline-start: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.nz-member-foreman {
+  display: inline-flex;
+  margin-block: 2px;
+}

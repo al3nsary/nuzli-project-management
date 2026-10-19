@@ -130,15 +130,15 @@ describe('nav registry → breadcrumbs and titles (rules 1–4)', () => {
     const projects = top.find((n) => n.id === 'projects')!;
     expect(t(projects.label)).toBe('كل المشاريع');
     expect(trailFor('/projects', { user: ADMIN, ctx, translate: t }).title).toBe('المشاريع');
-    // A9 pages built in this round are real pages now.
-    for (const id of ['portfolios', 'timeLog', 'reports', 'workload']) expect(navLeaves().find((n) => n.id === id)!.soon, id).toBeUndefined();
-    // Pages still being built have a real entry, route title and a guard.
-    for (const id of ['communication', 'attachments', 'orgStructure']) {
+    // A9 pages built in the A9 rounds are real pages now (none is «قيد الإنشاء» any more).
+    for (const id of ['portfolios', 'timeLog', 'reports', 'workload', 'communication', 'attachments', 'orgStructure']) {
       const leaf = navLeaves().find((n) => n.id === id)!;
-      expect(leaf.soon, id).toBe(true);
-      expect(leaf.permission, id).toBeTruthy();
+      expect(leaf.soon, id).toBeUndefined();
+      expect(leaf.permission ?? leaf.anyOf, id).toBeTruthy();
       expect(trailFor(leaf.path!, { user: ADMIN, ctx, translate: t }).status ?? 'ok', id).toBe('ok');
     }
+    expect(navLeaves().find((n) => n.id === 'communication')!.path).toBe('/hub');
+    expect(navLeaves().find((n) => n.id === 'orgStructure')!.path).toBe('/org');
   });
 
   it('shows supervisors «مهامي» first and no project management (A9)', () => {
@@ -147,9 +147,11 @@ describe('nav registry → breadcrumbs and titles (rules 1–4)', () => {
       const ids = navLeaves(top).map((n) => n.id);
       expect(ids[0]).toBe('myTasks');
       expect(top[0]!.group).toBe('home');
-      for (const forbidden of ['projects', 'portfolios', 'reports', 'workload', 'communication', 'attachments', 'orgStructure']) {
+      for (const forbidden of ['projects', 'portfolios', 'reports', 'workload']) {
         expect(ids, forbidden).not.toContain(forbidden);
       }
+      // A9: the hub and the attachments browser are scoped to their own tasks; the org chart is read-only.
+      for (const allowedId of ['communication', 'attachments', 'orgStructure']) expect(ids, allowedId).toContain(allowedId);
       // No route into project management from the palette or the shortcuts either.
       const palette = paletteItems(SUPERVISOR, top, []);
       expect(palette.some((i) => i.to === '/projects' || i.to === '/portfolios' || i.to === '/reports' || i.to === '/workload')).toBe(false);

@@ -12,6 +12,7 @@ const KEYS = [
   'status',
   'severity',
   'bbox',
+  'assigned',
   'q',
   'sort',
   'page',

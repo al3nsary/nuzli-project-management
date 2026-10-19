@@ -1,0 +1,66 @@
+/* A9 violations without a person (ADR-103/104) — logical properties only. */
+
+.nz-who-card {
+  padding: 12px;
+}
+
+.nz-person-thumb {
+  width: 84px;
+  flex: 0 0 84px;
+}
+
+.nz-assign {
+  border-color: var(--tint2);
+  background: color-mix(in srgb, var(--tint) 30%, var(--panel));
+}
+
+.nz-ocr-field {
+  padding: 8px 10px;
+  border-radius: var(--r3);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.nz-ocr-sugs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nz-ocr-sug {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r3);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  min-height: 56px;
+}
+
+.nz-register {
+  background: var(--panel);
+}
+
+.nz-vcard-wrap {
+  position: relative;
+}
+
+.nz-vcard-wrap[data-unassigned] .nz-vcard {
+  border-inline-start: 3px solid var(--amber);
+}
+
+.nz-vcard-assign {
+  margin-block-start: 6px;
+  width: 100%;
+}
+
+@media (min-width: 48em) {
+  .nz-vcard-assign {
+    width: auto;
+  }
+}

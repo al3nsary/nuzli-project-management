@@ -38,6 +38,8 @@ import { SeverityBadge, SnapshotTeam, ViolationStatusBadge } from './parts';
 import { ViolationDrawer } from './ViolationDrawer';
 import { ViolationRowCard } from './MyViolationsPage';
 import { useOverlayParam } from '../../lib/useUrlState';
+import { UnassignedBadge } from './assign';
+import { useSearchParams } from 'react-router-dom';
 
 const PAGE_SIZE = 25;
 
@@ -74,6 +76,18 @@ export function ViolationsListPage() {
   const openId = overlay.value;
   const setOpen = (id: string | null) => (id ? overlay.open(id) : overlay.close());
 
+  // A9: the dashboard's «غير مُسندة» card links here with ?assigned=false (no personal data).
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const a = params.get('assigned');
+    if (a === 'true' || a === 'false') {
+      set({ assigned: a });
+      const next = new URLSearchParams(params);
+      next.delete('assigned');
+      setParams(next, { replace: true, preventScrollReset: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => setPage(1), [filter]);
   const query = useMemo(() => ({ ...filter, page, pageSize: PAGE_SIZE }), [filter, page]);
   const list = useViolations(query);
@@ -210,15 +224,21 @@ export function ViolationsListPage() {
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm" fw={600}>
-                        {v.member?.fullName ?? t('violations.unassigned')}
-                      </Text>
-                      <Text size="xs" c="dimmed" className="mono ltr">
-                        {v.member?.nationalIdMasked ?? ''}
-                      </Text>
+                      {v.member ? (
+                        <>
+                          <Text size="sm" fw={600}>
+                            {v.member.fullName}
+                          </Text>
+                          <Text size="xs" c="dimmed" className="mono ltr">
+                            {v.member.nationalIdMasked}
+                          </Text>
+                        </>
+                      ) : (
+                        <UnassignedBadge />
+                      )}
                     </Table.Td>
                     <Table.Td>
-                      <SnapshotTeam team={v.team} />
+                      {v.member ? <SnapshotTeam team={v.team} /> : null}
                     </Table.Td>
                     <Table.Td>
                       <Group gap={6} wrap="nowrap">

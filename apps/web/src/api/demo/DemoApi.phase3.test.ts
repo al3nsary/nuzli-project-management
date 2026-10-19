@@ -72,7 +72,18 @@ describe('DemoApi Phase 3 — seed', () => {
     expect(types.length).toBeGreaterThanOrEqual(3);
     expect(types.every((ty) => ty.name.includes('(تجريبي)'))).toBe(true);
     const all = await api.violations.list({ pageSize: 200 });
-    expect(all.total).toBe(60);
+    // 60 seeded with a person + 8 recorded without one (A9, seed/demo/a9-teams.json).
+    expect(all.total).toBe(68);
+    const unassigned = all.items.filter((v) => !v.member);
+    expect(unassigned).toHaveLength(8);
+    for (const v of unassigned) {
+      expect(v.assigned).toBe(false);
+      expect(v.team).toBeNull();
+      expect(v.files.filter((f) => f.kind === 'PERSON')).toHaveLength(1);
+      expect(v.files.filter((f) => f.kind === 'ID_CARD')).toHaveLength(1);
+      expect(v.files.filter((f) => f.kind === 'EVIDENCE').length).toBeGreaterThanOrEqual(1);
+      expect(v.ocrStatus).toBe('PENDING');
+    }
     const memberships = await api.db.memberships.toArray();
     for (const v of await api.db.violations.toArray()) {
       const expected = resolveTeamAt(
@@ -113,6 +124,7 @@ describe('DemoApi Phase 3 — Phase 3 acceptance (brief §16)', () => {
         }) as never,
         display: { memberName: '', nationalIdMasked: '', teamName: null, teamColor: null, typeName: '' },
         photos: [
+          { kind: 'PERSON', blob: jpeg(90) },
           { kind: 'ID_CARD', blob: jpeg() },
           ...Array.from({ length: r.photos }, () => ({ kind: 'EVIDENCE' as const, blob: jpeg(120) })),
         ],
@@ -152,7 +164,9 @@ describe('DemoApi Phase 3 — Phase 3 acceptance (brief §16)', () => {
       expect(v.team?.id).toBe(team?.teamId);
       expect(v.files.filter((f) => f.kind === 'ID_CARD' && f.ready)).toHaveLength(1);
       expect(v.files.filter((f) => f.kind === 'EVIDENCE' && f.ready)).toHaveLength(r.photos);
-      expect(v.expectedPhotos).toEqual({ idCard: 1, evidence: r.photos });
+      // A9: the person's photo travels with the kind PERSON (owner decision 4).
+      expect(v.files.filter((f) => f.kind === 'PERSON' && f.ready)).toHaveLength(1);
+      expect(v.expectedPhotos).toEqual({ idCard: 1, evidence: r.photos, person: 1 });
       // Captured offline long before it synced is not "clock drift" (ADR-014).
       expect(v.clockDriftSuspect).toBe(false);
       // The stored photo is the one the device sent.
@@ -270,9 +284,11 @@ describe('DemoApi Phase 3 — supervisor visibility (brief §7.6)', () => {
   async function ownTeamViolation() {
     await loginAs(ADMIN);
     const all = (await api.violations.list({ pageSize: 200 })).items;
+    // SUP1 leads teams 1 and 2 and co-leads team 4 (A9 seed): every one of them counts.
+    const led = [TEAM(1), TEAM(2), TEAM(4)];
     return {
-      own: all.filter((v) => v.team?.id === TEAM(1) || v.team?.id === TEAM(2)),
-      other: all.filter((v) => v.team && v.team.id !== TEAM(1) && v.team.id !== TEAM(2)),
+      own: all.filter((v) => v.team && led.includes(v.team.id)),
+      other: all.filter((v) => v.team && !led.includes(v.team.id)),
     };
   }
 
@@ -290,7 +306,9 @@ describe('DemoApi Phase 3 — supervisor visibility (brief §7.6)', () => {
     await loginAs(SUP1);
     const seen = await api.violations.list({ pageSize: 200 });
     expect(seen.total).toBe(own.length);
-    expect(seen.items.every((v) => v.team?.id === TEAM(1) || v.team?.id === TEAM(2))).toBe(true);
+    expect(seen.items.every((v) => v.team && [TEAM(1), TEAM(2), TEAM(4)].includes(v.team.id))).toBe(true);
+    // A9: unassigned violations have no team, so no supervisor ever sees them.
+    expect(seen.items.some((v) => !v.member)).toBe(false);
     expect((await errorOf(api.violations.get(other[0]!.id))).code).toBe('NOT_FOUND');
     // Supervisors never get ID-card photos.
     const v = await api.violations.get(own[0]!.id);
@@ -302,7 +320,7 @@ describe('DemoApi Phase 3 — supervisor visibility (brief §7.6)', () => {
     await api.teams.setViolationVisibility(TEAM(1), 'HIDE');
     await loginAs(SUP1);
     const partial = await api.violations.list({ pageSize: 200 });
-    expect(partial.items.every((x) => x.team?.id === TEAM(2))).toBe(true);
+    expect(partial.items.every((x) => x.team?.id === TEAM(2) || x.team?.id === TEAM(4))).toBe(true);
 
     // And SHOW wins when the global setting is off.
     await loginAs(ADMIN);
@@ -333,15 +351,16 @@ describe('DemoApi Phase 3 — statistics and Excel (ADR-049, ADR-019)', () => {
   it('computes the dashboard with the API semantics', async () => {
     await loginAs(ADMIN);
     const s = await api.violations.stats({});
-    expect(s.total).toBe(60);
+    expect(s.total).toBe(68);
+    expect(s.unassigned).toBe(8);
     const withTeam = (await api.db.violations.toArray()).filter((v) => v.teamIdSnapshot).length;
     expect(s.byTeam.reduce((a, r) => a + r.count, 0)).toBe(withTeam);
     expect(s.topMembers.every((m) => m.count > 1)).toBe(true);
     expect(s.topMembers.length).toBeLessThanOrEqual(10);
-    expect(s.byMonitor.reduce((a, r) => a + r.count, 0)).toBe(60);
-    expect(s.heatmap.reduce((a, c) => a + c.count, 0)).toBe(60);
+    expect(s.byMonitor.reduce((a, r) => a + r.count, 0)).toBe(68);
+    expect(s.heatmap.reduce((a, c) => a + c.count, 0)).toBe(68);
     expect(s.heatmap.every((c) => c.weekday >= 0 && c.weekday <= 6 && c.hour >= 0 && c.hour <= 23)).toBe(true);
-    expect(s.points).toHaveLength(60);
+    expect(s.points).toHaveLength(68);
     // This/previous week ignore the date range but keep other filters.
     const week = riyadhWeekBounds(new Date());
     const inWeek = (await api.db.violations.toArray()).filter(

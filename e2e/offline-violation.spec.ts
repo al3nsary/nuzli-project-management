@@ -86,13 +86,10 @@ test('offline violation: record → reload → online → synced once', async ({
   await context.setOffline(true);
   await expect(page.getByText('غير متصل').first()).toBeVisible();
 
-  // 1. Member from the cached roster (masked ID + team).
-  await page.getByLabel('ابحث عن العضو').fill('احمد');
-  const row = page.locator('.nz-roster-row').first();
-  await expect(row).toContainText('•');
-  await row.click();
+  // A9 order (owner decision 4): 1. the person's photo, 2. ID card, 3. evidence, 4. type, 5. person.
+  await pick(page, 'person');
+  await expect(page.locator('.nz-thumb img')).toHaveCount(1);
   await page.getByRole('button', { name: 'التالي' }).click();
-  // 2. ID card, 3. evidence
   await pick(page, 'id-card');
   await expect(page.locator('.nz-thumb img')).toHaveCount(1);
   await page.getByRole('button', { name: 'التالي' }).click();
@@ -104,6 +101,13 @@ test('offline violation: record → reload → online → synced once', async ({
   // 4. Type + description
   await page.locator('.nz-type-card').first().click();
   await page.getByLabel('وصف المخالفة').fill('رُصد العضو دون السترة العاكسة (اختبار آلي).');
+  await page.getByRole('button', { name: 'التالي' }).click();
+  // 5. «أعرف الشخص»: the member from the cached roster (masked ID + team), so the team snapshot fills.
+  await page.getByText('أعرف الشخص').click();
+  await page.getByLabel('ابحث عن العضو').fill('احمد');
+  const row = page.locator('.nz-roster-row').first();
+  await expect(row).toContainText('•');
+  await row.click();
   await page.getByRole('button', { name: 'حفظ المخالفة' }).click();
   await expect(page.getByText('حُفظت المخالفة — ستُرسل عند توفّر الاتصال')).toBeVisible();
 
@@ -129,5 +133,5 @@ test('offline violation: record → reload → online → synced once', async ({
   expect(rows[0]!.lat).toBeCloseTo(24.71361, 4);
   expect(rows[0]!.lng).toBeCloseTo(46.67531, 4);
   expect(rows[0]!.team).not.toBeNull();
-  expect(rows[0]!.photos).toBe(3); // ID card + 2 evidence photos
+  expect(rows[0]!.photos).toBe(4); // person + ID card + 2 evidence photos
 });

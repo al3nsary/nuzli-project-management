@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
+  Anchor,
   Box,
   Button,
   Card,
@@ -160,13 +161,22 @@ export function ViolationsDashboardPage() {
 
       {s ? (
         <Stack gap="md">
-          <SimpleGrid cols={{ base: 1, xs: 3 }} spacing="md">
+          <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
             <Kpi label={t('vdash.kpiTotal')} value={formatNumber(s.total)} foot={<Text size="sm" c="dimmed">{t('vdash.kpiTotalFoot')}</Text>} />
             <Kpi label={t('vdash.kpiWeek')} value={formatNumber(s.thisWeek)} foot={<Change now={s.thisWeek} prev={s.previousWeek} />} />
             <Kpi
               label={t('vdash.kpiPrevWeek')}
               value={formatNumber(s.previousWeek)}
               foot={<Text size="sm" c="dimmed">{t('vdash.kpiWeekFoot')}</Text>}
+            />
+            <Kpi
+              label={t('vdash.kpiUnassigned')}
+              value={formatNumber(s.unassigned ?? 0)}
+              foot={
+                <Anchor component={Link} to="/violations?assigned=false" size="sm" onClick={() => set({ assigned: 'false' })}>
+                  {t('vdash.kpiUnassignedLink')}
+                </Anchor>
+              }
             />
           </SimpleGrid>
 

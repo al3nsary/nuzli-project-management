@@ -348,6 +348,8 @@ export function useViolation(id: string | null) {
     queryFn: () => api.violations.get(id as string),
     enabled: useSignedIn() && Boolean(id),
     staleTime: 0,
+    // A9: follow the ID-card reading while it runs (the violation, not the audited OCR view).
+    refetchInterval: (q) => (q.state.data?.ocrStatus === 'PENDING' || q.state.data?.ocrStatus === 'RUNNING' ? 2500 : false),
   });
 }
 
@@ -383,7 +385,8 @@ export function useTeamViolationsVisible(enabled = true) {
   const visible = teams.data.some(
     (tm) =>
       tm.status !== 'ARCHIVED' &&
-      tm.supervisor?.id === user?.id &&
+      // A9 (ADR-100): any current supervisor of the team, primary or not.
+      (tm.supervisors?.some((s) => s.id === user?.id) ?? tm.supervisor?.id === user?.id) &&
       (tm.violationVisibility === 'SHOW' ||
         (tm.violationVisibility !== 'HIDE' && settings.data.SUPERVISORS_CAN_SEE_VIOLATIONS)),
   );

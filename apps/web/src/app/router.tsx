@@ -1,5 +1,5 @@
 import { Suspense, lazy, type ComponentType } from 'react';
-import { createBrowserRouter, createMemoryRouter, type RouteObject } from 'react-router-dom';
+import { Navigate, createBrowserRouter, createMemoryRouter, useLocation, type RouteObject } from 'react-router-dom';
 import { LoadingBlock, type SkeletonVariant } from '../components/ui';
 
 /** Lazy route with a skeleton shaped like the page (rule 9), never a lone spinner. */
@@ -82,6 +82,16 @@ const PortfoliosPage = lazyPage(() => import('../pages/portfolios/PortfoliosPage
 const ReportsPage = lazyPage(() => import('../pages/reports/ReportsPage'), 'ReportsPage', 'dashboard');
 const WorkloadPage = lazyPage(() => import('../pages/workload/WorkloadPage'), 'WorkloadPage', 'table');
 const TimeLogPage = lazyPage(() => import('../pages/timelog/TimeLogPage'), 'TimeLogPage', 'table');
+// A9 collaboration, teams and violations round.
+const HubPage = lazyPage(() => import('../pages/hub/HubPage'), 'HubPage', 'list');
+const AttachmentsPage = lazyPage(() => import('../pages/attachments/AttachmentsPage'), 'AttachmentsPage', 'cards');
+const OrgPage = lazyPage(() => import('../pages/org/OrgPage'), 'OrgPage', 'list');
+
+/** Old paths of the A9 placeholders keep working (bookmarks, e-mails): same query, new path. */
+function Moved({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: to, search }} replace />;
+}
 
 /** Placeholder routes for the registry's `soon` pages, guarded by the same permission. */
 const SOON_ROUTES: RouteObject[] = navLeaves(NAV)
@@ -402,7 +412,34 @@ export const routes: RouteObject[] = [
           </RequirePermission>
         ),
       },
-      // A9 pages being built in this release: registry entry, route and guard are final.
+      // A9: communication hub, attachments browser, organisational structure.
+      {
+        path: 'hub',
+        element: (
+          <RequirePermission permission="tasks.comment">
+            <HubPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'attachments',
+        element: (
+          <RequirePermission permission="tasks.readAssigned">
+            <AttachmentsPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        path: 'org',
+        element: (
+          <RequirePermission permission="org.read">
+            <OrgPage />
+          </RequirePermission>
+        ),
+      },
+      { path: 'communication', element: <Moved to="/hub" /> },
+      { path: 'org-structure', element: <Moved to="/org" /> },
+      // Registry pages still being built (none since this round): entry, route and guard are final.
       ...SOON_ROUTES,
       { path: '*', element: <NotFound /> },
     ],

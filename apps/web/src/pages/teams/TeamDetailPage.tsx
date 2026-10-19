@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
+  ActionIcon,
   Alert,
+  Badge,
   Box,
   Button,
   Card,
+  Checkbox,
   Group,
   Menu,
   Modal,
@@ -17,6 +20,7 @@ import {
   Title,
   UnstyledButton,
 } from '@mantine/core';
+import { useQuery } from '@tanstack/react-query';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useQueryClient } from '@tanstack/react-query';
@@ -25,8 +29,14 @@ import {
   IconArchive,
   IconCheck,
   IconChevronDown,
+  IconCrown,
+  IconDots,
   IconFileImport,
+  IconHelmet,
+  IconHelmetOff,
   IconHistory,
+  IconSitemap,
+  IconUserMinus,
   IconPalette,
   IconPencil,
   IconUserPlus,
@@ -39,6 +49,7 @@ import {
   memberInputSchema,
   type ColorTakenDetails,
   type TeamColorDto,
+  type MemberDto,
   type TeamDetailDto,
   type VisibilityMode,
 } from '@nuzli/shared';
@@ -58,14 +69,23 @@ import { VestBand } from '../../theme/VestBand';
 import { formatDate, formatDateTime, formatNumber, localizeDigits, t } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
 import { MemberAvatar, PhotoAvatar } from '../../components/UserAvatar';
-import { ColorPicker, ReferenceInput, TeamStatusBadge, refFields } from './shared';
+import {
+  ColorPicker,
+  ForemanBadge,
+  ReferenceInput,
+  SupervisorAvatars,
+  TeamStatusBadge,
+  refFields,
+  supervisorsOf,
+} from './shared';
 import { MembersImporter } from './MembersImporter';
 import { useOverlayParam } from '../../lib/useUrlState';
 
 type Dialog =
   | 'rename'
   | 'color'
-  | 'supervisor'
+  | 'addSupervisor'
+  | 'orgUnit'
   | 'archive'
   | 'reject'
   | 'addMember'
@@ -251,7 +271,8 @@ function RenameDialog({ team, opened, onClose }: { team: TeamDetailDto; opened: 
   );
 }
 
-function SupervisorDialog({
+/** A9 (ADR-100): add a supervisor — optionally as the new primary (the old one stays as co-supervisor). */
+function AddSupervisorDialog({
   team,
   opened,
   onClose,
@@ -262,35 +283,43 @@ function SupervisorDialog({
 }) {
   const api = useApi();
   const supervisors = useSupervisors(opened);
+  const current = new Set(supervisorsOf(team).map((s) => s.id));
   const [value, setValue] = useState<string | null>(null);
+  const [primary, setPrimary] = useState(false);
   const [reason, setReason] = useState('');
   const action = useTeamAction();
+  const close = () => {
+    setValue(null);
+    setPrimary(false);
+    setReason('');
+    action.setError(null);
+    onClose();
+  };
   return (
-    <Modal opened={opened} onClose={onClose} title={t('teams.changeSupervisor')}>
+    <Modal opened={opened} onClose={close} title={t('teams.sup.addTitle', { team: team.name })}>
       <Stack>
         <Text size="sm" c="dimmed">
-          {t('teams.changeSupervisorBody')}
+          {t('teams.sup.addBody')}
         </Text>
         <FormError error={action.error} />
         <Select
-          label={t('teams.newSupervisor')}
-          data={(supervisors.data ?? [])
-            .filter((s) => s.id !== team.supervisor?.id)
-            .map((s) => ({ value: s.id, label: s.fullName }))}
+          label={t('teams.sup.pick')}
+          data={(supervisors.data ?? []).filter((s) => !current.has(s.id)).map((s) => ({ value: s.id, label: s.fullName }))}
           value={value}
           onChange={setValue}
           searchable
           nothingFoundMessage={t('teams.noSupervisors')}
+          data-autofocus
         />
-        <Textarea
-          label={t('teams.reasonOptional')}
-          value={reason}
-          onChange={(e) => setReason(e.currentTarget.value)}
-          autosize
-          minRows={2}
+        <Checkbox
+          label={t('teams.sup.makePrimary')}
+          description={t('teams.sup.makePrimaryHint')}
+          checked={primary}
+          onChange={(e) => setPrimary(e.currentTarget.checked)}
         />
+        <Textarea label={t('teams.reasonOptional')} value={reason} onChange={(e) => setReason(e.currentTarget.value)} autosize minRows={2} />
         <Group justify="flex-end">
-          <Button variant="default" onClick={onClose}>
+          <Button variant="default" onClick={close}>
             {t('common.cancel')}
           </Button>
           <Button
@@ -298,17 +327,241 @@ function SupervisorDialog({
             disabled={!value}
             onClick={async () => {
               const ok = await action.run(
-                () => api.teams.changeSupervisor(team.id, { supervisorId: value!, reason }),
-                t('teams.supervisorChanged'),
+                () => api.teams.addSupervisor(team.id, { userId: value!, isPrimary: primary, reason: reason.trim() || undefined }),
+                t('teams.sup.added'),
               );
-              if (ok) onClose();
+              if (ok) close();
             }}
           >
-            {t('teams.saveSupervisor')}
+            {t('teams.sup.addConfirm')}
           </Button>
         </Group>
       </Stack>
     </Modal>
+  );
+}
+
+/**
+ * A9 (ADR-100): remove a supervisor. The primary needs a successor (another current supervisor);
+ * the last one cannot be removed — the API's Arabic message is shown as is.
+ */
+function RemoveSupervisorDialog({
+  team,
+  target,
+  onClose,
+}: {
+  team: TeamDetailDto;
+  target: { id: string; fullName: string; isPrimary?: boolean } | null;
+  onClose: () => void;
+}) {
+  const api = useApi();
+  const others = supervisorsOf(team).filter((s) => s.id !== target?.id);
+  const [reason, setReason] = useState('');
+  const [successor, setSuccessor] = useState<string | null>(null);
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const action = useTeamAction();
+  const close = () => {
+    setReason('');
+    setSuccessor(null);
+    setReasonError(null);
+    action.setError(null);
+    onClose();
+  };
+  return (
+    <Modal opened={Boolean(target)} onClose={close} title={target ? t('teams.sup.removeTitle', { name: target.fullName }) : ''}>
+      {target ? (
+        <Stack>
+          <Text size="sm">{target.isPrimary ? t('teams.sup.removePrimaryBody') : t('teams.sup.removeBody')}</Text>
+          <FormError error={action.error} />
+          {target.isPrimary ? (
+            <Select
+              label={t('teams.sup.successor')}
+              description={t('teams.sup.successorHint')}
+              withAsterisk
+              data={others.map((s) => ({ value: s.id, label: s.fullName }))}
+              value={successor}
+              onChange={setSuccessor}
+              nothingFoundMessage={t('teams.sup.noOthers')}
+            />
+          ) : null}
+          <Textarea
+            label={t('teams.reason')}
+            withAsterisk
+            value={reason}
+            onChange={(e) => setReason(e.currentTarget.value)}
+            error={reasonError}
+            autosize
+            minRows={2}
+            data-autofocus
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={close}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              color="breach"
+              loading={action.busy}
+              onClick={async () => {
+                if (reason.trim().length < 3) {
+                  setReasonError(t('teams.reasonRequired'));
+                  return;
+                }
+                setReasonError(null);
+                const ok = await action.run(
+                  () =>
+                    api.teams.removeSupervisor(team.id, target.id, {
+                      reason: reason.trim(),
+                      newPrimaryUserId: target.isPrimary ? (successor ?? undefined) : undefined,
+                    }),
+                  t('teams.sup.removed', { name: target.fullName }),
+                );
+                if (ok) close();
+              }}
+            >
+              {t('teams.sup.removeConfirm')}
+            </Button>
+          </Group>
+        </Stack>
+      ) : null}
+    </Modal>
+  );
+}
+
+/** A9 (ADR-102): link the team to an organisational unit (admin). */
+function OrgUnitDialog({ team, opened, onClose }: { team: TeamDetailDto; opened: boolean; onClose: () => void }) {
+  const api = useApi();
+  const org = useQuery({ queryKey: ['org', 'tree'], queryFn: () => api.org.tree(), enabled: opened });
+  const [value, setValue] = useState<string | null>(team.orgUnit?.id ?? null);
+  const action = useTeamAction();
+  return (
+    <Modal opened={opened} onClose={onClose} title={t('teams.org.title')}>
+      <Stack>
+        <Text size="sm" c="dimmed">
+          {t('teams.org.body')}
+        </Text>
+        <FormError error={action.error} />
+        <Select
+          label={t('teams.org.unit')}
+          placeholder={t('teams.org.none')}
+          data={(org.data?.units ?? []).map((u) => ({ value: u.id, label: u.name }))}
+          value={value}
+          onChange={setValue}
+          clearable
+          searchable
+          nothingFoundMessage={t('teams.org.noUnits')}
+        />
+        <Group justify="flex-end">
+          <Button variant="default" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            loading={action.busy}
+            disabled={value === (team.orgUnit?.id ?? null)}
+            onClick={async () => {
+              if (await action.run(() => api.teams.update(team.id, { orgUnitId: value }), t('teams.org.saved'))) onClose();
+            }}
+          >
+            {t('teams.org.save')}
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+/** A9: the team's current supervisors (primary first) with the admin actions. */
+function SupervisorsCard({
+  team,
+  isAdmin,
+  archived,
+  onAdd,
+  onRemove,
+}: {
+  team: TeamDetailDto;
+  isAdmin: boolean;
+  archived: boolean;
+  onAdd: () => void;
+  onRemove: (s: { id: string; fullName: string; isPrimary?: boolean }) => void;
+}) {
+  const api = useApi();
+  const user = useAuthStore((s) => s.user);
+  const action = useTeamAction();
+  const list = supervisorsOf(team);
+  return (
+    <Card mt="md">
+      <Group justify="space-between" mb="sm" wrap="wrap" gap="xs">
+        <Group gap="xs">
+          <IconUserShield size={20} aria-hidden />
+          <Title order={2} fz="lg">
+            {t('teams.sup.title')}
+          </Title>
+          <Badge variant="light" color="slate" size="sm">
+            {formatNumber(list.length)}
+          </Badge>
+        </Group>
+        {isAdmin && !archived ? (
+          <Button size="sm" variant="light" leftSection={<IconUserPlus size={16} />} onClick={onAdd}>
+            {t('teams.sup.add')}
+          </Button>
+        ) : null}
+      </Group>
+      <FormError error={action.error} />
+      <ul className="nz-sup-list">
+        {list.map((s) => {
+          const full = team.supervisors?.find((x) => x.id === s.id);
+          return (
+            <li key={s.id} className="nz-sup-row" data-primary={s.isPrimary || undefined}>
+              <PhotoAvatar
+                target={s.id === user?.id ? { kind: 'me', id: s.id } : { kind: 'user', id: s.id }}
+                name={s.fullName}
+                hasPhoto={s.hasPhoto}
+                size={36}
+                ring={Boolean(s.isPrimary)}
+              />
+              <div className="nz-sup-main">
+                <span className="nz-sup-name">
+                  {s.fullName}
+                  {s.isPrimary ? (
+                    <Badge size="xs" variant="filled" color="field" leftSection={<IconCrown size={11} aria-hidden />}>
+                      {t('teams.sup.primary')}
+                    </Badge>
+                  ) : null}
+                </span>
+                {full?.since ? (
+                  <Text size="xs" c="dimmed">
+                    {t('teams.sup.since', { date: formatDate(full.since) })}
+                  </Text>
+                ) : null}
+              </div>
+              {isAdmin && !archived ? (
+                <Menu position="bottom-end" width={230} shadow="md">
+                  <Menu.Target>
+                    <ActionIcon variant="subtle" size={36} aria-label={t('teams.sup.actionsOf', { name: s.fullName })}>
+                      <IconDots size={18} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    {!s.isPrimary ? (
+                      <Menu.Item
+                        leftSection={<IconCrown size={16} />}
+                        onClick={() =>
+                          void action.run(() => api.teams.setPrimarySupervisor(team.id, s.id, {}), t('teams.sup.primarySet', { name: s.fullName }))
+                        }
+                      >
+                        {t('teams.sup.makePrimaryAction')}
+                      </Menu.Item>
+                    ) : null}
+                    <Menu.Item color="breach" leftSection={<IconUserMinus size={16} />} onClick={() => onRemove(s)}>
+                      {t('teams.sup.remove')}
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }
 
@@ -440,6 +693,7 @@ function SupervisorHistory({ teamId }: { teamId: string }) {
         <Table.Thead>
           <Table.Tr>
             <Table.Th>{t('teams.supervisor')}</Table.Th>
+            <Table.Th>{t('teams.sup.role')}</Table.Th>
             <Table.Th>{t('teams.history.from')}</Table.Th>
             <Table.Th>{t('teams.history.to')}</Table.Th>
             <Table.Th>{t('teams.history.by')}</Table.Th>
@@ -450,6 +704,17 @@ function SupervisorHistory({ teamId }: { teamId: string }) {
           {(history.data ?? []).map((h) => (
             <Table.Tr key={h.id}>
               <Table.Td fw={500}>{h.supervisor.fullName}</Table.Td>
+              <Table.Td>
+                {h.isPrimary ? (
+                  <Badge size="sm" variant="light" color="field">
+                    {t('teams.sup.primary')}
+                  </Badge>
+                ) : (
+                  <Text size="sm" c="dimmed">
+                    {t('teams.sup.co')}
+                  </Text>
+                )}
+              </Table.Td>
               <Table.Td className="mono">{formatDateTime(h.validFrom)}</Table.Td>
               <Table.Td className="mono">
                 {h.validTo ? formatDateTime(h.validTo) : t('teams.history.current')}
@@ -466,12 +731,51 @@ function SupervisorHistory({ teamId }: { teamId: string }) {
 
 const VISIBILITY: VisibilityMode[] = ['INHERIT', 'SHOW', 'HIDE'];
 
+/** A9 (ADR-101): set or clear the worker foreman (admin or a leading supervisor). */
+function ForemanAction({
+  team,
+  member,
+  run,
+}: {
+  team: TeamDetailDto;
+  member: MemberDto;
+  run: (fn: () => Promise<unknown>, ok: string) => Promise<boolean>;
+}) {
+  const api = useApi();
+  if (member.isForeman) {
+    return (
+      <Button
+        variant="subtle"
+        size="compact-sm"
+        color="slate"
+        leftSection={<IconHelmetOff size={16} />}
+        onClick={() => void run(() => api.teams.clearForeman(team.id), t('teams.foreman.cleared', { name: member.fullName }))}
+        aria-label={t('teams.foreman.clearOf', { name: member.fullName })}
+      >
+        {t('teams.foreman.clear')}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="subtle"
+      size="compact-sm"
+      leftSection={<IconHelmet size={16} />}
+      onClick={() => void run(() => api.teams.setForeman(team.id, member.id), t('teams.foreman.set', { name: member.fullName }))}
+      aria-label={t('teams.foreman.setOf', { name: member.fullName })}
+    >
+      {t('teams.foreman.setShort')}
+    </Button>
+  );
+}
+
 export function TeamDetailPage() {
   const { id = '' } = useParams();
   const api = useApi();
   const user = useAuthStore((s) => s.user);
   const team = useTeam(id);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [removing, setRemoving] = useState<{ id: string; fullName: string; isPrimary?: boolean } | null>(null);
   const member = useOverlayParam('member');
   const action = useTeamAction();
 
@@ -479,7 +783,8 @@ export function TeamDetailPage() {
   if (team.isError || !team.data) return <ErrorBlock error={team.error} onRetry={() => void team.refetch()} />;
   const tm = team.data;
   const isAdmin = can(user, 'teams.manageAll');
-  const own = tm.supervisor?.id === user?.id;
+  // A9 (ADR-100): any current supervisor (primary or co-supervisor) leads the team.
+  const own = supervisorsOf(tm).some((s) => s.id === user?.id);
   const manageable = isAdmin || (can(user, 'teams.manageOwn') && own);
   const membersManageable = can(user, 'members.manage') || (can(user, 'members.manageOwn') && own);
   const archived = tm.status === 'ARCHIVED';
@@ -499,18 +804,17 @@ export function TeamDetailPage() {
             <Group gap="lg" mt={6} wrap="wrap">
               <Text c="dimmed">{t('teams.colorName', { name: tm.color.name })}</Text>
               <Group gap={8} wrap="nowrap">
-                {tm.supervisor ? (
-                  <PhotoAvatar
-                    target={tm.supervisor.id === user?.id ? { kind: 'me', id: tm.supervisor.id } : { kind: 'user', id: tm.supervisor.id }}
-                    name={tm.supervisor.fullName}
-                    size={30}
-                    ring
-                  />
-                ) : null}
-                <Text>
-                  {t('teams.supervisorIs', { name: tm.supervisor?.fullName ?? t('teams.noSupervisor') })}
+                <Text c="dimmed" size="sm">
+                  {t('teams.sup.label')}
                 </Text>
+                <SupervisorAvatars supervisors={supervisorsOf(tm)} size={30} withNames selfId={user?.id} />
               </Group>
+              {tm.orgUnit ? (
+                <Group gap={4} wrap="nowrap">
+                  <IconSitemap size={16} aria-hidden color="var(--accent)" />
+                  <Text size="sm">{tm.orgUnit.name}</Text>
+                </Group>
+              ) : null}
               <Text className="num">{t('teams.memberCount', { count: tm.memberCount })}</Text>
               <Text c="dimmed" size="sm">
                 {t('teams.createdAt', { date: formatDate(tm.createdAt) })}
@@ -564,8 +868,13 @@ export function TeamDetailPage() {
                       {t('teams.changeColor')}
                     </Menu.Item>
                     {isAdmin ? (
-                      <Menu.Item leftSection={<IconUserShield size={18} />} onClick={() => setDialog('supervisor')}>
-                        {t('teams.changeSupervisor')}
+                      <Menu.Item leftSection={<IconUserShield size={18} />} onClick={() => setDialog('addSupervisor')}>
+                        {t('teams.sup.add')}
+                      </Menu.Item>
+                    ) : null}
+                    {isAdmin ? (
+                      <Menu.Item leftSection={<IconSitemap size={18} />} onClick={() => setDialog('orgUnit')}>
+                        {t('teams.org.title')}
                       </Menu.Item>
                     ) : null}
                     <Menu.Divider />
@@ -614,6 +923,14 @@ export function TeamDetailPage() {
         </Card>
       ) : null}
 
+      <SupervisorsCard
+        team={tm}
+        isAdmin={isAdmin}
+        archived={archived}
+        onAdd={() => setDialog('addSupervisor')}
+        onRemove={setRemoving}
+      />
+
       <Card mt="md">
         <Group justify="space-between" mb="sm">
           <Group gap="xs">
@@ -645,20 +962,23 @@ export function TeamDetailPage() {
                   <Table.Th>{t('members.nationalId')}</Table.Th>
                   <Table.Th>{t('members.jobTitle')}</Table.Th>
                   <Table.Th>{t('members.department')}</Table.Th>
-                  <Table.Th w={140}>{t('members.history')}</Table.Th>
+                  <Table.Th w={manageable && !archived ? 200 : 140}>{t('members.history')}</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {tm.members.map((m) => (
-                  <Table.Tr key={m.id}>
+                  <Table.Tr key={m.id} className={m.isForeman ? 'nz-foreman-row' : undefined}>
                     <Table.Td fw={500}>
-                      <UnstyledButton
-                        onClick={() => member.open(m.id)}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}
-                      >
-                        <MemberAvatar member={m} size={28} />
-                        {m.fullName}
-                      </UnstyledButton>
+                      <Group gap={8} wrap="nowrap">
+                        <UnstyledButton
+                          onClick={() => member.open(m.id)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}
+                        >
+                          <MemberAvatar member={m} size={28} />
+                          {m.fullName}
+                        </UnstyledButton>
+                        {m.isForeman ? <ForemanBadge /> : null}
+                      </Group>
                     </Table.Td>
                     <Table.Td>
                       <Ltr mono>{localizeDigits(m.nationalIdMasked)}</Ltr>
@@ -666,15 +986,18 @@ export function TeamDetailPage() {
                     <Table.Td>{m.jobTitle ?? t('common.none')}</Table.Td>
                     <Table.Td>{m.department ?? t('common.none')}</Table.Td>
                     <Table.Td>
-                      <Button
-                        variant="subtle"
-                        size="compact-sm"
-                        leftSection={<IconHistory size={16} />}
-                        onClick={() => member.open(m.id)}
-                        aria-label={t('members.historyOf', { name: m.fullName })}
-                      >
-                        {t('members.history')}
-                      </Button>
+                      <Group gap={4} wrap="nowrap">
+                        <Button
+                          variant="subtle"
+                          size="compact-sm"
+                          leftSection={<IconHistory size={16} />}
+                          onClick={() => member.open(m.id)}
+                          aria-label={t('members.historyOf', { name: m.fullName })}
+                        >
+                          {t('members.history')}
+                        </Button>
+                        {manageable && !archived ? <ForemanAction team={tm} member={m} run={action.run} /> : null}
+                      </Group>
                     </Table.Td>
                   </Table.Tr>
                 ))}
@@ -699,7 +1022,9 @@ export function TeamDetailPage() {
 
       <RenameDialog key={`r${tm.name}`} team={tm} opened={dialog === 'rename'} onClose={close} />
       <ColorDialog key={`c${tm.color.id}${dialog}`} team={tm} opened={dialog === 'color'} onClose={close} />
-      <SupervisorDialog team={tm} opened={dialog === 'supervisor'} onClose={close} />
+      <AddSupervisorDialog team={tm} opened={dialog === 'addSupervisor'} onClose={close} />
+      <RemoveSupervisorDialog team={tm} target={removing} onClose={() => setRemoving(null)} />
+      <OrgUnitDialog key={`o${tm.orgUnit?.id ?? ''}${dialog}`} team={tm} opened={dialog === 'orgUnit'} onClose={close} />
       <AddMemberDialog team={tm} opened={dialog === 'addMember'} onClose={close} />
       <ImportDialog team={tm} opened={dialog === 'import'} onClose={close} />
       <ReasonDialog
