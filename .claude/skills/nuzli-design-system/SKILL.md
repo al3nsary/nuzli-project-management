@@ -8,7 +8,7 @@ description: The visual identity of Nuzli (نُزلي) — the approved Figma de
 **Subject:** field operations and projects, built by **Nozoly (نُزلي)**: teams in coloured vests, monitors on site with a phone in the sun, Zebra plastic cards, and a project Gantt at the office.
 **The screen's job:** let the user find the right person or task fast and know which team it belongs to at a glance.
 
-**Owner request A11 (2026-10-19) — current identity, approved:** «اعجبني التصميم اعتمده كرئيسي». The Figma «Project Management Dashboard» (file `AYHpU1YNalsf0TNeYOMKDf`, node `2:163`) is **the** design: **white surfaces, one brand colour, Nozoly violet `#5030E5`; team colours carry identity while browsing.** The system is Nozoly-only: nothing of Muhsen remains. This supersedes the A9 indigo identity and the A7 green one. Values live in `apps/web/src/theme/tokens.css`; the decision is ADR-138 in `docs/DECISIONS.md`. There is no design switch (it existed only during review).
+**Owner request A11 (2026-10-19) — current identity, approved:** «اعجبني التصميم اعتمده كرئيسي». The Figma «Project Management Dashboard» (file `AYHpU1YNalsf0TNeYOMKDf`, node `2:163`) is **the** design: **white surfaces, one brand colour, Nozoly violet `#5030E5`; team colours carry identity while browsing.** The system is Nozoly-only: nothing of Muhsen remains. This supersedes the A9 indigo identity and the A7 green one. Values live in `apps/web/src/theme/tokens.css`; the decision is ADR-141 in `docs/DECISIONS.md`. There is no design switch (it existed only during review).
 
 ## Logos (`apps/web/public/brand/` — see its README)
 
