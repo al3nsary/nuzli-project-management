@@ -36,6 +36,8 @@ export interface TaskPrevious {
   deadline?: string | null;
   barColor?: string | null;
   labelIds?: string[];
+  /** A9 hours (HOUR projects). */
+  durationHours?: number;
 }
 export type TaskPreviousMap = Record<string, TaskPrevious>;
 
@@ -409,11 +411,12 @@ export interface WorkloadDto {
   from: string;
   to: string;
   days: string[];
-  /** Minutes of one working day (until the hours engine lands: 8 h). */
+  /** Working minutes of a normal day on the default calendar (480 with 09–13 / 14–18). */
   capacityMinutesPerDay: number;
   people: Array<{
     user: { id: string; fullName: string };
-    days: Array<{ date: string; assignedMinutes: number; loggedMinutes: number; taskCount: number }>;
+    /** A9 hours: assignedMinutes = real working minutes of each task on that day (its project calendar); capacityMinutes = the default calendar's working minutes that day (0 on a weekend or holiday). */
+    days: Array<{ date: string; assignedMinutes: number; loggedMinutes: number; taskCount: number; capacityMinutes?: number }>;
     totalAssignedMinutes: number;
     totalLoggedMinutes: number;
   }>;

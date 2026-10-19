@@ -47,6 +47,9 @@ export const LOG_REDACT_PATHS = [
   '*.*.password',
   '*.*.nationalId',
   '*.*.token',
+  // A9 Jira import (ADR-112): the API token is used once and must never reach a log line.
+  '*.apiToken',
+  '*.*.apiToken',
 ];
 
 @Module({

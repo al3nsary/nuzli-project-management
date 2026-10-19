@@ -1,6 +1,6 @@
 import { can, canAny, type Permission, type PermissionSubject } from '@nuzli/shared';
 
-export type FileEntity = 'violation' | 'task' | 'logo' | 'member_photo' | 'user_photo';
+export type FileEntity = 'violation' | 'task' | 'logo' | 'member_photo' | 'user_photo' | 'import';
 
 /** Object-key folder per entity: `{folder}/{yyyy}/{mm}/{uuid}.{ext}` (brief §3.2). */
 export const ENTITY_FOLDERS: Record<FileEntity, string> = {
@@ -9,6 +9,7 @@ export const ENTITY_FOLDERS: Record<FileEntity, string> = {
   logo: 'logos',
   member_photo: 'member-photos',
   user_photo: 'user-photos',
+  import: 'imports',
 };
 
 /**
@@ -31,6 +32,8 @@ const UPLOAD_PERMISSIONS: Record<FileEntity, Permission[]> = {
   logo: ['logos.manage'],
   member_photo: ['members.manage', 'members.manageOwn'],
   user_photo: ['profile.update', 'users.manageRoles'],
+  // A9 (ADR-110): project imports are admin-only (projects.create).
+  import: ['projects.create'],
 };
 
 /**
@@ -44,13 +47,15 @@ const READ_PERMISSIONS: Record<FileEntity, Permission[]> = {
   member_photo: ['teams.readAll', 'members.manage', 'cards.print'],
   // Scoped photo reads go through GET /users/:id/photo-url and /members/:id/photo-url.
   user_photo: ['users.read', 'cards.print'],
+  // Only the uploader reads an import file (the importer reads it server-side).
+  import: [],
 };
 
 export function canUpload(user: PermissionSubject, entity: FileEntity, kind?: string, entityId?: string): boolean {
   // ID-card and person photos (A9) exist only on violations.
   if ((kind === 'ID_CARD' || kind === 'PERSON') && entity !== 'violation') return false;
   // A logo belongs to no entity; an entityId there would only be an untracked label.
-  if (entity === 'logo' && entityId) return false;
+  if ((entity === 'logo' || entity === 'import') && entityId) return false;
   return canAny(user, UPLOAD_PERMISSIONS[entity]);
 }
 

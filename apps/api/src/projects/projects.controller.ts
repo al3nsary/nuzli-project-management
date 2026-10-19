@@ -3,10 +3,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   calendarExceptionSchema,
   calendarSchema,
+  convertProjectSchema,
   createDependencySchema,
   createProjectSchema,
   createTaskSchema,
   grantProjectAccessSchema,
+  projectExportQuerySchema,
   projectListQuerySchema,
   taskAttachmentSchema,
   taskBatchSchema,
@@ -150,11 +152,34 @@ export class ProjectsController {
     @Res() res: Response,
   ): Promise<void> {
     const out = await this.projects.exportXlsx(id, viewer, ctx);
-    res.status(200);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
-    res.setHeader('Cache-Control', 'no-store');
-    res.end(out.buffer);
+    sendFile(res, out);
+  }
+
+  @Get(':id/export')
+  @RequireAnyPermission(...READ_ANY)
+  @ApiOperation({ summary: 'تصدير المشروع: xlsx (من اليمين لليسار دون تجميد) أو csv (UTF-8 مع BOM) أو xml (MS Project)' })
+  async exportProject(
+    @Param('id', UuidPipe) id: string,
+    @ZodQuery(projectExportQuerySchema) q: z.output<typeof projectExportQuerySchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+    @Res() res: Response,
+  ): Promise<void> {
+    const out = await this.projects.exportProject(id, q.format, viewer, ctx);
+    sendFile(res, out);
+  }
+
+  @Post(':id/convert')
+  @HttpCode(200)
+  @RequirePermission('projects.manage')
+  @ApiOperation({ summary: 'تحويل وحدة المشروع بين الأيام والساعات (كل المهام في معاملة واحدة)' })
+  convert(
+    @Param('id', UuidPipe) id: string,
+    @ZodBody(convertProjectSchema) body: z.output<typeof convertProjectSchema>,
+    @CurrentUser() viewer: AuthUser,
+    @ReqCtx() ctx: RequestContext,
+  ): Promise<ProjectDto> {
+    return this.projects.convert(id, body.durationUnit, viewer, ctx);
   }
 
   @Post(':id/tasks')
@@ -193,6 +218,14 @@ export class ProjectsController {
   ): Promise<CreatedDependencyDto> {
     return this.tasks.createDependency(id, body, viewer, ctx);
   }
+}
+
+function sendFile(res: Response, out: { filename: string; buffer: Buffer; contentType: string }): void {
+  res.status(200);
+  res.setHeader('Content-Type', out.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(out.buffer);
 }
 
 @ApiTags('tasks')

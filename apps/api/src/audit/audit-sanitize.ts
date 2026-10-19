@@ -12,6 +12,8 @@ const DROP_KEYS = new Set([
   'token',
   'refreshToken',
   'accessToken',
+  // A9 Jira import (ADR-112).
+  'apiToken',
 ]);
 
 const NATIONAL_ID_KEY = /national_?id$/i;

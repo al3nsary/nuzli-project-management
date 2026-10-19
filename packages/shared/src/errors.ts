@@ -81,6 +81,19 @@ export const ERRORS = {
   TIME_ENTRY_NOT_ALLOWED: 'تسجّل الوقت على المهام المسندة إليك فقط.',
   COMMENT_REPLY_INVALID: 'التعليق المقتبس ليس في هذه المهمة.',
 
+  // A9 imports, exports, hours (ADR-109..112)
+  IMPORT_FILE_INVALID: 'تعذّرت قراءة الملف. تأكّد أنّه بالصيغة المختارة وغير تالف، ثم أعد رفعه.',
+  IMPORT_FORMAT_MISMATCH: 'محتوى الملف لا يطابق الصيغة المختارة.',
+  IMPORT_NO_TASKS: 'لم نجد مهامّ في الملف. تأكّد من وجود عمود «اسم المهمة» وصفوف تحته.',
+  IMPORT_TOO_MANY_TASKS: 'الملف فيه مهامّ أكثر من الحدّ المسموح (٥٬٠٠٠ مهمة). قسّمه إلى أكثر من مشروع.',
+  IMPORT_PREVIEW_EXPIRED: 'انتهت صلاحية المعاينة (ساعة واحدة) أو اعتُمدت من قبل. أعد رفع الملف.',
+  MPP_CONVERTER_NOT_CONFIGURED:
+    'تحويل ملفات ‎.mpp غير مفعّل على هذا الخادم. افتح الملف في MS Project واختر «ملف ← حفظ باسم ← XML»، ثم استورد ملف XML.',
+  MPP_CONVERSION_FAILED: 'تعذّر تحويل ملف ‎.mpp. احفظه من MS Project بصيغة XML ثم استورده.',
+  JIRA_URL_NOT_ALLOWED: 'رابط Jira غير مسموح. استخدم رابط https الخاص بموقعك على atlassian.net، أو اطلب من مدير النظام إضافة الخادم إلى القائمة المسموحة.',
+  JIRA_AUTH_FAILED: 'رفض Jira الدخول. تحقّق من البريد ورمز الـ API ومن صلاحيتك على المشروع.',
+  JIRA_REQUEST_FAILED: 'تعذّر الاتصال بـ Jira الآن. تحقّق من الرابط والاستعلام ثم أعد المحاولة.',
+
   // violations
   LOCATION_REQUIRED: 'الموقع الجغرافي مطلوب لتسجيل المخالفة.',
   ID_PHOTO_REQUIRED: 'صورة بطاقة الهوية مطلوبة.',

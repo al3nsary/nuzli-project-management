@@ -51,6 +51,17 @@ describe('file policy', () => {
     expect(canUpload(supervisor, 'violation')).toBe(false);
   });
 
+  it('A9 project imports: admins only, never linked to an entity, readable by the uploader only', () => {
+    expect(canUpload(admin, 'import')).toBe(true);
+    expect(canUpload(supervisor, 'import')).toBe(false);
+    expect(canUpload(monitor, 'import')).toBe(false);
+    expect(canUpload(admin, 'import', undefined, 'e0000000-0000-4000-8000-00000000000e')).toBe(false);
+    expect(canUpload(admin, 'import', 'ID_CARD')).toBe(false);
+    expect(canReadFile(admin, { entityType: 'import', kind: null, uploadedById: 'a' })).toBe(true);
+    expect(canReadFile({ ...admin, id: 'other' }, { entityType: 'import', kind: null, uploadedById: 'a' })).toBe(false);
+    expect(buildObjectKey('imports', 'application/vnd.ms-project', 'abc', new Date('2026-10-19T00:00:00Z'))).toBe('imports/2026/10/abc.mpp');
+  });
+
   it('ID-card photos need violations.viewIdPhoto; others need read rights or ownership', () => {
     const idCard = { entityType: 'violation', kind: 'ID_CARD', uploadedById: 'm' };
     expect(canReadFile(monitor, idCard)).toBe(true);

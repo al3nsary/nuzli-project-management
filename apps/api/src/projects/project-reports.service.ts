@@ -24,7 +24,7 @@ import {
 import { ProjectStore } from './project-store';
 import { buildBudgetReport, buildDashboard, buildPeople, computeWorkload, leavesOf, rangeProblem } from './reports';
 import { LABEL_SELECT, toLabelDto } from './task-details.service';
-import { dateOf, deadlinePassed, dueFlags, isoOf, riyadhToday, workCalendarOf } from './task-engine';
+import { dateOf, deadlinePassed, dueFlags, isoOf, localOf, riyadhToday, workCalendarOf } from './task-engine';
 import { compareWbs } from './tasks-export';
 
 type Viewer = PermissionSubject & { id: string };
@@ -53,7 +53,7 @@ export class ProjectReportsService {
     ]);
     if (!calendar) throw new AppError('NOT_FOUND');
     const tasks = rows.map(toStored);
-    const cal = workCalendarOf({ weekendDays: calendar.weekendDays, exceptions: calendar.exceptions });
+    const cal = workCalendarOf({ weekendDays: calendar.weekendDays, workingHours: calendar.workingHours, exceptions: calendar.exceptions });
     return { p, tasks, calendar, cal };
   }
 
@@ -193,28 +193,32 @@ export class ProjectReportsService {
           endDate: { gte: dateOf(q.from) },
           project: { archivedAt: null, isTemplate: false },
         },
-        select: { assigneeId: true, type: true, startDate: true, endDate: true, project: { select: { calendarId: true } } },
+        select: { assigneeId: true, type: true, startDate: true, endDate: true, startAt: true, endAt: true, project: { select: { calendarId: true } } },
       }),
       this.prisma.timeEntry.findMany({
         where: { userId: { in: userIds }, date: { gte: dateOf(q.from), lte: dateOf(q.to) } },
         select: { userId: true, date: true, minutes: true },
       }),
     ]);
-    const calendars = await this.prisma.calendar.findMany({
-      where: { id: { in: [...new Set(tasks.map((t) => t.project.calendarId))] } },
-      select: { id: true, weekendDays: true, exceptions: { select: { date: true, isWorking: true } } },
-    });
+    const calendarSelect = { id: true, isDefault: true, weekendDays: true, workingHours: true, exceptions: { select: { date: true, isWorking: true, workingHours: true } } } as const;
+    const [calendars, defaultCal] = await Promise.all([
+      this.prisma.calendar.findMany({ where: { id: { in: [...new Set(tasks.map((t) => t.project.calendarId))] } }, select: calendarSelect }),
+      this.prisma.calendar.findFirst({ where: { isDefault: true }, select: calendarSelect }),
+    ]);
     const cals = new Map(calendars.map((c) => [c.id, workCalendarOf(c)]));
-    const fallback = workCalendarOf({ weekendDays: [5, 6], exceptions: [] });
+    const fallback = defaultCal ? workCalendarOf(defaultCal) : workCalendarOf({ weekendDays: [5, 6], exceptions: [] });
     return computeWorkload({
       from: q.from,
       to: q.to,
       users,
+      capacity: fallback,
       tasks: tasks.map((t) => ({
         assigneeId: t.assigneeId!,
         type: t.type,
         startDate: isoOf(t.startDate),
         endDate: isoOf(t.endDate),
+        startAt: t.startAt ? localOf(t.startAt) : null,
+        endAt: t.endAt ? localOf(t.endAt) : null,
         cal: cals.get(t.project.calendarId) ?? fallback,
       })),
       entries: entries.map((e) => ({ userId: e.userId, date: isoOf(e.date), minutes: e.minutes })),
@@ -228,7 +232,7 @@ export class ProjectReportsService {
     const { p, tasks, calendar } = await this.load(projectId, viewer);
     const today = riyadhToday(now);
     const items = tasks.filter(
-      (t) => (t.startDate <= q.to && t.endDate >= q.from) || (t.deadline !== null && t.deadline >= q.from && t.deadline <= q.to),
+      (t) => (t.startDate.slice(0, 10) <= q.to && t.endDate.slice(0, 10) >= q.from) || (t.deadline !== null && t.deadline >= q.from && t.deadline <= q.to),
     );
     const people = await this.people([...new Set(items.map((t) => t.assigneeId).filter((a): a is string => !!a))]);
     return {

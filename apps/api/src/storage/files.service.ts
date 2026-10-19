@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { MAX_UPLOAD_BYTES, type PresignedUpload, type PresignUploadInput } from '@nuzli/shared';
+import { MAX_IMPORT_BYTES, MAX_UPLOAD_BYTES, type PresignedUpload, type PresignUploadInput } from '@nuzli/shared';
 import { randomUUID } from 'node:crypto';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import type { File as FileRow } from '@prisma/client';
 import { canReadFile, canUpload, ENTITY_FOLDERS, HOOKED_ENTITIES, type FileEntity } from './file-policy';
-import { detectFileType, EXTENSIONS, MAGIC_PROBE_BYTES, type DetectedType } from './magic-bytes';
+import { detectFileType, MAGIC_PROBE_BYTES, STORED_EXTENSIONS, verifyImportBytes, type ImportType, type StoredType } from './magic-bytes';
 import { StorageService } from './storage.service';
 
 export const PENDING_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -20,15 +20,15 @@ export const ORPHAN_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const PENDING_PREFIX = 'pending/';
 
 /** `violations/2026/10/<uuid>.jpg` — never a name or a national ID (brief §3.2). */
-export function buildObjectKey(folder: string, contentType: DetectedType, id: string, at = new Date()): string {
+export function buildObjectKey(folder: string, contentType: StoredType, id: string, at = new Date()): string {
   const yyyy = at.getUTCFullYear();
   const mm = String(at.getUTCMonth() + 1).padStart(2, '0');
-  return `${folder}/${yyyy}/${mm}/${id}.${EXTENSIONS[contentType]}`;
+  return `${folder}/${yyyy}/${mm}/${id}.${STORED_EXTENSIONS[contentType]}`;
 }
 
 /** `pending/<uuid>.jpg` — where the browser PUTs; copied to the final key on confirm. */
-export function buildPendingKey(contentType: DetectedType, id: string): string {
-  return `${PENDING_PREFIX}${id}.${EXTENSIONS[contentType]}`;
+export function buildPendingKey(contentType: StoredType, id: string): string {
+  return `${PENDING_PREFIX}${id}.${STORED_EXTENSIONS[contentType]}`;
 }
 
 /**
@@ -117,11 +117,13 @@ export class FilesService {
     const head = await this.storage.head(pendingKey);
     if (!head.exists) throw new AppError('FILE_NOT_UPLOADED');
     // Cheap pre-checks on the pending object before copying anything.
-    if (head.size > MAX_UPLOAD_BYTES || head.size > file.sizeBytes) await this.reject(id, [pendingKey], 'FILE_TOO_LARGE');
+    // A9 imports (ADR-110) may be up to 20 MB; every other upload up to 10 MB.
+    const maxBytes = file.entityType === 'import' ? MAX_IMPORT_BYTES : MAX_UPLOAD_BYTES;
+    if (head.size > maxBytes || head.size > file.sizeBytes) await this.reject(id, [pendingKey], 'FILE_TOO_LARGE');
 
     const finalKey = buildObjectKey(
       ENTITY_FOLDERS[file.entityType as FileEntity] ?? 'files',
-      file.mimeType as DetectedType,
+      file.mimeType as StoredType,
       file.id,
       file.createdAt,
     );
@@ -141,12 +143,17 @@ export class FilesService {
     // Everything below reads the FINAL object: a PUT to the old URL cannot reach it.
     const final = await this.storage.head(finalKey);
     if (!final.exists) await this.reject(id, both, 'FILE_NOT_UPLOADED');
-    if (final.size > MAX_UPLOAD_BYTES || final.size > file.sizeBytes) await this.reject(id, both, 'FILE_TOO_LARGE');
+    if (final.size > maxBytes || final.size > file.sizeBytes) await this.reject(id, both, 'FILE_TOO_LARGE');
     if (final.size !== file.sizeBytes) await this.reject(id, both, 'FILE_NOT_UPLOADED');
 
     const bytes = Buffer.from(await this.storage.readAll(finalKey));
-    const detected = detectFileType(bytes.subarray(0, MAGIC_PROBE_BYTES));
-    if (!detected || detected !== file.mimeType) await this.reject(id, both, 'FILE_TYPE_NOT_ALLOWED');
+    if (file.entityType === 'import') {
+      // Spreadsheets, CSV, XML and .mpp have no single magic number: check their structure.
+      if (!verifyImportBytes(bytes, file.mimeType as ImportType)) await this.reject(id, both, 'FILE_TYPE_NOT_ALLOWED');
+    } else {
+      const detected = detectFileType(bytes.subarray(0, MAGIC_PROBE_BYTES));
+      if (!detected || detected !== file.mimeType) await this.reject(id, both, 'FILE_TYPE_NOT_ALLOWED');
+    }
     const actual = sha256Hex(bytes);
     if (file.sha256 && actual !== file.sha256) await this.reject(id, both, 'FILE_NOT_UPLOADED');
 
@@ -252,6 +259,8 @@ export class FilesService {
           { entityType: 'logo', logo: { is: null } },
           { entityType: 'member_photo', memberPhotos: { none: {} } },
           { entityType: 'user_photo', userPhotos: { none: {} } },
+          // A9 imports: a preview lives one hour; the upload is never needed after a day.
+          { entityType: 'import' },
         ],
       },
       select: { id: true, storageKey: true },

@@ -7,7 +7,20 @@ import {
   type ProjectDto,
   type TaskDto,
 } from '@nuzli/shared';
-import { deadlinePassed, fromCents, isoOf, projectProgress, riyadhToday, toCents, type StoredTask } from './task-engine';
+import {
+  deadlinePassed,
+  DEFAULT_WORKING_HOURS,
+  fromCents,
+  isoOf,
+  localOf,
+  minutesToHours,
+  parseWorkingHours,
+  projectProgress,
+  riyadhToday,
+  toCents,
+  type StoredTask,
+  type Unit,
+} from './task-engine';
 
 type Viewer = PermissionSubject & { id: string };
 
@@ -60,12 +73,20 @@ export const STORED_TASK_SELECT = {
   actualCost: true,
   deadline: true,
   barColor: true,
+  startAt: true,
+  endAt: true,
+  durationMinutes: true,
   labels: { select: { labelId: true } },
 } satisfies Prisma.TaskSelect;
 
 export type StoredTaskRow = Prisma.TaskGetPayload<{ select: typeof STORED_TASK_SELECT }>;
 
+/**
+ * A9 hours (ADR-109): a row with `start_at` is a task of an HOUR project — its dates become local
+ * Riyadh date-times and `durationHours` comes from `duration_minutes`; otherwise the DATE columns.
+ */
 export function toStored(r: StoredTaskRow): StoredTask {
+  const hour = r.startAt != null && r.endAt != null;
   return {
     id: r.id,
     projectId: r.projectId,
@@ -74,8 +95,8 @@ export function toStored(r: StoredTaskRow): StoredTask {
     wbsCache: r.wbsCache,
     name: r.name,
     type: r.type,
-    startDate: isoOf(r.startDate),
-    endDate: isoOf(r.endDate),
+    startDate: hour ? localOf(r.startAt!) : isoOf(r.startDate),
+    endDate: hour ? localOf(r.endAt!) : isoOf(r.endDate),
     durationDays: r.durationDays,
     progress: Number(r.progress),
     status: r.status,
@@ -88,6 +109,7 @@ export function toStored(r: StoredTaskRow): StoredTask {
     deadline: r.deadline ? isoOf(r.deadline) : null,
     barColor: r.barColor,
     labelIds: r.labels.map((l) => l.labelId).sort(),
+    ...(hour ? { durationHours: minutesToHours(r.durationMinutes ?? 0) } : {}),
   };
 }
 
@@ -154,6 +176,7 @@ export function toTaskDto(r: TaskDtoRow, attachments: ReadonlyMap<string, number
     labelIds: s.labelIds,
     checklist: extras?.checklist.get(s.id) ?? { total: 0, done: 0 },
     customValues: extras?.customValues.get(s.id) ?? {},
+    ...(s.durationHours !== undefined ? { startAt: s.startDate, endAt: s.endDate, durationHours: s.durationHours } : {}),
   };
 }
 
@@ -170,6 +193,7 @@ export const PROJECT_SELECT = {
   budget: true,
   currency: true,
   isTemplate: true,
+  durationUnit: true,
   owner: { select: { id: true, fullName: true } },
 } satisfies Prisma.ProjectSelect;
 
@@ -216,6 +240,7 @@ export function toProjectDto(p: ProjectRow, stats: ProjectStats): ProjectDto {
     createdAt: p.createdAt.toISOString(),
     currency: p.currency,
     isTemplate: p.isTemplate,
+    durationUnit: p.durationUnit,
     ...projectMoney(p.budget === null ? null : Number(p.budget), stats.roots),
   };
 }
@@ -225,7 +250,8 @@ export const CALENDAR_SELECT = {
   name: true,
   weekendDays: true,
   isDefault: true,
-  exceptions: { orderBy: { date: 'asc' }, select: { id: true, date: true, isWorking: true, name: true } },
+  workingHours: true,
+  exceptions: { orderBy: { date: 'asc' }, select: { id: true, date: true, isWorking: true, name: true, workingHours: true } },
 } satisfies Prisma.CalendarSelect;
 
 export type CalendarRow = Prisma.CalendarGetPayload<{ select: typeof CALENDAR_SELECT }>;
@@ -236,7 +262,14 @@ export function toCalendarDto(c: CalendarRow): CalendarDto & { isDefault: boolea
     name: c.name,
     weekendDays: [...c.weekendDays].sort((a, b) => a - b),
     isDefault: c.isDefault,
-    exceptions: c.exceptions.map((e) => ({ id: e.id, date: isoOf(e.date), isWorking: e.isWorking, name: e.name })),
+    workingHours: parseWorkingHours(c.workingHours) ?? DEFAULT_WORKING_HOURS,
+    exceptions: c.exceptions.map((e) => ({
+      id: e.id,
+      date: isoOf(e.date),
+      isWorking: e.isWorking,
+      name: e.name,
+      workingHours: e.isWorking ? parseWorkingHours(e.workingHours, null) : null,
+    })),
   };
 }
 
@@ -246,8 +279,19 @@ export const DEPENDENCY_SELECT = {
   successorId: true,
   type: true,
   lagDays: true,
+  lagMinutes: true,
 } satisfies Prisma.TaskDependencySelect;
 
-export function toDependencyDto(d: Prisma.TaskDependencyGetPayload<{ select: typeof DEPENDENCY_SELECT }>): DependencyDto {
-  return { id: d.id, predecessorId: d.predecessorId, successorId: d.successorId, type: d.type, lagDays: d.lagDays };
+export type DependencyLike = Omit<Prisma.TaskDependencyGetPayload<{ select: typeof DEPENDENCY_SELECT }>, 'lagMinutes'> & { lagMinutes?: number };
+
+/** `lagHours` is added for HOUR projects (A9 hours). */
+export function toDependencyDto(d: DependencyLike, unit: Unit = 'DAY'): DependencyDto {
+  return {
+    id: d.id,
+    predecessorId: d.predecessorId,
+    successorId: d.successorId,
+    type: d.type,
+    lagDays: d.lagDays,
+    ...(unit === 'HOUR' ? { lagHours: minutesToHours(d.lagMinutes ?? 0) } : {}),
+  };
 }

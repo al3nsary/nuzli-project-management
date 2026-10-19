@@ -8,6 +8,7 @@ import type {
   PermissionSubject,
   ProjectAccessDto,
   ProjectDto,
+  ProjectExportFormat,
   ProjectListQuery,
   updateProjectSchema,
 } from '@nuzli/shared';
@@ -32,9 +33,11 @@ import {
 } from './project-dto';
 import { ProjectStore, WRITE_TX_OPTIONS, mapTaskDbError } from './project-store';
 import { FIELD_SELECT, LABEL_SELECT, toFieldDto, toLabelDto } from './task-details.service';
+import { ensureProjectCalendar, weekendFromWorkingDays } from './calendars.service';
 import { TemplatesService } from './templates.service';
-import { dateOf, isoOf, projectProgress } from './task-engine';
-import { buildTasksWorkbook, compareWbs } from './tasks-export';
+import { dateOf, DEFAULT_WORKING_HOURS, isoOf, projectProgress } from './task-engine';
+import { buildTasksCsv, buildTasksWorkbook, compareWbs, type TaskExportRow } from './tasks-export';
+import { writeMspdi } from '../imports/mspdi';
 
 type Viewer = PermissionSubject & { id: string };
 type CreateProject = z.output<typeof createProjectSchema>;
@@ -90,13 +93,30 @@ export class ProjectsService {
     return cal.id;
   }
 
+  /**
+   * A9 create form: `workingDays` / `workingHours` different from the base calendar create a
+   * calendar for the project (ensureProjectCalendar); `durationUnit` sets DAY or HOUR.
+   */
   async create(input: CreateProject, viewer: Viewer, ctx: RequestContext): Promise<ProjectDto> {
+    const customCalendar = !!input.workingDays || !!input.workingHours;
+    const calendarFor = (tx: Prisma.TransactionClient) =>
+      ensureProjectCalendar(tx, this.audit, ctx, {
+        baseId: input.calendarId,
+        weekendDays: input.workingDays ? weekendFromWorkingDays(input.workingDays) : undefined,
+        workingHours: input.workingHours,
+        name: `تقويم ${input.name}`,
+      });
     if (input.fromTemplateId) {
-      const cal = input.calendarId ? await this.calendarIdOrDefault(input.calendarId) : null;
+      const cal = customCalendar
+        ? (await this.prisma.$transaction((tx) => calendarFor(tx))).id
+        : input.calendarId
+          ? await this.calendarIdOrDefault(input.calendarId)
+          : null;
       return this.templates.createFromTemplate({ ...input, fromTemplateId: input.fromTemplateId }, cal, viewer, ctx);
     }
-    const calendarId = await this.calendarIdOrDefault(input.calendarId);
+    const baseCalendarId = customCalendar ? null : await this.calendarIdOrDefault(input.calendarId);
     const p = await this.prisma.$transaction(async (tx) => {
+      const calendarId = baseCalendarId ?? (await calendarFor(tx)).id;
       const created = await tx.project.create({
         data: {
           name: input.name,
@@ -105,6 +125,7 @@ export class ProjectsService {
           status: input.status,
           calendarId,
           autoSchedule: input.autoSchedule,
+          durationUnit: input.durationUnit ?? 'DAY',
           ownerId: viewer.id,
           createdById: viewer.id,
           budget: input.budget ?? null,
@@ -119,7 +140,7 @@ export class ProjectsService {
           action: AuditAction.PROJECT_CREATED,
           entityType: 'project',
           entityId: created.id,
-          after: { ...input, calendarId, description: input.description ? `${input.description.length} حرفًا` : null },
+          after: { ...input, calendarId, durationUnit: input.durationUnit ?? 'DAY', description: input.description ? `${input.description.length} حرفًا` : null },
         },
         tx,
       );
@@ -147,7 +168,10 @@ export class ProjectsService {
       currency: cur.currency,
     };
     const changed = PROJECT_FIELDS.filter((f) => input[f] !== undefined && input[f] !== before[f]);
-    if (!changed.length) return this.dto(cur);
+    // A9 hours: a different durationUnit converts the project (same as POST /projects/:id/convert).
+    const unitChange = input.durationUnit !== undefined && input.durationUnit !== cur.durationUnit;
+    if (!changed.length && !unitChange) return this.dto(cur);
+    if (!changed.length && unitChange) return this.convert(id, input.durationUnit!, viewer, ctx);
     if (cur.archivedAt && !(input.status && input.status !== 'ARCHIVED')) throw new AppError('PROJECT_ARCHIVED');
 
     const p = await this.prisma
@@ -178,12 +202,45 @@ export class ProjectsService {
           },
           tx,
         );
+        if (unitChange && !updated.archivedAt) {
+          await this.convertIn(tx, id, input.durationUnit!, cur.durationUnit, ctx);
+          return tx.project.findUniqueOrThrow({ where: { id }, select: PROJECT_SELECT });
+        }
         return updated;
       }, WRITE_TX_OPTIONS)
       .catch((err: unknown) => {
         throw mapTaskDbError(err);
       });
     return this.dto(p);
+  }
+
+  /**
+   * `POST /projects/:id/convert { durationUnit }` (A9 hours, ADR-109): DAY ↔ HOUR with the
+   * engine's conversions, every task rewritten in one transaction (see ProjectStore.convertUnit
+   * for the milestone caveat). Audited `project.converted`. Same unit → the project unchanged.
+   */
+  async convert(id: string, unit: 'DAY' | 'HOUR', viewer: Viewer, ctx: RequestContext): Promise<ProjectDto> {
+    const cur = await this.store.visibleProject(id, viewer);
+    if (cur.durationUnit === unit) return this.dto(cur);
+    if (cur.archivedAt) throw new AppError('PROJECT_ARCHIVED');
+    const p = await this.prisma
+      .$transaction(async (tx) => {
+        await this.convertIn(tx, id, unit, cur.durationUnit, ctx);
+        return tx.project.findUniqueOrThrow({ where: { id }, select: PROJECT_SELECT });
+      }, WRITE_TX_OPTIONS)
+      .catch((err: unknown) => {
+        throw mapTaskDbError(err);
+      });
+    return this.dto(p);
+  }
+
+  private async convertIn(tx: Prisma.TransactionClient, id: string, unit: 'DAY' | 'HOUR', from: 'DAY' | 'HOUR', ctx: RequestContext): Promise<void> {
+    const r = await this.store.convertUnit(tx, id, unit, ctx);
+    await this.audit.logCtx(
+      ctx,
+      { action: AuditAction.PROJECT_CONVERTED, entityType: 'project', entityId: id, before: { durationUnit: from }, after: { durationUnit: unit, tasks: r.tasks } },
+      tx,
+    );
   }
 
   /** `DELETE /projects/:id` archives (history matters, brief §11). */
@@ -278,55 +335,135 @@ export class ProjectsService {
       .map((r) => toTaskDto(r, counts, wbs.get(r.id), extras))
       .sort((a, b) => compareWbs(a.wbs, b.wbs));
     const roots = stored.filter((t) => !t.parentId || !ids.has(t.parentId));
-    const endDate = stored.reduce<string | null>((m, t) => (m === null || t.endDate > m ? t.endDate : m), null);
+    // HOUR projects: the project's end date is the day of the last working minute.
+    const endDate = stored.reduce<string | null>((m, t) => {
+      const day = t.endDate.slice(0, 10);
+      return m === null || day > m ? day : m;
+    }, null);
     const project = toProjectDto(p, { roots, endDate, taskCount: stored.length });
     return {
       project,
       tasks,
-      dependencies: deps.map(toDependencyDto),
+      dependencies: deps.map((d) => toDependencyDto(d, p.durationUnit)),
       calendar: toCalendarDto(calendar),
       labels: labels.map(toLabelDto),
       customFields: fields.map(toFieldDto),
     };
   }
 
-  // ─────────────────────────────────────────── Excel (ADR-019)
+  // ─────────────────────────────────────────── exports (ADR-019, A9 ADR-110)
 
-  async exportXlsx(id: string, viewer: Viewer, ctx: RequestContext): Promise<{ filename: string; buffer: Buffer }> {
+  /** Kept for `GET /projects/:id/export.xlsx` (older clients). */
+  exportXlsx(id: string, viewer: Viewer, ctx: RequestContext): Promise<{ filename: string; buffer: Buffer; contentType: string }> {
+    return this.exportProject(id, 'xlsx', viewer, ctx);
+  }
+
+  /**
+   * `GET /projects/:id/export?format=xlsx|csv|xml`: Excel (RTL, no frozen panes, with costs,
+   * deadline, labels and custom fields), CSV (same columns, UTF-8 BOM) or MS Project XML (MSPDI:
+   * calendar, hours, summary tasks, links with lags, assignees as resources). Audited
+   * `project.exported` with the format. PDF/PNG of the Gantt are rendered in the browser.
+   */
+  async exportProject(
+    id: string,
+    format: ProjectExportFormat,
+    viewer: Viewer,
+    ctx: RequestContext,
+  ): Promise<{ filename: string; buffer: Buffer; contentType: string }> {
     const g = await this.gantt(id, viewer);
     const generatedAt = new Date();
-    const buffer = await buildTasksWorkbook(
-      {
+    const unit = g.project.durationUnit ?? 'DAY';
+    const labelName = new Map((g.labels ?? []).map((l) => [l.id, l.name]));
+    const customFields = (g.customFields ?? []).map((cf) => ({ id: cf.id, name: cf.name, type: cf.type }));
+    const rows: TaskExportRow[] = g.tasks.map((t) => ({
+      wbs: t.wbs,
+      name: t.name,
+      type: t.type,
+      startDate: t.startDate,
+      endDate: t.endDate,
+      durationDays: t.durationDays,
+      ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
+      progress: t.progress,
+      status: t.status,
+      priority: t.priority,
+      assigneeName: t.assignee?.fullName ?? null,
+      teamName: t.assignee?.teamName ?? null,
+      description: t.description,
+      plannedCost: t.plannedCost ?? 0,
+      actualCost: t.actualCost ?? 0,
+      deadline: t.deadline ?? null,
+      labels: (t.labelIds ?? []).map((l) => labelName.get(l)).filter((n): n is string => !!n),
+      customValues: t.customValues ?? {},
+    }));
+    const base = `project-${id.slice(0, 8)}-${isoOf(generatedAt)}`;
+    let out: { filename: string; buffer: Buffer; contentType: string };
+    if (format === 'csv') {
+      out = { filename: `${base}.csv`, buffer: buildTasksCsv({ durationUnit: unit, customFields }, rows), contentType: 'text/csv; charset=utf-8' };
+    } else if (format === 'xml') {
+      const xml = writeMspdi({
         name: g.project.name,
-        status: g.project.status,
         startDate: g.project.startDate,
-        endDate: g.project.endDate,
-        progress: projectProgress(g.tasks.filter((t) => !t.parentId)),
-        calendarName: g.calendar.name,
-        autoSchedule: g.project.autoSchedule,
-        generatedAt,
-      },
-      g.tasks.map((t) => ({
-        wbs: t.wbs,
-        name: t.name,
-        type: t.type,
-        startDate: t.startDate,
-        endDate: t.endDate,
-        durationDays: t.durationDays,
-        progress: t.progress,
-        status: t.status,
-        priority: t.priority,
-        assigneeName: t.assignee?.fullName ?? null,
-        teamName: t.assignee?.teamName ?? null,
-        description: t.description,
-      })),
-    );
+        unit,
+        currencyCode: g.project.currency,
+        createdAt: new Date(g.project.createdAt),
+        calendar: {
+          name: g.calendar.name,
+          weekendDays: g.calendar.weekendDays,
+          workingHours: g.calendar.workingHours ?? DEFAULT_WORKING_HOURS,
+          exceptions: g.calendar.exceptions.map((e) => ({ date: e.date, isWorking: e.isWorking, name: e.name, workingHours: e.workingHours ?? null })),
+        },
+        tasks: g.tasks.map((t) => ({
+          id: t.id,
+          parentId: t.parentId,
+          wbs: t.wbs,
+          name: t.name,
+          type: t.type,
+          startDate: t.startDate,
+          endDate: t.endDate,
+          durationDays: t.durationDays,
+          ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
+          progress: t.progress,
+          plannedCost: t.plannedCost ?? 0,
+          actualCost: t.actualCost ?? 0,
+          deadline: t.deadline ?? null,
+          notes: t.description,
+          assigneeName: t.assignee?.fullName ?? null,
+        })),
+        deps: g.dependencies.map((d) => ({
+          predecessorId: d.predecessorId,
+          successorId: d.successorId,
+          type: d.type,
+          lagDays: d.lagDays,
+          lagMinutes: d.lagHours !== undefined ? Math.round(d.lagHours * 60) : 0,
+        })),
+      });
+      out = { filename: `${base}.xml`, buffer: Buffer.from(xml, 'utf8'), contentType: 'application/xml; charset=utf-8' };
+    } else {
+      const buffer = await buildTasksWorkbook(
+        {
+          name: g.project.name,
+          status: g.project.status,
+          startDate: g.project.startDate,
+          endDate: g.project.endDate,
+          progress: projectProgress(g.tasks.filter((t) => !t.parentId)),
+          calendarName: g.calendar.name,
+          autoSchedule: g.project.autoSchedule,
+          generatedAt,
+          durationUnit: unit,
+          currency: g.project.currency,
+          budget: g.project.budget ?? null,
+          customFields,
+        },
+        rows,
+      );
+      out = { filename: `${base}.xlsx`, buffer, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+    }
     await this.audit.logCtx(ctx, {
       action: AuditAction.PROJECT_EXPORTED,
       entityType: 'project',
       entityId: id,
-      after: { format: 'xlsx', tasks: g.tasks.length },
+      after: { format, tasks: g.tasks.length },
     });
-    return { filename: `project-${id.slice(0, 8)}-${isoOf(generatedAt)}.xlsx`, buffer };
+    return out;
   }
 }

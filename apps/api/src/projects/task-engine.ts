@@ -8,10 +8,15 @@
 import {
   CycleError,
   HierarchyError,
+  MINUTES_PER_DAY,
   WorkCalendar,
   computeWbs,
+  fromMinuteNumber,
   schedule,
+  toMinuteNumber,
+  type DurationUnit,
   type ScheduleDependency,
+  type WorkingHours,
 } from '@nuzli/scheduling';
 import type { Priority, TaskStatus, TaskType } from '@nuzli/shared';
 import { AppError } from '../common/app-error';
@@ -42,6 +47,13 @@ export interface StoredTask {
   barColor: string | null;
   /** A9: label ids, sorted (persisted in task_labels, versioned like a column). */
   labelIds: string[];
+  /**
+   * A9 hours (ADR-109): HOUR projects only — working hours of the task. In HOUR projects
+   * `startDate`/`endDate` are local Riyadh date-times `YYYY-MM-DDTHH:MM` (first working minute,
+   * end of the last working minute) and `durationDays` = working days the task touches.
+   * Absent (undefined) in DAY projects.
+   */
+  durationHours?: number;
 }
 
 /** Fields compared to decide whether a task really changed (→ `version + 1`). */
@@ -63,25 +75,135 @@ export const VERSIONED_FIELDS = [
   'deadline',
   'barColor',
   'labelIds',
+  'durationHours',
 ] as const satisfies ReadonlyArray<keyof StoredTask>;
 export type VersionedField = (typeof VERSIONED_FIELDS)[number];
 
 export const isoOf = (d: Date): string => d.toISOString().slice(0, 10);
-export const dateOf = (iso: string): Date => new Date(`${iso}T00:00:00.000Z`);
+/** `YYYY-MM-DD` (or the date part of a local date-time) → the UTC midnight Date of a DATE column. */
+export const dateOf = (iso: string): Date => new Date(`${iso.slice(0, 10)}T00:00:00.000Z`);
+
+// ─────────────────────────────────────────── A9 hours (ADR-109)
+
+export type Unit = DurationUnit;
+/** True for a local date-time `YYYY-MM-DDTHH:MM` (HOUR projects), false for `YYYY-MM-DD`. */
+export const isLocalDateTime = (s: string): boolean => s.length > 10;
+/** Asia/Riyadh is UTC+03:00 all year (no DST). */
+export const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000;
+/** A timestamptz instant → Asia/Riyadh wall time `YYYY-MM-DDTHH:MM`. */
+export const localOf = (d: Date): string => new Date(d.getTime() + RIYADH_OFFSET_MS).toISOString().slice(0, 16);
+/** Asia/Riyadh wall time (`YYYY-MM-DD[THH:MM[:SS]][+03:00]`) → the instant. */
+export const instantOf = (local: string): Date => new Date(toMinuteNumber(local) * 60_000 - RIYADH_OFFSET_MS);
+/** Canonical `YYYY-MM-DDTHH:MM` (seconds and `+03:00` dropped). */
+export const normalizeLocal = (local: string): string => fromMinuteNumber(toMinuteNumber(local));
+export const hoursToMinutes = (h: number): number => Math.round(h * 60);
+/** Minutes → hours, 4 decimals (exact for any 15-minute multiple), like the engine. */
+export const minutesToHours = (m: number): number => Math.round((m / 60) * 10000) / 10000 || 0;
+/** A9 default working day (09:00–13:00, 14:00–18:00). */
+export const DEFAULT_WORKING_HOURS: WorkingHours[] = [
+  { start: '09:00', end: '13:00' },
+  { start: '14:00', end: '18:00' },
+];
+
+/** The day of the last working minute of an HOUR task (its start day for a zero-length task). */
+export function endDayOfLocal(start: string, end: string): string {
+  const s = toMinuteNumber(start);
+  const e = toMinuteNumber(end);
+  return fromMinuteNumber(e > s ? e - 1 : s).slice(0, 10);
+}
+
+/** Working days touched by `[start, end)` (0 when empty). */
+export function touchedWorkingDays(cal: WorkCalendar, start: string, end: string): number {
+  const s = cal.nextWorkingMinuteNum(toMinuteNumber(start));
+  const e = toMinuteNumber(end);
+  if (e <= s) return 0;
+  return cal.workingDaysBetweenNum(Math.floor(s / MINUTES_PER_DAY), Math.floor(cal.addWorkingMinutesNum(e, -1) / MINUTES_PER_DAY));
+}
+
+/**
+ * A start value for a project of unit `unit`: an HOUR project turns a bare date into the first
+ * working minute of that day and normalises a date-time; a DAY project keeps the date part.
+ */
+export function coerceStart(value: string, unit: Unit, cal: WorkCalendar): string {
+  if (unit === 'DAY') return value.slice(0, 10);
+  return isLocalDateTime(value) ? normalizeLocal(value) : cal.nextWorkingMinute(`${value}T00:00`);
+}
+
+/** An end value for an HOUR project: a bare date means the end of that day's last working minute. */
+export function coerceEndLocal(value: string, cal: WorkCalendar): string {
+  if (isLocalDateTime(value)) return normalizeLocal(value);
+  return fromMinuteNumber(cal.prevWorkingEndNum(toMinuteNumber(value) + MINUTES_PER_DAY));
+}
+
+/** Reads a jsonb working-hours value; anything malformed falls back to `fallback`. */
+export function parseWorkingHours(v: unknown, fallback: WorkingHours[] | null = DEFAULT_WORKING_HOURS): WorkingHours[] | null {
+  if (!Array.isArray(v) || !v.length) return fallback;
+  const out: WorkingHours[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== 'object') return fallback;
+    const { start, end } = x as Record<string, unknown>;
+    if (typeof start !== 'string' || typeof end !== 'string') return fallback;
+    out.push({ start, end });
+  }
+  return out;
+}
 
 export interface CalendarLike {
   weekendDays: number[];
-  exceptions: Array<{ date: Date | string; isWorking: boolean }>;
+  /** A9 hours (jsonb); absent → the default day. */
+  workingHours?: unknown;
+  exceptions: Array<{ date: Date | string; isWorking: boolean; workingHours?: unknown }>;
 }
 
 export function workCalendarOf(c: CalendarLike): WorkCalendar {
   return new WorkCalendar({
     weekendDays: c.weekendDays,
-    exceptions: c.exceptions.map((e) => ({
-      date: typeof e.date === 'string' ? e.date.slice(0, 10) : isoOf(e.date),
-      isWorking: e.isWorking,
-    })),
+    workingHours: parseWorkingHours(c.workingHours) ?? DEFAULT_WORKING_HOURS,
+    exceptions: c.exceptions.map((e) => {
+      const hours = e.isWorking ? parseWorkingHours(e.workingHours, null) : null;
+      return {
+        date: typeof e.date === 'string' ? e.date.slice(0, 10) : isoOf(e.date),
+        isWorking: e.isWorking,
+        ...(hours ? { workingHours: hours } : {}),
+      };
+    }),
   });
+}
+
+/** Minimum duration of a non-milestone HOUR task (the engine's resize floor). */
+export const MIN_TASK_MINUTES = 15;
+
+/**
+ * HOUR-project version of {@link normalizeLeaf}: the start is snapped forward to a working minute
+ * (a bare date becomes the first working minute of that day), a milestone has 0 hours and ends
+ * on its start, any other task lasts at least 15 working minutes (`durationHours`, or
+ * `durationDays` × the standard day when hours are missing) and ends after them.
+ */
+export function normalizeLeafHours<T extends StoredTask>(t: T, cal: WorkCalendar): T {
+  const start = cal.nextWorkingMinute(coerceStart(t.startDate, 'HOUR', cal));
+  if (t.type === 'MILESTONE') return { ...t, startDate: start, endDate: start, durationDays: 0, durationHours: 0 };
+  const raw =
+    t.durationHours != null && Number.isFinite(t.durationHours)
+      ? hoursToMinutes(t.durationHours)
+      : Math.max(1, Math.trunc(t.durationDays)) * cal.standardMinutesPerDay;
+  const minutes = Math.max(MIN_TASK_MINUTES, raw);
+  const end = cal.endFromDurationMinutes(start, minutes);
+  return { ...t, startDate: start, endDate: end, durationHours: minutesToHours(minutes), durationDays: touchedWorkingDays(cal, start, end) };
+}
+
+/**
+ * HOUR-project date edit: `durationHours` wins, then `durationDays` (× the standard day), then
+ * `endDate` (working minutes from the start; a bare date = the end of that day). The end is then
+ * always recomputed from the start and the duration.
+ */
+export function applyScheduleEditHours<T extends StoredTask>(t: T, edit: ScheduleEdit, cal: WorkCalendar): T {
+  const next: T = { ...t };
+  if (edit.startDate !== undefined) next.startDate = edit.startDate;
+  next.startDate = cal.nextWorkingMinute(coerceStart(next.startDate, 'HOUR', cal));
+  if (edit.durationHours !== undefined) next.durationHours = edit.durationHours;
+  else if (edit.durationDays !== undefined) next.durationHours = minutesToHours(Math.max(0, Math.trunc(edit.durationDays)) * cal.standardMinutesPerDay);
+  else if (edit.endDate !== undefined) next.durationHours = minutesToHours(cal.workingMinutesBetween(next.startDate, coerceEndLocal(edit.endDate, cal)));
+  return normalizeLeafHours(next, cal);
 }
 
 /**
@@ -90,7 +212,8 @@ export function workCalendarOf(c: CalendarLike): WorkCalendar {
  * `snapStart` moves a start that falls on a weekend or holiday to the next working day
  * (applied to the tasks the user edited, like `moveTask` does in the browser).
  */
-export function normalizeLeaf<T extends StoredTask>(t: T, cal: WorkCalendar, snapStart = true): T {
+export function normalizeLeaf<T extends StoredTask>(t: T, cal: WorkCalendar, snapStart = true, unit?: Unit): T {
+  if ((unit ?? (isLocalDateTime(t.startDate) ? 'HOUR' : 'DAY')) === 'HOUR') return normalizeLeafHours(t, cal);
   const start = snapStart ? cal.addWorkingDays(t.startDate, 0) : t.startDate;
   if (t.type === 'MILESTONE') return { ...t, startDate: start, endDate: start, durationDays: 0 };
   const duration = Math.max(1, Math.trunc(t.durationDays));
@@ -102,15 +225,19 @@ export interface ScheduleEdit {
   startDate?: string;
   endDate?: string;
   durationDays?: number;
+  /** HOUR projects. */
+  durationHours?: number;
 }
 
 /**
  * Applies a date edit. `durationDays` wins over `endDate`; an `endDate` alone becomes a
  * duration in working days (both ends included). The end is then always recomputed.
  */
-export function applyScheduleEdit<T extends StoredTask>(t: T, edit: ScheduleEdit, cal: WorkCalendar): T {
+export function applyScheduleEdit<T extends StoredTask>(t: T, edit: ScheduleEdit, cal: WorkCalendar, unit?: Unit): T {
+  if ((unit ?? (isLocalDateTime(t.startDate) ? 'HOUR' : 'DAY')) === 'HOUR') return applyScheduleEditHours(t, edit, cal);
   let next: T = { ...t };
-  if (edit.startDate !== undefined) next.startDate = edit.startDate;
+  if (edit.startDate !== undefined) next.startDate = edit.startDate.slice(0, 10);
+  if (edit.endDate !== undefined) edit = { ...edit, endDate: edit.endDate.slice(0, 10) };
   next = { ...next, startDate: cal.addWorkingDays(next.startDate, 0) };
   if (edit.durationDays !== undefined) next.durationDays = edit.durationDays;
   else if (edit.endDate !== undefined) next.durationDays = cal.workingDaysBetween(next.startDate, edit.endDate);
@@ -175,6 +302,8 @@ export interface RecomputeInput<T extends StoredTask> {
   autoSchedule: boolean;
   /** Ids the user edited; only tasks downstream of them may be shifted. Omit = whole project. */
   changed?: string[];
+  /** A9 hours: the project unit (default DAY). */
+  durationUnit?: Unit;
 }
 
 /**
@@ -191,6 +320,7 @@ export function recompute<T extends StoredTask>(input: RecomputeInput<T>): T[] {
       dependencies: input.dependencies,
       calendar: input.calendar,
       autoSchedule: input.autoSchedule,
+      durationUnit: input.durationUnit ?? 'DAY',
       ...(input.changed ? { changed: input.changed } : {}),
     }).tasks;
   } catch (err) {
@@ -317,9 +447,6 @@ export function projectProgress(
   return Math.round(value * 100) / 100;
 }
 
-/** Asia/Riyadh is UTC+03:00 all year (no DST). */
-export const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000;
-
 /** Today's calendar date in Riyadh. */
 export function riyadhToday(now: Date = new Date()): string {
   return new Date(now.getTime() + RIYADH_OFFSET_MS).toISOString().slice(0, 10);
@@ -338,8 +465,10 @@ export function dueFlags(
   cal: WorkCalendar,
 ): { overdue: boolean; dueSoon: boolean } {
   if (t.status === 'DONE') return { overdue: false, dueSoon: false };
-  if (t.endDate < today) return { overdue: true, dueSoon: false };
-  return { overdue: false, dueSoon: t.endDate <= cal.addWorkingDays(today, DUE_SOON_WORKING_DAYS) };
+  // HOUR tasks compare by the day of their end (due notifications are daily).
+  const end = t.endDate.slice(0, 10);
+  if (end < today) return { overdue: true, dueSoon: false };
+  return { overdue: false, dueSoon: end <= cal.addWorkingDays(today, DUE_SOON_WORKING_DAYS) };
 }
 
 /** A9: the deadline is before today (Riyadh) and the task is not DONE. */
@@ -349,5 +478,5 @@ export function deadlinePassed(t: Pick<StoredTask, 'deadline' | 'status'>, today
 
 /** `YYYY-MM-DD` + n calendar days. */
 export function addCalendarDaysIso(iso: string, days: number): string {
-  return isoOf(new Date(dateOf(iso).getTime() + days * 86_400_000));
+  return isoOf(new Date(dateOf(iso.slice(0, 10)).getTime() + days * 86_400_000));
 }

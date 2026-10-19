@@ -21,15 +21,22 @@ import {
 import {
   dateOf,
   diffTasks,
+  endDayOfLocal,
+  hoursToMinutes,
+  instantOf,
+  isLocalDateTime,
   isoOf,
+  minutesToHours,
   normalizeLeaf,
   pick,
   recompute,
   riyadhToday,
   workCalendarOf,
   type StoredTask,
+  type Unit,
   type VersionedField,
 } from './task-engine';
+import { dependenciesToDays, dependenciesToHours, tasksToDays, tasksToHours } from '@nuzli/scheduling';
 
 type Viewer = PermissionSubject & { id: string };
 
@@ -42,11 +49,15 @@ export interface StateDependency {
   successorId: string;
   type: DependencyType;
   lagDays: number;
+  /** A9 hours: stored lag in working minutes (HOUR projects schedule with it). */
+  lagMinutes: number;
+  /** Set for HOUR projects only (= lagMinutes / 60), so the engine reads hours there. */
+  lagHours?: number;
 }
 
 /** A project loaded for a write, under a row lock on the project. */
 export interface WriteState {
-  project: { id: string; name: string; autoSchedule: boolean; calendarId: string };
+  project: { id: string; name: string; autoSchedule: boolean; calendarId: string; durationUnit: Unit };
   cal: WorkCalendar;
   /** Non-archived tasks as loaded (never mutated). */
   before: Map<string, StoredTask>;
@@ -205,7 +216,10 @@ export class ProjectStore {
         archivedAt: true,
         autoSchedule: true,
         calendarId: true,
-        calendar: { select: { weekendDays: true, exceptions: { select: { date: true, isWorking: true } } } },
+        durationUnit: true,
+        calendar: {
+          select: { weekendDays: true, workingHours: true, exceptions: { select: { date: true, isWorking: true, workingHours: true } } },
+        },
       },
     });
     if (!project) throw new AppError('NOT_FOUND');
@@ -214,16 +228,20 @@ export class ProjectStore {
       tx.task.findMany({ where: { projectId, archivedAt: null }, select: STORED_TASK_SELECT }),
       tx.taskDependency.findMany({
         where: { projectId },
-        select: { id: true, predecessorId: true, successorId: true, type: true, lagDays: true },
+        select: { id: true, predecessorId: true, successorId: true, type: true, lagDays: true, lagMinutes: true },
       }),
     ]);
+    const unit: Unit = project.durationUnit ?? 'DAY';
     const tasks = rows.map(toStored);
     return {
-      project: { id: project.id, name: project.name, autoSchedule: project.autoSchedule, calendarId: project.calendarId },
+      project: { id: project.id, name: project.name, autoSchedule: project.autoSchedule, calendarId: project.calendarId, durationUnit: unit },
       cal: workCalendarOf(project.calendar),
       before: new Map(tasks.map((t) => [t.id, t])),
       tasks,
-      deps,
+      deps: deps.map((d) => {
+        const lagMinutes = d.lagMinutes ?? 0;
+        return unit === 'HOUR' ? { ...d, lagMinutes, lagHours: minutesToHours(lagMinutes) } : { ...d, lagMinutes };
+      }),
     };
   }
 
@@ -280,8 +298,7 @@ export class ProjectStore {
           wbsCache: t.wbsCache,
           name: t.name,
           type: t.type,
-          startDate: dateOf(t.startDate),
-          endDate: dateOf(t.endDate),
+          ...timeColumns(t),
           durationDays: t.durationDays,
           progress: t.progress,
           status: t.status,
@@ -318,6 +335,7 @@ export class ProjectStore {
         wbsCache: after.wbsCache,
       };
       for (const f of fields) assignField(data, f, after);
+      if (fields.includes('startDate') || fields.includes('endDate') || fields.includes('durationHours')) Object.assign(data, timeColumns(after));
       if (fields.includes('endDate')) {
         data.dueSoonNotifiedAt = null;
         data.overdueNotifiedAt = null;
@@ -374,8 +392,14 @@ export class ProjectStore {
   async rescheduleProject(tx: Db, projectId: string, ctx: RequestContext, cause: string): Promise<number> {
     const s = await this.lockAndLoad(tx, projectId);
     const parents = new Set(s.tasks.map((t) => t.parentId).filter((p): p is string => !!p));
-    const normalized = s.tasks.map((t) => (parents.has(t.id) ? t : normalizeLeaf(t, s.cal, false)));
-    const finals = recompute({ tasks: normalized, dependencies: s.deps, calendar: s.cal, autoSchedule: s.project.autoSchedule });
+    const normalized = s.tasks.map((t) => (parents.has(t.id) ? t : normalizeLeaf(t, s.cal, false, s.project.durationUnit)));
+    const finals = recompute({
+      tasks: normalized,
+      dependencies: s.deps,
+      calendar: s.cal,
+      autoSchedule: s.project.autoSchedule,
+      durationUnit: s.project.durationUnit,
+    });
     const ids = await this.persist(tx, s, finals, {
       ctx,
       explicit: new Set(),
@@ -384,6 +408,92 @@ export class ProjectStore {
     });
     return ids.length;
   }
+
+  /**
+   * A9 hours (ADR-109): converts a project DAY ↔ HOUR in the caller's transaction with the
+   * engine's conversions (tasksToHours / tasksToDays, dependenciesToHours / dependenciesToDays):
+   * every task keeps its working days; DAY → HOUR gives each task the full working hours of
+   * those days, HOUR → DAY counts a partial day as a whole day. Lags are multiplied / divided by
+   * the standard day length (rounded to whole days). The full forward pass then runs in the new
+   * unit. Milestone caveat: in DAY projects a milestone occupies its day (an FS successor starts
+   * the next working day); in HOUR projects it is an instant at the first working minute of its
+   * day. The forward pass never pulls a task earlier, so successors keep their converted dates.
+   * Archived tasks are converted too (a restore must find them in the right unit).
+   * Returns the number of live tasks written and the previous unit.
+   */
+  async convertUnit(tx: Db, projectId: string, unit: Unit, ctx: RequestContext): Promise<{ tasks: number; from: Unit }> {
+    const s0 = await this.lockAndLoad(tx, projectId);
+    const from = s0.project.durationUnit;
+    if (from === unit) return { tasks: 0, from };
+    const toUnit = <T extends StoredTask>(list: T[]): T[] =>
+      unit === 'HOUR'
+        ? tasksToHours(list, s0.cal)
+        : tasksToDays(list, s0.cal).map((t) => {
+            const out = { ...t };
+            delete out.durationHours;
+            return out;
+          });
+    // Archived rows: converted in place (no audit, no engine — they are out of the schedule).
+    const archivedRows = await tx.task.findMany({ where: { projectId, archivedAt: { not: null } }, select: STORED_TASK_SELECT });
+    for (const t of toUnit(archivedRows.map(toStored))) {
+      await tx.task.updateMany({ where: { id: t.id }, data: { ...timeColumns(t), durationDays: t.durationDays } });
+    }
+    await tx.project.update({ where: { id: projectId }, data: { durationUnit: unit } });
+    const converted = toUnit(s0.tasks);
+    const deps: StateDependency[] =
+      unit === 'HOUR'
+        ? dependenciesToHours(s0.deps, s0.cal).map((d) => ({ ...d, lagMinutes: hoursToMinutes(d.lagHours ?? 0) }))
+        : dependenciesToDays(
+            s0.deps.map((d) => ({ ...d, lagHours: minutesToHours(d.lagMinutes) })),
+            s0.cal,
+          ).map((d) => {
+            const out: StateDependency = { ...d, lagMinutes: 0 };
+            delete out.lagHours;
+            return out;
+          });
+    for (const d of deps) {
+      await tx.taskDependency.update({ where: { id: d.id }, data: { lagDays: d.lagDays, lagMinutes: d.lagMinutes } });
+    }
+    const state: WriteState = { ...s0, project: { ...s0.project, durationUnit: unit } };
+    const finals = recompute({
+      tasks: converted,
+      dependencies: deps,
+      calendar: s0.cal,
+      autoSchedule: s0.project.autoSchedule,
+      durationUnit: unit,
+    });
+    const ids = await this.persist(tx, state, finals, {
+      ctx,
+      explicit: new Set(),
+      explicitAction: AuditAction.TASK_MOVED,
+      auditExtra: { cause: 'project.converted', durationUnit: unit },
+    });
+    return { tasks: ids.length, from };
+  }
+}
+
+/**
+ * The date/time columns of a task row (ADR-109): DATE columns always (the day of the first and
+ * of the last working minute in HOUR projects); start_at/end_at/duration_minutes only for HOUR
+ * tasks (local date-times), NULL for DAY tasks.
+ */
+export function timeColumns(t: Pick<StoredTask, 'startDate' | 'endDate' | 'durationHours'>): {
+  startDate: Date;
+  endDate: Date;
+  startAt: Date | null;
+  endAt: Date | null;
+  durationMinutes: number | null;
+} {
+  if (!isLocalDateTime(t.startDate)) {
+    return { startDate: dateOf(t.startDate), endDate: dateOf(t.endDate), startAt: null, endAt: null, durationMinutes: null };
+  }
+  return {
+    startDate: dateOf(t.startDate),
+    endDate: dateOf(endDayOfLocal(t.startDate, t.endDate)),
+    startAt: instantOf(t.startDate),
+    endAt: instantOf(t.endDate),
+    durationMinutes: hoursToMinutes(t.durationHours ?? 0),
+  };
 }
 
 function assignField(
@@ -409,6 +519,9 @@ function assignField(
       break;
     case 'labelIds':
       // Written to task_labels by writeLabels.
+      break;
+    case 'durationHours':
+      // Written with the other time columns by timeColumns.
       break;
     default:
       (data as Record<string, unknown>)[f] = t[f];

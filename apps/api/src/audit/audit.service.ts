@@ -114,6 +114,10 @@ export const AuditAction = {
   TIME_ENTRY_CREATED: 'time_entry.created',
   TIME_ENTRY_UPDATED: 'time_entry.updated',
   TIME_ENTRY_DELETED: 'time_entry.deleted',
+  // Owner request A9 — hours, imports, exports (ADR-109..112):
+  PROJECT_CONVERTED: 'project.converted',
+  PROJECT_IMPORTED: 'project.imported',
+  PROJECT_IMPORT_PREVIEWED: 'project.import_previewed',
   // Owner request A9 — teams, organisational structure, violations without a person (ADR-100..104):
   TEAM_SUPERVISOR_ADDED: 'team.supervisor_added',
   TEAM_SUPERVISOR_REMOVED: 'team.supervisor_removed',

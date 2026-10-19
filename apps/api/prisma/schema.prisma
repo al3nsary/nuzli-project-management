@@ -73,6 +73,12 @@ enum Priority {
   URGENT
 }
 
+/// A9 hours (ADR-109): scheduling unit of a project.
+enum DurationUnit {
+  DAY
+  HOUR
+}
+
 enum DependencyType {
   FS
   SS
@@ -486,29 +492,34 @@ model OrgPosition {
 // ───────────────────────────────────────────────────────────── projects & tasks
 
 model Calendar {
-  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String
+  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
   /// 0 = Sunday … 6 = Saturday. Default weekend Friday + Saturday.
-  weekendDays Int[]               @default([5, 6]) @map("weekend_days")
-  isDefault   Boolean             @default(false) @map("is_default")
-  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById String?             @map("created_by") @db.Uuid
-  exceptions  CalendarException[]
-  projects    Project[]
+  weekendDays  Int[]               @default([5, 6]) @map("weekend_days")
+  isDefault    Boolean             @default(false) @map("is_default")
+  /// A9 hours: working intervals of a normal working day, [{ "start": "HH:MM", "end": "HH:MM" }].
+  /// Used by HOUR projects only (DAY projects count whole working days).
+  workingHours Json                @default("[{\"start\": \"09:00\", \"end\": \"13:00\"}, {\"start\": \"14:00\", \"end\": \"18:00\"}]") @map("working_hours")
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById  String?             @map("created_by") @db.Uuid
+  exceptions   CalendarException[]
+  projects     Project[]
 
   @@map("calendars")
 }
 
 model CalendarException {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  calendarId  String   @map("calendar_id") @db.Uuid
-  date        DateTime @db.Date
-  isWorking   Boolean  @default(false) @map("is_working")
-  name        String
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById String?  @map("created_by") @db.Uuid
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  calendarId   String   @map("calendar_id") @db.Uuid
+  date         DateTime @db.Date
+  isWorking    Boolean  @default(false) @map("is_working")
+  name         String
+  /// A9 hours: the intervals of a special working day (null = the calendar's hours).
+  workingHours Json?    @map("working_hours")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById  String?  @map("created_by") @db.Uuid
 
   calendar Calendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
 
@@ -524,6 +535,8 @@ model Project {
   status       ProjectStatus @default(PLANNING)
   calendarId   String        @map("calendar_id") @db.Uuid
   autoSchedule Boolean       @default(true) @map("auto_schedule")
+  /// A9 hours (ADR-109): DAY = date columns on tasks; HOUR = start_at/end_at/duration_minutes too.
+  durationUnit DurationUnit  @default(DAY) @map("duration_unit")
   ownerId      String        @map("owner_id") @db.Uuid
   /// Phase 5: created from a template.
   templateOfId String?       @map("template_of_id") @db.Uuid
@@ -571,6 +584,9 @@ model ProjectAccess {
 
 /// raw SQL: trigger tasks_assignee_supervisor_chk — assignee must be an ACTIVE SUPERVISOR.
 ///          CHECK (progress BETWEEN 0 AND 100); CHECK (type <> 'MILESTONE' OR duration_days = 0)
+///          A9 hours (ADR-109): CHECK tasks_hour_columns_chk (start_at, end_at, duration_minutes all
+///          set or all null) and the deferred constraint triggers tasks_unit_columns_chk /
+///          projects_unit_columns_chk: HOUR project ⇔ the three hour columns are set.
 model Task {
   id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId          String     @map("project_id") @db.Uuid
@@ -598,6 +614,12 @@ model Task {
   deadlineNotifiedAt DateTime?  @map("deadline_notified_at") @db.Timestamptz(3)
   /// A9: custom bar colour '#RRGGBB'.
   barColor           String?    @map("bar_color") @db.Char(7)
+  /// A9 hours (HOUR projects only): instants of the first working minute and of the end of the
+  /// last working minute (exclusive), shown as Asia/Riyadh wall time; working minutes of the task.
+  /// start_date/end_date stay set for every task (the day of the first and of the last working minute).
+  startAt            DateTime?  @map("start_at") @db.Timestamptz(3)
+  endAt              DateTime?  @map("end_at") @db.Timestamptz(3)
+  durationMinutes    Int?       @map("duration_minutes")
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdById        String?    @map("created_by") @db.Uuid
@@ -632,6 +654,8 @@ model TaskDependency {
   successorId   String         @map("successor_id") @db.Uuid
   type          DependencyType @default(FS)
   lagDays       Int            @default(0) @map("lag_days")
+  /// A9 hours: lag in working minutes, used by HOUR projects (lag_days stays the rounded day value).
+  lagMinutes    Int            @default(0) @map("lag_minutes")
   createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdById   String?        @map("created_by") @db.Uuid
@@ -1004,6 +1028,22 @@ model ViolationVisibility {
   team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@map("violation_visibility")
+}
+
+/// A9 imports (ADR-110): a parsed file kept for one hour between preview and commit, then
+/// deleted (on commit or by the hourly cleanup). Holds task names and assignee names only.
+model ImportPreview {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdById String   @map("created_by") @db.Uuid
+  format      String
+  /// The source upload (deleted with the preview); null for a Jira REST import.
+  fileId      String?  @map("file_id") @db.Uuid
+  payload     Json
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("import_previews")
 }
 
 // ───────────────────────────────────────────────────────────── files & cards

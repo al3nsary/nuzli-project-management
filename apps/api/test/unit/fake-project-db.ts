@@ -40,6 +40,10 @@ export interface FakeTask {
   deadlineNotifiedAt: Date | null;
   barColor: string | null;
   createdById: string | null;
+  /** A9 hours (HOUR projects). */
+  startAt?: Date | null;
+  endAt?: Date | null;
+  durationMinutes?: number | null;
 }
 
 export interface FakeUser {
@@ -62,6 +66,7 @@ export interface FakeProject {
   startDate?: Date;
   status?: string;
   description?: string | null;
+  durationUnit?: 'DAY' | 'HOUR';
 }
 
 type Row = Record<string, unknown>;
@@ -69,10 +74,17 @@ type Row = Record<string, unknown>;
 export interface FakeData {
   users: FakeUser[];
   projects: FakeProject[];
-  calendars: Array<{ id: string; name: string; weekendDays: number[]; exceptions: Array<{ id: string; date: Date; isWorking: boolean; name: string }> }>;
+  calendars: Array<{
+    id: string;
+    name: string;
+    weekendDays: number[];
+    isDefault?: boolean;
+    workingHours?: Array<{ start: string; end: string }>;
+    exceptions: Array<{ id: string; date: Date; isWorking: boolean; name: string; workingHours?: unknown }>;
+  }>;
   access: Array<{ projectId: string; userId: string }>;
   tasks: FakeTask[];
-  deps: Array<{ id: string; projectId: string; predecessorId: string; successorId: string; type: 'FS' | 'SS' | 'FF' | 'SF'; lagDays: number }>;
+  deps: Array<{ id: string; projectId: string; predecessorId: string; successorId: string; type: 'FS' | 'SS' | 'FF' | 'SF'; lagDays: number; lagMinutes?: number }>;
   audit: Array<Record<string, unknown>>;
   notifications: Array<{ userId: string; type: string; payload: unknown }>;
   // A9 tables (loosely typed rows).
@@ -88,6 +100,7 @@ export interface FakeData {
   portfolios: Row[];
   portfolioProjects: Row[];
   files: Row[];
+  importPreviews: Row[];
 }
 
 type Table = keyof FakeData;
@@ -120,6 +133,9 @@ export function task(over: Partial<FakeTask> & { id: string; projectId: string }
     deadlineNotifiedAt: null,
     barColor: null,
     createdById: null,
+    startAt: null,
+    endAt: null,
+    durationMinutes: null,
     ...over,
   };
 }
@@ -168,11 +184,30 @@ const MODELS: Record<string, ModelDef> = {
       createdAt: new Date('2026-10-01T00:00:00Z'),
       archivedAt: null,
       autoSchedule: true,
+      durationUnit: 'DAY',
       ...r,
     }),
   },
   projectAccess: { table: 'access', pk: ['projectId', 'userId'] },
-  calendar: { table: 'calendars', defaults: (r) => ({ exceptions: [], weekendDays: [5, 6], ...r }) },
+  calendar: {
+    table: 'calendars',
+    // A nested `exceptions: { createMany: { data } }` becomes the embedded exception list.
+    defaults: (r) => {
+      const ex = r.exceptions as { createMany?: { data: Row[] } } | Row[] | undefined;
+      const exceptions = Array.isArray(ex) ? ex : (ex?.createMany?.data ?? []).map((e) => ({ id: randomUUID(), ...e }));
+      return {
+        id: randomUUID(),
+        isDefault: false,
+        weekendDays: [5, 6],
+        workingHours: [
+          { start: '09:00', end: '13:00' },
+          { start: '14:00', end: '18:00' },
+        ],
+        ...r,
+        exceptions,
+      };
+    },
+  },
   task: {
     table: 'tasks',
     rel: {
@@ -188,7 +223,7 @@ const MODELS: Record<string, ModelDef> = {
     },
     defaults: (r) => ({ ...task({ id: randomUUID(), projectId: '' }), createdAt: now(), ...r, version: (r.version as number | undefined) ?? 0 }),
   },
-  taskDependency: { table: 'deps', defaults: (r) => ({ id: randomUUID(), type: 'FS', lagDays: 0, createdAt: now(), ...r }) },
+  taskDependency: { table: 'deps', defaults: (r) => ({ id: randomUUID(), type: 'FS', lagDays: 0, lagMinutes: 0, createdAt: now(), ...r }) },
   taskComment: {
     table: 'comments',
     rel: {
@@ -237,6 +272,7 @@ const MODELS: Record<string, ModelDef> = {
   },
   file: { table: 'files', defaults: (r) => ({ id: randomUUID(), status: 'READY', deletedAt: null, createdAt: now(), ...r }) },
   auditLog: { table: 'audit' },
+  importPreview: { table: 'importPreviews', defaults: (r) => ({ id: randomUUID(), fileId: null, createdAt: now(), ...r }) },
 };
 
 const OPERATORS = new Set(['equals', 'in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'contains', 'startsWith', 'endsWith', 'has', 'hasSome', 'mode']);
@@ -293,10 +329,13 @@ export function createFakeDb(initial: Partial<FakeData>) {
     portfolios: [],
     portfolioProjects: [],
     files: [],
+    importPreviews: [],
     ...initial,
   };
   data.projects = data.projects.map((p) => MODELS.project!.defaults!(p as unknown as Row) as unknown as FakeProject);
   data.tasks = data.tasks.map((t) => task(t));
+  data.calendars = data.calendars.map((c) => MODELS.calendar!.defaults!(c as unknown as Row) as unknown as FakeData['calendars'][number]);
+  data.deps = data.deps.map((x) => ({ lagMinutes: 0, ...x }));
   const calls = { taskUpdates: 0, taskCreates: 0 };
 
   const rows = (model: string): Row[] => data[MODELS[model]!.table] as unknown as Row[];

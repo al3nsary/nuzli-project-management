@@ -8,7 +8,8 @@ import type { RequestContext } from '../common/request';
 import { PrismaService, type Db } from '../prisma/prisma.service';
 import { CALENDAR_SELECT, toCalendarDto } from './project-dto';
 import { ProjectStore, WRITE_TX_OPTIONS } from './project-store';
-import { dateOf } from './task-engine';
+import { dateOf, DEFAULT_WORKING_HOURS, isoOf, parseWorkingHours } from './task-engine';
+import type { WorkingHours } from '@nuzli/scheduling';
 
 type CreateCalendar = z.output<typeof calendarSchema>;
 type UpdateCalendar = z.output<typeof updateCalendarSchema>;
@@ -16,6 +17,97 @@ type CreateException = z.output<typeof calendarExceptionSchema>;
 export type CalendarWithDefault = CalendarDto & { isDefault: boolean };
 
 const normalizeWeekend = (days: number[]): number[] => [...new Set(days)].sort((a, b) => a - b);
+
+/** Sorted intervals as a stable string (equality of working days). */
+export const hoursKey = (h: readonly WorkingHours[]): string =>
+  [...h]
+    .sort((a, b) => (a.start < b.start ? -1 : 1))
+    .map((w) => `${w.start}-${w.end}`)
+    .join(',');
+
+/** Weekend days from a list of working days (0 = Sunday … 6 = Saturday). */
+export const weekendFromWorkingDays = (working: readonly number[]): number[] =>
+  [0, 1, 2, 3, 4, 5, 6].filter((d) => !working.includes(d));
+
+export interface CalendarSpec {
+  /** The calendar to start from (its holidays are copied); default = the default calendar. */
+  baseId?: string;
+  weekendDays?: number[];
+  workingHours?: WorkingHours[];
+  /** Exceptions of the new calendar (imports); default = the base calendar's. */
+  exceptions?: Array<{ date: string; isWorking: boolean; name: string; workingHours?: WorkingHours[] | null }>;
+  /** Name of a created calendar. */
+  name: string;
+}
+
+/**
+ * A9 (create form, imports): returns a calendar matching `spec`. The base calendar is reused
+ * when the requested working days and hours equal its own (and no exceptions are imposed);
+ * otherwise a calendar is created — with the base calendar's holidays, or the given exceptions —
+ * and audited as `calendar.created`.
+ */
+export async function ensureProjectCalendar(
+  tx: Db,
+  audit: AuditService,
+  ctx: RequestContext,
+  spec: CalendarSpec,
+): Promise<{ id: string; created: boolean }> {
+  const base = spec.baseId
+    ? await tx.calendar.findUnique({ where: { id: spec.baseId }, select: CALENDAR_SELECT })
+    : await tx.calendar.findFirst({ where: { isDefault: true }, select: CALENDAR_SELECT });
+  if (spec.baseId && !base) {
+    throw new AppError('VALIDATION_FAILED', { fieldErrors: { calendarId: ['التقويم غير موجود. أنشئ تقويمًا أو اختر تقويمًا آخر'] } });
+  }
+  const baseWeekend = base ? normalizeWeekend(base.weekendDays) : [5, 6];
+  const baseHours = base ? (parseWorkingHours(base.workingHours) ?? DEFAULT_WORKING_HOURS) : DEFAULT_WORKING_HOURS;
+  const weekendDays = spec.weekendDays ? normalizeWeekend(spec.weekendDays) : baseWeekend;
+  const workingHours = spec.workingHours ?? baseHours;
+  if (base && !spec.exceptions && weekendDays.join(',') === baseWeekend.join(',') && hoursKey(workingHours) === hoursKey(baseHours)) {
+    return { id: base.id, created: false };
+  }
+  if (weekendDays.length >= 7) {
+    throw new AppError('VALIDATION_FAILED', { fieldErrors: { workingDays: ['اختر يوم عمل واحدًا على الأقل'] } });
+  }
+  const exceptions =
+    spec.exceptions ??
+    (base?.exceptions ?? []).map((e) => ({ date: isoOf(e.date), isWorking: e.isWorking, name: e.name, workingHours: parseWorkingHours(e.workingHours, null) }));
+  const unique = new Map(exceptions.map((e) => [e.date, e]));
+  const created = await tx.calendar.create({
+    data: {
+      name: spec.name.slice(0, 80),
+      weekendDays,
+      workingHours: workingHours.map((w) => ({ start: w.start, end: w.end })) as unknown as Prisma.InputJsonValue,
+      createdById: ctx.actorId,
+      ...(unique.size
+        ? {
+            exceptions: {
+              createMany: {
+                data: [...unique.values()].map((e) => ({
+                  date: dateOf(e.date),
+                  isWorking: e.isWorking,
+                  name: e.name.slice(0, 120) || 'استثناء',
+                  workingHours: e.isWorking && e.workingHours ? (e.workingHours as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+                  createdById: ctx.actorId,
+                })),
+              },
+            },
+          }
+        : {}),
+    },
+    select: { id: true },
+  });
+  await audit.logCtx(
+    ctx,
+    {
+      action: AuditAction.CALENDAR_CREATED,
+      entityType: 'calendar',
+      entityId: created.id,
+      after: { name: spec.name, weekendDays, workingHours, exceptions: unique.size, baseCalendarId: base?.id ?? null },
+    },
+    tx,
+  );
+  return { id: created.id, created: true };
+}
 
 /**
  * Working calendars and their exceptions (brief §6.1, §10), ADMIN only. No holiday data is
@@ -44,14 +136,15 @@ export class CalendarsService {
 
   async create(input: CreateCalendar, ctx: RequestContext): Promise<CalendarWithDefault> {
     const weekendDays = normalizeWeekend(input.weekendDays);
+    const workingHours = input.workingHours ?? DEFAULT_WORKING_HOURS;
     const c = await this.prisma.$transaction(async (tx) => {
       const created = await tx.calendar.create({
-        data: { name: input.name, weekendDays, createdById: ctx.actorId },
+        data: { name: input.name, weekendDays, workingHours: workingHours as unknown as Prisma.InputJsonValue, createdById: ctx.actorId },
         select: CALENDAR_SELECT,
       });
       await this.audit.logCtx(
         ctx,
-        { action: AuditAction.CALENDAR_CREATED, entityType: 'calendar', entityId: created.id, after: { name: input.name, weekendDays } },
+        { action: AuditAction.CALENDAR_CREATED, entityType: 'calendar', entityId: created.id, after: { name: input.name, weekendDays, workingHours } },
         tx,
       );
       return created;
@@ -72,23 +165,35 @@ export class CalendarsService {
     const weekendDays = input.weekendDays ? normalizeWeekend(input.weekendDays) : undefined;
     const weekendChanged = !!weekendDays && weekendDays.join(',') !== cur.weekendDays.join(',');
     const nameChanged = input.name !== undefined && input.name !== cur.name;
-    if (!weekendChanged && !nameChanged) return cur;
+    // A9 hours: changing the working hours re-derives the HOUR projects on this calendar.
+    const hoursChanged = !!input.workingHours && hoursKey(input.workingHours) !== hoursKey(cur.workingHours ?? DEFAULT_WORKING_HOURS);
+    if (!weekendChanged && !nameChanged && !hoursChanged) return cur;
     await this.prisma.$transaction(async (tx) => {
       await tx.calendar.update({
         where: { id },
-        data: { ...(nameChanged ? { name: input.name } : {}), ...(weekendChanged ? { weekendDays } : {}) },
+        data: {
+          ...(nameChanged ? { name: input.name } : {}),
+          ...(weekendChanged ? { weekendDays } : {}),
+          ...(hoursChanged ? { workingHours: input.workingHours as unknown as Prisma.InputJsonValue } : {}),
+        },
       });
-      const rescheduled = weekendChanged ? await this.rescheduleUsers(tx, id, ctx, 'calendar.updated') : 0;
+      const rescheduled = weekendChanged || hoursChanged ? await this.rescheduleUsers(tx, id, ctx, 'calendar.updated') : 0;
       await this.audit.logCtx(
         ctx,
         {
           action: AuditAction.CALENDAR_UPDATED,
           entityType: 'calendar',
           entityId: id,
-          before: { ...(nameChanged ? { name: cur.name } : {}), ...(weekendChanged ? { weekendDays: cur.weekendDays } : {}) },
+          before: {
+            ...(nameChanged ? { name: cur.name } : {}),
+            ...(weekendChanged ? { weekendDays: cur.weekendDays } : {}),
+            ...(hoursChanged ? { workingHours: cur.workingHours } : {}),
+          },
           after: {
             ...(nameChanged ? { name: input.name } : {}),
-            ...(weekendChanged ? { weekendDays, rescheduledTasks: rescheduled } : {}),
+            ...(weekendChanged ? { weekendDays } : {}),
+            ...(hoursChanged ? { workingHours: input.workingHours } : {}),
+            ...(weekendChanged || hoursChanged ? { rescheduledTasks: rescheduled } : {}),
           },
         },
         tx,
@@ -102,7 +207,14 @@ export class CalendarsService {
     try {
       await this.prisma.$transaction(async (tx) => {
         const created = await tx.calendarException.create({
-          data: { calendarId: id, date: dateOf(input.date), isWorking: input.isWorking, name: input.name, createdById: ctx.actorId },
+          data: {
+            calendarId: id,
+            date: dateOf(input.date),
+            isWorking: input.isWorking,
+            name: input.name,
+            workingHours: input.isWorking && input.workingHours ? (input.workingHours as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+            createdById: ctx.actorId,
+          },
         });
         const rescheduled = await this.rescheduleUsers(tx, id, ctx, 'calendar_exception.created');
         await this.audit.logCtx(
@@ -111,7 +223,14 @@ export class CalendarsService {
             action: AuditAction.CALENDAR_EXCEPTION_CREATED,
             entityType: 'calendar',
             entityId: id,
-            after: { exceptionId: created.id, date: input.date, isWorking: input.isWorking, name: input.name, rescheduledTasks: rescheduled },
+            after: {
+              exceptionId: created.id,
+              date: input.date,
+              isWorking: input.isWorking,
+              name: input.name,
+              ...(input.isWorking && input.workingHours ? { workingHours: input.workingHours } : {}),
+              rescheduledTasks: rescheduled,
+            },
           },
           tx,
         );

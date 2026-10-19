@@ -80,15 +80,44 @@ export interface RegisterViolationMemberResultDto {
 }
 export type CreateViolationInput = z.input<typeof createViolationSchema>;
 
-export const presignUploadSchema = z.object({
-  entityType: z.enum(['violation', 'task', 'logo', 'member_photo', 'user_photo']),
-  entityId: uuid.optional(),
-  kind: z.enum(['ID_CARD', 'EVIDENCE', 'PERSON', 'ATTACHMENT', 'LOGO', 'PHOTO']).optional(),
-  contentType: z.enum(ALLOWED_UPLOAD_TYPES),
-  sizeBytes: z.number().int().min(1).max(MAX_UPLOAD_BYTES),
-  /** Hex sha256 computed by the client (optional, verified on confirm when present). */
-  sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-});
+/**
+ * A9 project imports (`entityType: 'import'`, admin only): Excel, CSV, MS Project XML and .mpp.
+ * Browsers report CSV/XML/MPP types inconsistently, so the client sends the canonical type for
+ * the file extension: .xlsx → spreadsheetml, .csv → text/csv, .xml → application/xml, .mpp →
+ * application/vnd.ms-project. The server checks the bytes (ZIP + xl/, text, XML root, OLE2).
+ */
+export const IMPORT_UPLOAD_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'application/xml',
+  'text/xml',
+  'application/vnd.ms-project',
+] as const;
+export const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
+
+export const presignUploadSchema = z
+  .object({
+    entityType: z.enum(['violation', 'task', 'logo', 'member_photo', 'user_photo', 'import']),
+    entityId: uuid.optional(),
+    kind: z.enum(['ID_CARD', 'EVIDENCE', 'PERSON', 'ATTACHMENT', 'LOGO', 'PHOTO']).optional(),
+    contentType: z.enum([...ALLOWED_UPLOAD_TYPES, ...IMPORT_UPLOAD_TYPES]),
+    sizeBytes: z.number().int().min(1).max(MAX_IMPORT_BYTES),
+    /** Hex sha256 computed by the client (optional, verified on confirm when present). */
+    sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  })
+  .superRefine((v, ctx) => {
+    const isImport = v.entityType === 'import';
+    const types: readonly string[] = isImport ? IMPORT_UPLOAD_TYPES : ALLOWED_UPLOAD_TYPES;
+    if (!types.includes(v.contentType)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['contentType'], message: 'نوع الملف غير مسموح' });
+    }
+    if (!isImport && v.sizeBytes > MAX_UPLOAD_BYTES) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sizeBytes'], message: 'حجم الملف أكبر من المسموح' });
+    }
+    if (isImport && (v.entityId || v.kind)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entityId'], message: 'ملف الاستيراد لا يرتبط بعنصر' });
+    }
+  });
 export type PresignUploadInput = z.infer<typeof presignUploadSchema>;
 
 export interface PresignedUpload {

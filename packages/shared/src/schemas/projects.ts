@@ -13,6 +13,48 @@ export const money = z
 /** ISO 4217 code (A9). The API defaults to SAR. */
 export const currencyCode = z.string().regex(/^[A-Z]{3}$/, { message: 'رمز عملة غير صالح' });
 
+// ───────────────────────────── A9 hours (docs/API.md "A9 — imports, exports, hours", ADR-109)
+
+/** Scheduling unit of a project: DAY (dates, working days) or HOUR (local date-times, working hours). */
+export const DURATION_UNITS = ['DAY', 'HOUR'] as const;
+export type ProjectDurationUnit = (typeof DURATION_UNITS)[number];
+export const durationUnitSchema = z.enum(DURATION_UNITS);
+
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, { message: 'وقت غير صالح' });
+/** One working interval of a day, local wall clock `HH:MM` (end may be `24:00`). */
+export const workingIntervalSchema = z
+  .object({ start: hhmm, end: hhmm })
+  .refine((w) => w.start < w.end, { message: 'نهاية الفترة قبل بدايتها' });
+export const workingHoursSchema = z
+  .array(workingIntervalSchema)
+  .min(1, { message: 'أضف فترة عمل واحدة على الأقل' })
+  .max(6)
+  .refine(
+    (list) => {
+      const sorted = [...list].sort((a, b) => (a.start < b.start ? -1 : 1));
+      return sorted.every((w, i) => i === 0 || sorted[i - 1]!.end <= w.start);
+    },
+    { message: 'فترات العمل متداخلة' },
+  );
+export type WorkingInterval = z.infer<typeof workingIntervalSchema>;
+/** The A9 default working day: 09:00–13:00 and 14:00–18:00 (8 hours with a lunch break). */
+export const DEFAULT_WORKING_INTERVALS: readonly WorkingInterval[] = [
+  { start: '09:00', end: '13:00' },
+  { start: '14:00', end: '18:00' },
+];
+
+/**
+ * `YYYY-MM-DD` (DAY projects) or a local Riyadh date-time `YYYY-MM-DDTHH:MM` (HOUR projects;
+ * seconds and an explicit `+03:00` are tolerated). A date sent to an HOUR project means the
+ * first working minute of that day; a date-time sent to a DAY project keeps its date.
+ */
+export const dateOrLocalDateTime = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\+03:00)?)?$/, { message: 'تاريخ غير صالح' });
+
+/** Working hours (HOUR projects), minute resolution. */
+export const workingHoursAmount = z.number().min(0).max(87_600);
+
 const projectFields = z.object({
   name: z.string().trim().min(2, { message: 'اكتب اسم المشروع' }).max(160),
   description: optionalText(4000),
@@ -24,11 +66,20 @@ const projectFields = z.object({
   budget: money.nullable().optional(),
   /** A9: defaults to SAR. */
   currency: currencyCode.optional(),
+  /** A9 hours: DAY (default) or HOUR. On PATCH a different unit converts the project (= POST /projects/:id/convert). */
+  durationUnit: durationUnitSchema.optional(),
 });
 
 export const createProjectSchema = projectFields.extend({
   /** A9: copy a template (structure, durations, dependencies, labels, custom fields, checklists); dates re-based to `startDate`. */
   fromTemplateId: uuid.optional(),
+  /**
+   * A9 create form: working days (0 = Sunday … 6 = Saturday) and working-hour intervals. When
+   * they differ from the base calendar (`calendarId` or the default) a calendar is created for
+   * the project, copying the base calendar's holidays.
+   */
+  workingDays: z.array(z.number().int().min(0).max(6)).min(1, { message: 'اختر يوم عمل واحدًا على الأقل' }).max(7).optional(),
+  workingHours: workingHoursSchema.optional(),
 });
 export type CreateProjectInput = z.input<typeof createProjectSchema>;
 export const updateProjectSchema = projectFields.partial();
@@ -41,8 +92,11 @@ export const createTaskSchema = z.object({
   afterId: uuid.nullable().optional(),
   name: z.string().trim().min(1, { message: 'اكتب اسم المهمة' }).max(300),
   type: z.enum(['TASK', 'GROUP', 'MILESTONE']).default('TASK'),
-  startDate: isoDate,
+  /** `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MM` in HOUR projects. */
+  startDate: dateOrLocalDateTime,
   durationDays: z.number().int().min(0).max(3650).default(1),
+  /** A9 hours: duration in working hours (HOUR projects; wins over durationDays there). */
+  durationHours: workingHoursAmount.optional(),
   status: z.enum(['NOT_STARTED', 'IN_PROGRESS', 'DONE', 'ON_HOLD']).default('NOT_STARTED'),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
   progress: z.number().min(0).max(100).default(0),
@@ -70,9 +124,11 @@ export const taskBatchSchema = z.object({
       z.object({
         id: uuid,
         version: z.number().int().min(0),
-        startDate: isoDate.optional(),
-        endDate: isoDate.optional(),
+        startDate: dateOrLocalDateTime.optional(),
+        endDate: dateOrLocalDateTime.optional(),
         durationDays: z.number().int().min(0).optional(),
+        /** A9 hours (HOUR projects). */
+        durationHours: workingHoursAmount.optional(),
         progress: z.number().min(0).max(100).optional(),
         status: z.enum(['NOT_STARTED', 'IN_PROGRESS', 'DONE', 'ON_HOLD']).optional(),
         parentId: uuid.nullable().optional(),
@@ -99,6 +155,8 @@ export const createDependencySchema = z.object({
   successorId: uuid,
   type: z.enum(['FS', 'SS', 'FF', 'SF']).default('FS'),
   lagDays: z.number().int().min(-365).max(365).default(0),
+  /** A9 hours: lag (lead when negative) in working hours, HOUR projects (wins over lagDays there). */
+  lagHours: z.number().min(-8760).max(8760).optional(),
 });
 
 export const taskCommentSchema = z.object({
@@ -111,11 +169,15 @@ export const taskCommentSchema = z.object({
 export const calendarSchema = z.object({
   name: z.string().trim().min(2).max(80),
   weekendDays: z.array(z.number().int().min(0).max(6)).max(6).default([5, 6]),
+  /** A9 hours: working intervals of a normal working day (default 09:00–13:00, 14:00–18:00). */
+  workingHours: workingHoursSchema.optional(),
 });
 export const calendarExceptionSchema = z.object({
   date: isoDate,
   isWorking: z.boolean().default(false),
   name: z.string().trim().min(1).max(120),
+  /** A9 hours: the intervals of a special working day (null/absent = the calendar's hours). */
+  workingHours: workingHoursSchema.nullable().optional(),
 });
 
 export interface ProjectDto {
@@ -145,6 +207,8 @@ export interface ProjectDto {
   /** actualCost / budget × 100, 2 decimals (null without a budget or with a zero budget). */
   budgetUsedPct?: number | null;
   isTemplate?: boolean;
+  /** A9 hours — always sent by the API. */
+  durationUnit?: ProjectDurationUnit;
 }
 
 export interface TaskDto {
@@ -179,6 +243,16 @@ export interface TaskDto {
   checklist?: { total: number; done: number };
   /** Custom field id → value (only fields that have a value). */
   customValues?: Record<string, unknown>;
+  /**
+   * A9 hours — HOUR projects only (absent in DAY projects): local Riyadh date-times
+   * `YYYY-MM-DDTHH:MM`. `startAt` = the first working minute, `endAt` = the end of the last
+   * working minute (exclusive). In HOUR projects `startDate`/`endDate` carry the same values
+   * (the engine's representation) and `durationDays` = working days the task touches.
+   */
+  startAt?: string;
+  endAt?: string;
+  /** Working hours (HOUR projects). */
+  durationHours?: number;
 }
 
 export interface DependencyDto {
@@ -187,13 +261,17 @@ export interface DependencyDto {
   successorId: string;
   type: DependencyType;
   lagDays: number;
+  /** A9 hours: lag in working hours (HOUR projects only). */
+  lagHours?: number;
 }
 
 export interface CalendarDto {
   id: string;
   name: string;
   weekendDays: number[];
-  exceptions: { id: string; date: string; isWorking: boolean; name: string }[];
+  exceptions: { id: string; date: string; isWorking: boolean; name: string; workingHours?: WorkingInterval[] | null }[];
+  /** A9 hours — always sent by the API. */
+  workingHours?: WorkingInterval[];
 }
 
 export interface TaskCommentDto {

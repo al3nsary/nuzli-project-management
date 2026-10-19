@@ -102,6 +102,14 @@ export const envSchema = z
     OCR_CONCURRENCY: int(1, 1, 2),
     /** Attempts per job before FAILED (retries back off 30 s, 2 min, 8 min…). */
     OCR_MAX_ATTEMPTS: int(3, 1, 10),
+
+    /** A9 (ADR-111): internal .mpp → MSPDI converter (infra/converter). Unset → .mpp imports answer 501. */
+    CONVERTER_URL: z.string().url().optional(),
+    /** Shared secret sent as X-Converter-Token; required in production with CONVERTER_URL. */
+    CONVERTER_TOKEN: z.string().optional(),
+    CONVERTER_TIMEOUT_MS: int(60000, 1000, 300000),
+    /** A9 (ADR-112): extra Jira hosts allowed besides *.atlassian.net (exact host names, comma separated). */
+    JIRA_ALLOWED_HOSTS: csv,
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -124,6 +132,10 @@ export const envSchema = z
     if (isPlaceholder(env.S3_ACCESS_KEY)) fail('S3_ACCESS_KEY', 'is still the CHANGE_ME placeholder');
     if (isPlaceholder(env.SMTP_PASS)) fail('SMTP_PASS', 'is still the CHANGE_ME placeholder');
     if (isPlaceholder(env.DATABASE_URL)) fail('DATABASE_URL', 'contains the CHANGE_ME placeholder password');
+    if (env.CONVERTER_URL) {
+      const token = env.CONVERTER_TOKEN ? weakRandomSecretReason(env.CONVERTER_TOKEN) : 'is required when CONVERTER_URL is set';
+      if (token) fail('CONVERTER_TOKEN', token);
+    }
     if (env.PDF_SERVICE_URL) {
       const token = env.PDF_SERVICE_TOKEN ? weakRandomSecretReason(env.PDF_SERVICE_TOKEN) : 'is required when PDF_SERVICE_URL is set';
       if (token) fail('PDF_SERVICE_TOKEN', token);

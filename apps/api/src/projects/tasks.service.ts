@@ -38,6 +38,9 @@ import { mapTaskDbError, ProjectStore, WRITE_TX_OPTIONS, type WriteState } from 
 import {
   applyScheduleEdit,
   assertValidParent,
+  coerceStart,
+  hoursToMinutes,
+  minutesToHours,
   dueFlags,
   needsRenumber,
   normalizeLeaf,
@@ -151,9 +154,12 @@ export class TasksService {
           wbsCache: '',
           name: input.name,
           type: input.type,
-          startDate: input.startDate,
-          endDate: input.startDate,
+          startDate: coerceStart(input.startDate, s.project.durationUnit, s.cal),
+          endDate: coerceStart(input.startDate, s.project.durationUnit, s.cal),
           durationDays: input.durationDays,
+          ...(s.project.durationUnit === 'HOUR'
+            ? { durationHours: input.durationHours ?? minutesToHours(Math.max(1, input.durationDays) * s.cal.standardMinutesPerDay) }
+            : {}),
           progress: input.progress,
           status: input.status,
           priority: input.priority,
@@ -167,12 +173,15 @@ export class TasksService {
           barColor: input.barColor ?? null,
         },
         s.cal,
+        true,
+        s.project.durationUnit,
       );
       const finals = recompute({
         tasks: [...tasks, draft],
         dependencies: s.deps,
         calendar: s.cal,
         autoSchedule: s.project.autoSchedule,
+        durationUnit: s.project.durationUnit,
         changed: [id],
       });
       const changed = await this.store.persist(tx, s, finals, {
@@ -229,15 +238,21 @@ export class TasksService {
         next.sortOrder = sortOrderBetween(siblingsOf(s.tasks, input.parentId, id).at(-1)?.sortOrder ?? null, null);
       }
       const scheduleTouched =
-        input.startDate !== undefined || input.durationDays !== undefined || next.type !== cur.type;
+        input.startDate !== undefined || input.durationDays !== undefined || input.durationHours !== undefined || next.type !== cur.type;
       if (scheduleTouched && !hasChildren) {
-        next = applyScheduleEdit(next, { startDate: input.startDate, durationDays: input.durationDays }, s.cal);
+        next = applyScheduleEdit(
+          next,
+          { startDate: input.startDate, durationDays: input.durationDays, durationHours: input.durationHours },
+          s.cal,
+          s.project.durationUnit,
+        );
       }
       const finals = recompute({
         tasks: s.tasks.map((t) => (t.id === id ? next : t)),
         dependencies: s.deps,
         calendar: s.cal,
         autoSchedule: s.project.autoSchedule,
+        durationUnit: s.project.durationUnit,
         changed: [id],
       });
       const out = await this.store.persistDetailed(tx, s, finals, {
@@ -302,9 +317,14 @@ export class TasksService {
         if (c.deadline !== undefined) next.deadline = c.deadline;
         if (c.barColor !== undefined) next.barColor = c.barColor;
         if (c.labelIds !== undefined) next.labelIds = [...new Set(c.labelIds)].sort();
-        const dated = c.startDate !== undefined || c.endDate !== undefined || c.durationDays !== undefined;
+        const dated = c.startDate !== undefined || c.endDate !== undefined || c.durationDays !== undefined || c.durationHours !== undefined;
         if (dated && !hasChildren.has(c.id)) {
-          next = applyScheduleEdit(next, { startDate: c.startDate, endDate: c.endDate, durationDays: c.durationDays }, s.cal);
+          next = applyScheduleEdit(
+            next,
+            { startDate: c.startDate, endDate: c.endDate, durationDays: c.durationDays, durationHours: c.durationHours },
+            s.cal,
+            s.project.durationUnit,
+          );
         }
         work.set(c.id, next);
       }
@@ -315,6 +335,7 @@ export class TasksService {
         dependencies: s.deps,
         calendar: s.cal,
         autoSchedule: s.project.autoSchedule,
+        durationUnit: s.project.durationUnit,
         changed: input.changes.map((c) => c.id),
       });
       const out = await this.store.persistDetailed(tx, s, finals, {
@@ -365,7 +386,12 @@ export class TasksService {
         for (const id of ids) for (const sub of subtreeIds(s.tasks, id)) if (!parents.has(sub)) shifted.add(sub);
         for (const leafId of shifted) {
           const t = work.get(leafId)!;
-          work.set(leafId, normalizeLeaf({ ...t, startDate: s.cal.addWorkingDays(t.startDate, p.shiftWorkingDays) }, s.cal, false));
+          // HOUR projects: a working day = the calendar's standard day of working minutes.
+          const startDate =
+            s.project.durationUnit === 'HOUR'
+              ? s.cal.addWorkingMinutes(t.startDate, p.shiftWorkingDays * s.cal.standardMinutesPerDay)
+              : s.cal.addWorkingDays(t.startDate, p.shiftWorkingDays);
+          work.set(leafId, normalizeLeaf({ ...t, startDate }, s.cal, false, s.project.durationUnit));
         }
       }
       const explicit = new Set([...ids, ...shifted]);
@@ -374,6 +400,7 @@ export class TasksService {
         dependencies: s.deps,
         calendar: s.cal,
         autoSchedule: s.project.autoSchedule,
+        durationUnit: s.project.durationUnit,
         changed: [...explicit],
       });
       const res = await this.store.persistDetailed(tx, s, finals, {
@@ -446,6 +473,7 @@ export class TasksService {
       dependencies: remaining.deps,
       calendar: s.cal,
       autoSchedule: s.project.autoSchedule,
+      durationUnit: s.project.durationUnit,
       changed: [],
     });
     const out = await this.store.persistDetailed(tx, remaining, finals, {
@@ -480,7 +508,7 @@ export class TasksService {
       archivedIds: archived,
       ids: out.ids,
       previous: out.previous,
-      deletedDependencies: deps.map((d): DependencyDto => toDependencyDto(d)),
+      deletedDependencies: deps.map((d): DependencyDto => toDependencyDto(d, s.project.durationUnit)),
     };
   }
 
@@ -509,7 +537,7 @@ export class TasksService {
       }
       await tx.task.updateMany({ where: { id: { in: ids } }, data: { archivedAt: null, version: { increment: 1 } } });
       const s = await this.store.lockAndLoad(tx, projectId);
-      const finals = recompute({ tasks: s.tasks, dependencies: s.deps, calendar: s.cal, autoSchedule: s.project.autoSchedule });
+      const finals = recompute({ tasks: s.tasks, dependencies: s.deps, calendar: s.cal, autoSchedule: s.project.autoSchedule, durationUnit: s.project.durationUnit });
       const res = await this.store.persistDetailed(tx, s, finals, {
         ctx,
         explicit: new Set(),
@@ -567,12 +595,21 @@ export class TasksService {
       const inside = new Set(sourceIds);
       const newDeps = s.deps
         .filter((d) => inside.has(d.predecessorId) && inside.has(d.successorId))
-        .map((d) => ({ id: randomUUID(), predecessorId: idMap.get(d.predecessorId)!, successorId: idMap.get(d.successorId)!, type: d.type, lagDays: d.lagDays }));
+        .map((d) => ({
+          id: randomUUID(),
+          predecessorId: idMap.get(d.predecessorId)!,
+          successorId: idMap.get(d.successorId)!,
+          type: d.type,
+          lagDays: d.lagDays,
+          lagMinutes: d.lagMinutes,
+          ...(d.lagHours !== undefined ? { lagHours: d.lagHours } : {}),
+        }));
       const finals = recompute({
         tasks: [...s.tasks, ...copies],
         dependencies: [...s.deps, ...newDeps],
         calendar: s.cal,
         autoSchedule: s.project.autoSchedule,
+        durationUnit: s.project.durationUnit,
         changed: copies.map((c) => c.id),
       });
       const res = await this.store.persistDetailed(tx, s, finals, {
@@ -583,7 +620,18 @@ export class TasksService {
         auditExtra: { duplicatedFrom: id },
       });
       if (newDeps.length) {
-        await tx.taskDependency.createMany({ data: newDeps.map((d) => ({ ...d, projectId: s.project.id, createdById: ctx.actorId })) });
+        await tx.taskDependency.createMany({
+          data: newDeps.map((d) => ({
+            id: d.id,
+            predecessorId: d.predecessorId,
+            successorId: d.successorId,
+            type: d.type,
+            lagDays: d.lagDays,
+            lagMinutes: d.lagMinutes,
+            projectId: s.project.id,
+            createdById: ctx.actorId,
+          })),
+        });
       }
       await this.copyTaskDetails(tx, idMap, ctx.actorId);
       await this.audit.logCtx(
@@ -596,7 +644,7 @@ export class TasksService {
         },
         tx,
       );
-      return { ...res, idMap, newDeps };
+      return { ...res, idMap, newDeps, unit: s.project.durationUnit };
     });
     const copyIds = [...out.idMap.values()];
     const copySet = new Set(copyIds);
@@ -606,7 +654,7 @@ export class TasksService {
       tasks,
       affected,
       idMap: Object.fromEntries(out.idMap),
-      dependencies: out.newDeps.map((d) => toDependencyDto(d)),
+      dependencies: out.newDeps.map((d) => toDependencyDto(d, out.unit)),
       previous: out.previous,
     };
   }
@@ -662,7 +710,7 @@ export class TasksService {
       throw new AppError('DEPENDENCY_SELF', { path: [input.predecessorId, input.predecessorId] });
     }
     const id = randomUUID();
-    const ids = await this.tx(async (tx) => {
+    const { ids, dep: created, unit } = await this.tx(async (tx) => {
       const s = await this.store.lockAndLoad(tx, projectId);
       const missing = [input.predecessorId, input.successorId].filter((t) => !s.before.has(t));
       if (missing.length) throw new AppError('NOT_FOUND', { taskIds: missing });
@@ -677,16 +725,36 @@ export class TasksService {
         ];
         throw new AppError('DEPENDENCY_CYCLE', { path });
       }
-      const dep = { id, predecessorId: input.predecessorId, successorId: input.successorId, type: input.type, lagDays: input.lagDays };
+      // A9 hours: HOUR projects store the lag in working minutes (lagHours wins over lagDays there);
+      // lag_days keeps the value rounded to whole standard days.
+      const hour = s.project.durationUnit === 'HOUR';
+      const lagMinutes = hour
+        ? input.lagHours !== undefined
+          ? hoursToMinutes(input.lagHours)
+          : input.lagDays * s.cal.standardMinutesPerDay
+        : 0;
+      const lagDays = hour ? Math.round(lagMinutes / s.cal.standardMinutesPerDay) || 0 : input.lagDays;
+      const dep = {
+        id,
+        predecessorId: input.predecessorId,
+        successorId: input.successorId,
+        type: input.type,
+        lagDays,
+        lagMinutes,
+        ...(hour ? { lagHours: minutesToHours(lagMinutes) } : {}),
+      };
       // A link between a task and its own ancestor is a cycle too: the engine throws it here.
       const finals = recompute({
         tasks: s.tasks,
         dependencies: [...s.deps, dep],
         calendar: s.cal,
         autoSchedule: s.project.autoSchedule,
+        durationUnit: s.project.durationUnit,
         changed: [input.predecessorId],
       });
-      await tx.taskDependency.create({ data: { ...dep, projectId, createdById: ctx.actorId } });
+      await tx.taskDependency.create({
+        data: { id, predecessorId: dep.predecessorId, successorId: dep.successorId, type: dep.type, lagDays, lagMinutes, projectId, createdById: ctx.actorId },
+      });
       const changed = await this.store.persist(tx, s, finals, {
         ctx,
         explicit: new Set(),
@@ -698,10 +766,10 @@ export class TasksService {
         { action: AuditAction.DEPENDENCY_CREATED, entityType: 'dependency', entityId: id, after: { ...dep, shifted: changed.length } },
         tx,
       );
-      return changed;
+      return { ids: changed, dep, unit: s.project.durationUnit };
     });
     return {
-      ...toDependencyDto({ id, predecessorId: input.predecessorId, successorId: input.successorId, type: input.type, lagDays: input.lagDays }),
+      ...toDependencyDto(created, unit),
       affected: await this.store.taskDtos(ids),
     };
   }
@@ -721,7 +789,7 @@ export class TasksService {
           action: AuditAction.DEPENDENCY_DELETED,
           entityType: 'dependency',
           entityId: id,
-          before: { predecessorId: dep.predecessorId, successorId: dep.successorId, type: dep.type, lagDays: dep.lagDays },
+          before: { predecessorId: dep.predecessorId, successorId: dep.successorId, type: dep.type, lagDays: dep.lagDays, lagMinutes: dep.lagMinutes },
         },
         tx,
       );
@@ -744,7 +812,7 @@ export class TasksService {
       this.store.attachmentCounts(ids),
       this.prisma.calendar.findMany({
         where: { id: { in: calendarIds } },
-        select: { id: true, weekendDays: true, exceptions: { select: { date: true, isWorking: true } } },
+        select: { id: true, weekendDays: true, workingHours: true, exceptions: { select: { date: true, isWorking: true, workingHours: true } } },
       }),
       this.store.taskExtras(ids, this.prisma, now),
     ]);

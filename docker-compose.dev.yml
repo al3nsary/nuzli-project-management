@@ -99,6 +99,12 @@ services:
       retries: 20
     networks: [backend]
 
+  # A9 (ADR-111): the .mpp converter runs in dev too (needs env/converter.env). The API reaches
+  # it at http://converter:8080 when env/api.env sets CONVERTER_URL and CONVERTER_TOKEN.
+  converter:
+    environment:
+      CONVERTER_TIMEOUT_SECONDS: "50"
+
   # Backups are a production concern; start with `--profile backup` to try them in dev.
   backup:
     profiles: ["backup"]

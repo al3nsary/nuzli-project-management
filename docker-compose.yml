@@ -81,6 +81,28 @@ services:
       start_period: 30s
     networks: [backend]
 
+  # ───────────────────────────── MS Project .mpp → MSPDI converter (A9, ADR-111)
+  # MPXJ behind a tiny Java HTTP server (infra/converter). Internal `backend` network only,
+  # never published; every request must carry X-Converter-Token (env/converter.env, the same
+  # value as CONVERTER_TOKEN in env/api.env). The API calls it only when CONVERTER_URL is set.
+  converter:
+    <<: *hardened
+    build:
+      context: infra/converter
+    image: nuzli/converter:${NUZLI_VERSION:-latest}
+    env_file:
+      - env/converter.env
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    expose: ["8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\r\n\r\n' >&3 && grep -q ok <&3"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [backend]
+
   # ───────────────────────────── Encrypted daily pg_dump (infra/backup, docs/backup-restore.md)
   backup:
     <<: *hardened
@@ -105,6 +127,6 @@ volumes:
 
 networks:
   edge:
-  # Internal services only. An optional PDF renderer (ADR-024/073) joins this network and
-  # nothing else, and checks X-Pdf-Service-Token on every request.
+  # Internal services only. An optional PDF renderer (ADR-024/073) and the .mpp converter
+  # (ADR-111) join this network and nothing else, and check their token on every request.
   backend:

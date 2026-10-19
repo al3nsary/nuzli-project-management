@@ -21,7 +21,17 @@ import { PrismaService, type Db } from '../prisma/prisma.service';
 import { PROJECT_SELECT, STORED_TASK_SELECT, projectScopeWhere, toProjectDto, toStored } from './project-dto';
 import { mapTaskDbError, ProjectStore, WRITE_TX_OPTIONS } from './project-store';
 import { ProjectReportsService } from './project-reports.service';
-import { addCalendarDaysIso, dateOf, isoOf, normalizeLeaf, recompute, workCalendarOf, type StoredTask } from './task-engine';
+import {
+  addCalendarDaysIso,
+  dateOf,
+  isoOf,
+  minutesToHours,
+  normalizeLeaf,
+  recompute,
+  workCalendarOf,
+  type StoredTask,
+  type Unit,
+} from './task-engine';
 import { TasksService } from './tasks.service';
 import { daysBetween } from './reports';
 
@@ -45,20 +55,34 @@ export function rebaseTasks<T extends StoredTask>(
   tasks: readonly T[],
   from: { start: string; cal: WorkCalendar },
   to: { start: string; cal: WorkCalendar },
+  unit: Unit = 'DAY',
 ): T[] {
   const parents = new Set(tasks.map((t) => t.parentId).filter((p): p is string => !!p));
-  const toStart = to.cal.addWorkingDays(to.start, 0);
   const shiftDays = daysBetween(from.start, to.start);
+  if (unit === 'HOUR') {
+    // A9 hours: the offset is kept in working minutes from the first working minute of the start day.
+    const fromStart = from.cal.nextWorkingMinute(`${from.start.slice(0, 10)}T00:00`);
+    const toStartAt = to.cal.nextWorkingMinute(`${to.start.slice(0, 10)}T00:00`);
+    return tasks.map((t) => {
+      const deadline = t.deadline ? addCalendarDaysIso(t.deadline, shiftDays) : null;
+      if (parents.has(t.id)) return { ...t, deadline };
+      const offset =
+        t.startDate >= fromStart ? from.cal.workingMinutesBetween(fromStart, t.startDate) : -from.cal.workingMinutesBetween(t.startDate, fromStart);
+      const start = to.cal.addWorkingMinutes(toStartAt, offset);
+      return normalizeLeaf({ ...t, startDate: start, deadline }, to.cal, false, 'HOUR');
+    });
+  }
+  const toStart = to.cal.addWorkingDays(to.start, 0);
   return tasks.map((t) => {
     const deadline = t.deadline ? addCalendarDaysIso(t.deadline, shiftDays) : null;
     if (parents.has(t.id)) return { ...t, deadline };
     const start = to.cal.addWorkingDays(toStart, workingOffset(from.cal, from.start, t.startDate));
-    return normalizeLeaf({ ...t, startDate: start, deadline }, to.cal, false);
+    return normalizeLeaf({ ...t, startDate: start, deadline }, to.cal, false, 'DAY');
   });
 }
 
 /** Parents before children (insert order for the FK on parent_id). */
-function topoOrder<T extends { id: string; parentId: string | null }>(tasks: readonly T[]): T[] {
+export function topoOrder<T extends { id: string; parentId: string | null }>(tasks: readonly T[]): T[] {
   const byParent = new Map<string | null, T[]>();
   const ids = new Set(tasks.map((t) => t.id));
   for (const t of tasks) {
@@ -114,7 +138,10 @@ export class TemplatesService {
   }
 
   private async calendarOf(db: Db, id: string): Promise<WorkCalendar> {
-    const c = await db.calendar.findUnique({ where: { id }, select: { weekendDays: true, exceptions: { select: { date: true, isWorking: true } } } });
+    const c = await db.calendar.findUnique({
+      where: { id },
+      select: { weekendDays: true, workingHours: true, exceptions: { select: { date: true, isWorking: true, workingHours: true } } },
+    });
     if (!c) throw new AppError('NOT_FOUND');
     return workCalendarOf(c);
   }
@@ -126,15 +153,18 @@ export class TemplatesService {
    */
   async copyContent(tx: Db, sourceId: string, targetId: string, ctx: RequestContext): Promise<number> {
     const [source, target] = await Promise.all([
-      tx.project.findUnique({ where: { id: sourceId }, select: { startDate: true, calendarId: true } }),
-      tx.project.findUnique({ where: { id: targetId }, select: { startDate: true, calendarId: true } }),
+      tx.project.findUnique({ where: { id: sourceId }, select: { startDate: true, calendarId: true, durationUnit: true } }),
+      tx.project.findUnique({ where: { id: targetId }, select: { startDate: true, calendarId: true, durationUnit: true } }),
     ]);
     if (!source || !target) throw new AppError('NOT_FOUND');
+    // A9 hours: a copy keeps the source's unit (templates are created with it).
+    const unit: Unit = source.durationUnit ?? 'DAY';
+    if ((target.durationUnit ?? 'DAY') !== unit) await tx.project.update({ where: { id: targetId }, data: { durationUnit: unit } });
     const [labels, fields, rows, deps, fromCal, toCal] = await Promise.all([
       tx.projectLabel.findMany({ where: { projectId: sourceId }, select: { id: true, name: true, color: true } }),
       tx.customField.findMany({ where: { projectId: sourceId }, select: { name: true, type: true, options: true, sort: true } }),
       tx.task.findMany({ where: { projectId: sourceId, archivedAt: null }, select: STORED_TASK_SELECT }),
-      tx.taskDependency.findMany({ where: { projectId: sourceId }, select: { predecessorId: true, successorId: true, type: true, lagDays: true } }),
+      tx.taskDependency.findMany({ where: { projectId: sourceId }, select: { predecessorId: true, successorId: true, type: true, lagDays: true, lagMinutes: true } }),
       this.calendarOf(tx, source.calendarId),
       this.calendarOf(tx, target.calendarId),
     ]);
@@ -166,12 +196,27 @@ export class TemplatesService {
       })),
       { start: isoOf(source.startDate), cal: fromCal },
       { start: isoOf(target.startDate), cal: toCal },
+      unit,
     );
     const newDeps = deps
       .filter((d) => idMap.has(d.predecessorId) && idMap.has(d.successorId))
-      .map((d) => ({ id: randomUUID() as string, predecessorId: idMap.get(d.predecessorId)!, successorId: idMap.get(d.successorId)!, type: d.type, lagDays: d.lagDays }));
+      .map((d) => ({
+        id: randomUUID() as string,
+        predecessorId: idMap.get(d.predecessorId)!,
+        successorId: idMap.get(d.successorId)!,
+        type: d.type,
+        lagDays: d.lagDays,
+        lagMinutes: d.lagMinutes ?? 0,
+        ...(unit === 'HOUR' ? { lagHours: minutesToHours(d.lagMinutes ?? 0) } : {}),
+      }));
     const s = await this.store.lockAndLoad(tx, targetId);
-    const finals = recompute({ tasks: [...s.tasks, ...copies], dependencies: [...s.deps, ...newDeps], calendar: s.cal, autoSchedule: s.project.autoSchedule });
+    const finals = recompute({
+      tasks: [...s.tasks, ...copies],
+      dependencies: [...s.deps, ...newDeps],
+      calendar: s.cal,
+      autoSchedule: s.project.autoSchedule,
+      durationUnit: s.project.durationUnit,
+    });
     await this.store.persistDetailed(tx, s, finals, {
       ctx,
       insertedMany: topoOrder(copies),
@@ -179,7 +224,20 @@ export class TemplatesService {
       explicitAction: AuditAction.TASK_CREATED,
       auditExtra: { copiedFromProject: sourceId },
     });
-    if (newDeps.length) await tx.taskDependency.createMany({ data: newDeps.map((d) => ({ ...d, projectId: targetId, createdById: ctx.actorId })) });
+    if (newDeps.length) {
+      await tx.taskDependency.createMany({
+        data: newDeps.map((d) => ({
+          id: d.id,
+          predecessorId: d.predecessorId,
+          successorId: d.successorId,
+          type: d.type,
+          lagDays: d.lagDays,
+          lagMinutes: d.lagMinutes,
+          projectId: targetId,
+          createdById: ctx.actorId,
+        })),
+      });
+    }
     await this.tasks.copyTaskDetails(tx, idMap, ctx.actorId, { resetChecklist: true, values: false });
     return copies.length;
   }
@@ -200,6 +258,7 @@ export class TemplatesService {
           ownerId: viewer.id,
           createdById: viewer.id,
           isTemplate: true,
+          durationUnit: p.durationUnit,
           budget: p.budget,
           currency: p.currency,
         },
@@ -238,6 +297,7 @@ export class TemplatesService {
           ownerId: viewer.id,
           createdById: viewer.id,
           templateOfId: tpl.id,
+          durationUnit: tpl.durationUnit,
           budget: input.budget !== undefined ? input.budget : tpl.budget,
           currency: input.currency ?? tpl.currency,
           ...(input.status === 'ARCHIVED' ? { archivedAt: new Date() } : {}),

@@ -1,0 +1,7 @@
+Summary,Issue key,Issue id,Issue Type,Status,Status Category,Assignee,Created,Due date,Custom field (Start date),Original Estimate,Parent,Custom field (Epic Link),Outward issue link (Blocks),Outward issue link (Blocks),Inward issue link (Blocks)
+تجهيز الموقع,OPS-1,10001,Epic,In Progress,In Progress,,05/Oct/26 9:15 AM,,,,,,,,
+مسح الأرض,OPS-2,10002,Story,Done,Done,مشرف ١,06/Oct/26 10:00 AM,12/Oct/26,11/Oct/26,57600,,OPS-1,OPS-3,OPS-4,
+التسوير,OPS-3,10003,Task,To Do,To Do,مشرف ٢,06/Oct/26 11:30 AM,15/Oct/26,13/Oct/26,,,OPS-1,,,
+تركيب البوابة,OPS-4,10004,Task,Blocked,To Do,,07/Oct/26 8:00 AM,,,28800,,,,,OPS-3
+فحص البوابة,OPS-5,10005,Sub-task,To Do,To Do,مشرف ٢,07/Oct/26 8:05 AM,,,7200,10004,,,,
+,,,,,,,,,,,,,,,

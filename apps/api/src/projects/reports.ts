@@ -2,7 +2,7 @@
  * A9 reports as pure functions (budget, people, dashboard, workload, portfolio totals), so
  * the arithmetic is unit-tested without a database. Money is summed in integer cents.
  */
-import type { WorkCalendar } from '@nuzli/scheduling';
+import { WorkCalendar } from '@nuzli/scheduling';
 import type {
   BudgetReportDto,
   CostLine,
@@ -188,10 +188,13 @@ export function plannedByWeek(tasks: readonly StoredTask[], cal: WorkCalendar): 
     const cents = toCents(t.plannedCost);
     if (!cents) continue;
     const days: string[] = [];
-    if (t.type === 'MILESTONE' || t.durationDays <= 0) days.push(t.startDate);
+    // HOUR tasks: by the days of their first and last working minute (date part).
+    const first = t.startDate.slice(0, 10);
+    const last = t.endDate.slice(0, 10);
+    if (t.type === 'MILESTONE' || t.durationDays <= 0) days.push(first);
     else {
-      for (let d = t.startDate; d <= t.endDate && days.length <= 3660; d = addCalendarDaysIso(d, 1)) if (cal.isWorkingDay(d)) days.push(d);
-      if (!days.length) days.push(t.startDate);
+      for (let d = first; d <= last && days.length <= 3660; d = addCalendarDaysIso(d, 1)) if (cal.isWorkingDay(d)) days.push(d);
+      if (!days.length) days.push(first);
     }
     // Spread the cents exactly: the first `rest` days get one cent more.
     const base = Math.floor(cents / days.length);
@@ -234,7 +237,7 @@ export function buildDashboard(input: DashboardInput): Omit<ProjectDashboardDto,
   const person = (id: string | null) => (id ? (input.people.get(id) ?? { id, fullName: '' }) : null);
   const overdueTasks = leaves.filter((t) => dueFlags(t, input.today, input.cal).overdue);
   const overdue = overdueTasks
-    .map((t) => ({ taskId: t.id, wbs: t.wbsCache, name: t.name, endDate: t.endDate, daysOverdue: daysBetween(t.endDate, input.today), assignee: person(t.assigneeId) }))
+    .map((t) => ({ taskId: t.id, wbs: t.wbsCache, name: t.name, endDate: t.endDate, daysOverdue: daysBetween(t.endDate.slice(0, 10), input.today), assignee: person(t.assigneeId) }))
     .sort((a, b) => b.daysOverdue - a.daysOverdue || compareWbs(a.wbs, b.wbs))
     .slice(0, 20);
 
@@ -245,8 +248,9 @@ export function buildDashboard(input: DashboardInput): Omit<ProjectDashboardDto,
     if (t.deadline && t.deadline >= input.today && t.deadline <= horizon) {
       upcoming.push({ taskId: t.id, wbs: t.wbsCache, name: t.name, date: t.deadline, kind: 'DEADLINE', assignee: person(t.assigneeId) });
     }
-    if (t.endDate >= input.today && t.endDate <= horizon) {
-      upcoming.push({ taskId: t.id, wbs: t.wbsCache, name: t.name, date: t.endDate, kind: t.type === 'MILESTONE' ? 'MILESTONE' : 'END', assignee: person(t.assigneeId) });
+    const endDay = t.endDate.slice(0, 10);
+    if (endDay >= input.today && endDay <= horizon) {
+      upcoming.push({ taskId: t.id, wbs: t.wbsCache, name: t.name, date: endDay, kind: t.type === 'MILESTONE' ? 'MILESTONE' : 'END', assignee: person(t.assigneeId) });
     }
   }
   upcoming.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : compareWbs(a.wbs, b.wbs)));
@@ -296,15 +300,22 @@ export function dateRange(from: string, to: string): string[] {
 export interface WorkloadTask {
   assigneeId: string;
   type: StoredTask['type'];
+  /** `YYYY-MM-DD` (the DATE columns, for both units). */
   startDate: string;
   endDate: string;
+  /** A9 hours: HOUR tasks only — local date-times of the first working minute and of the end. */
+  startAt?: string | null;
+  endAt?: string | null;
   cal: WorkCalendar;
 }
 
 /**
- * Workload per person per day: each working day of a leaf task (project calendar) counts one
- * working day (`WORKDAY_MINUTES`) for its assignee — two overlapping tasks = 16 h, an overload.
- * Milestones count 0. Logged minutes come from time entries. Days outside the range are ignored.
+ * Workload per person per day (A9 hours, ADR-109): a DAY task counts, on each of its working
+ * days, the real working minutes of that day on its project calendar (480 on a default day, a
+ * short day's own hours); an HOUR task counts only the working minutes it covers that day.
+ * Two overlapping tasks add up (an overload). Milestones count 0. Logged minutes come from time
+ * entries. `capacityMinutes` of a day = the working minutes of `capacity` (the default calendar)
+ * that day. Days outside the range are ignored.
  */
 export function computeWorkload(input: {
   from: string;
@@ -312,21 +323,37 @@ export function computeWorkload(input: {
   users: readonly Person[];
   tasks: readonly WorkloadTask[];
   entries: ReadonlyArray<{ userId: string; date: string; minutes: number }>;
+  /** The calendar that defines a person's capacity (default: Fri/Sat weekend, 09–13 / 14–18). */
+  capacity?: WorkCalendar;
 }): WorkloadDto {
+  const capacity = input.capacity ?? new WorkCalendar({});
   const days = dateRange(input.from, input.to);
   const index = new Map(days.map((d, i) => [d, i]));
   const rows = new Map(
-    input.users.map((u) => [u.id, { user: u, days: days.map((date) => ({ date, assignedMinutes: 0, loggedMinutes: 0, taskCount: 0 })) }]),
+    input.users.map((u) => [
+      u.id,
+      { user: u, days: days.map((date) => ({ date, assignedMinutes: 0, loggedMinutes: 0, taskCount: 0, capacityMinutes: capacity.workingMinutesOfDay(date) })) },
+    ]),
   );
   for (const t of input.tasks) {
     const row = rows.get(t.assigneeId);
     if (!row || t.type !== 'TASK') continue;
-    const start = t.startDate > input.from ? t.startDate : input.from;
-    const end = t.endDate < input.to ? t.endDate : input.to;
+    const first = t.startDate.slice(0, 10);
+    const last = t.endDate.slice(0, 10);
+    const start = first > input.from ? first : input.from;
+    const end = last < input.to ? last : input.to;
     for (let d = start; d <= end; d = addCalendarDaysIso(d, 1)) {
-      if (!t.cal.isWorkingDay(d)) continue;
+      let minutes: number;
+      if (t.startAt && t.endAt) {
+        const dayStart = `${d}T00:00`;
+        const dayEnd = `${addCalendarDaysIso(d, 1)}T00:00`;
+        minutes = t.cal.workingMinutesBetween(t.startAt > dayStart ? t.startAt : dayStart, t.endAt < dayEnd ? t.endAt : dayEnd);
+      } else {
+        minutes = t.cal.isWorkingDay(d) ? t.cal.workingMinutesOfDay(d) : 0;
+      }
+      if (minutes <= 0) continue;
       const cell = row.days[index.get(d)!]!;
-      cell.assignedMinutes += WORKDAY_MINUTES;
+      cell.assignedMinutes += minutes;
       cell.taskCount++;
     }
   }
@@ -339,7 +366,7 @@ export function computeWorkload(input: {
     from: input.from,
     to: input.to,
     days,
-    capacityMinutesPerDay: WORKDAY_MINUTES,
+    capacityMinutesPerDay: capacity.standardMinutesPerDay,
     people: [...rows.values()].map((r) => ({
       user: r.user,
       days: r.days,
