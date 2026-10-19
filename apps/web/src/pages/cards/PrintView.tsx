@@ -7,7 +7,7 @@ import { useApi } from '../../api/context';
 import { errorMessage } from '../../api/errors';
 import { useBatch, useCardTemplates, useLogos } from '../../api/queries';
 import { ErrorBlock, LoadingBlock } from '../../components/ui';
-import { formatDateTime, formatNumber, t } from '../../i18n';
+import { formatDateTime, formatNumber, t, tCount } from '../../i18n';
 import { logoFor, templateFromSnapshot, waitForPrintAssets } from './cardUtils';
 import { dropPrintRun, getPrintRun } from '../../features/cards/printRun';
 
@@ -116,7 +116,7 @@ export function PrintView() {
         <Group justify="space-between" wrap="wrap" gap="xs">
           <div>
             <Text fw={600}>
-              {t('print.title', { count: formatNumber(batch.data.cardCount), template: batch.data.template.name })}
+              {tCount('print.title', batch.data.cardCount, { template: batch.data.template.name })}
             </Text>
             <Text size="xs" c="dimmed">
               {t('print.meta', {

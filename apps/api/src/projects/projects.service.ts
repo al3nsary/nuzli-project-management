@@ -35,7 +35,7 @@ import { ProjectStore, WRITE_TX_OPTIONS, mapTaskDbError } from './project-store'
 import { FIELD_SELECT, LABEL_SELECT, toFieldDto, toLabelDto } from './task-details.service';
 import { ensureProjectCalendar, weekendFromWorkingDays } from './calendars.service';
 import { TemplatesService } from './templates.service';
-import { dateOf, DEFAULT_WORKING_HOURS, isoOf, projectProgress } from './task-engine';
+import { dateOf, DEFAULT_WORKING_HOURS, dueDayOf, isoOf, rootsForProgress } from './task-engine';
 import { buildTasksCsv, buildTasksWorkbook, compareWbs, type TaskExportRow } from './tasks-export';
 import { writeMspdi } from '../imports/mspdi';
 import { writeGanttpro } from '../imports/ganttpro';
@@ -340,10 +340,11 @@ export class ProjectsService {
     const tasks = rows
       .map((r) => ({ ...toTaskDto(r, counts, wbs.get(r.id), extras), unreadCount: unread.get(r.id) ?? 0 }))
       .sort((a, b) => compareWbs(a.wbs, b.wbs));
-    const roots = stored.filter((t) => !t.parentId || !ids.has(t.parentId));
-    // HOUR projects: the project's end date is the day of the last working minute.
+    const roots = rootsForProgress(stored);
+    // HOUR projects: the project's end date is the day of the last working minute (an end at
+    // 24:00 belongs to the day before — the shared due-day rule, calculations audit L6).
     const endDate = stored.reduce<string | null>((m, t) => {
-      const day = t.endDate.slice(0, 10);
+      const day = dueDayOf(t);
       return m === null || day > m ? day : m;
     }, null);
     const project = toProjectDto(p, { roots, endDate, taskCount: stored.length });
@@ -493,7 +494,7 @@ export class ProjectsService {
           status: g.project.status,
           startDate: g.project.startDate,
           endDate: g.project.endDate,
-          progress: projectProgress(g.tasks.filter((t) => !t.parentId)),
+          progress: g.project.progress,
           calendarName: g.calendar.name,
           autoSchedule: g.project.autoSchedule,
           generatedAt,

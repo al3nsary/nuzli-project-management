@@ -39,6 +39,7 @@ export const warningLabel = (code: string): string =>
   tKey(`import.warn.${code}`, 'import.warn.other');
 
 export const SOURCE_KEYS: Record<string, { title: MessageKey; hint: MessageKey }> = {
+  ganttpro: { title: 'import.source.ganttpro', hint: 'import.source.ganttproHint' },
   xlsx: { title: 'import.source.xlsx', hint: 'import.source.xlsxHint' },
   csv: { title: 'import.source.csv', hint: 'import.source.csvHint' },
   xml: { title: 'import.source.xml', hint: 'import.source.xmlHint' },

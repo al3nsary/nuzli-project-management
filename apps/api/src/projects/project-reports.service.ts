@@ -9,6 +9,7 @@ import type {
   ProjectReportRow,
   WorkloadDto,
 } from '@nuzli/shared';
+import { progressWeight } from '@nuzli/scheduling';
 import { AppError } from '../common/app-error';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -142,11 +143,11 @@ export class ProjectReportsService {
       this.store.projectStats(ids),
       this.prisma.task.findMany({
         where: { projectId: { in: ids }, archivedAt: null },
-        select: { id: true, projectId: true, parentId: true, type: true, status: true, endDate: true, deadline: true },
+        select: { id: true, projectId: true, parentId: true, type: true, status: true, startDate: true, endDate: true, deadline: true },
       }),
       this.prisma.calendar.findMany({
         where: { id: { in: [...new Set(projects.map((x) => x.calendarId))] } },
-        select: { id: true, weekendDays: true, exceptions: { select: { date: true, isWorking: true } } },
+        select: { id: true, weekendDays: true, workingHours: true, exceptions: { select: { date: true, isWorking: true, workingHours: true } } },
       }),
     ]);
     const cals = new Map(calendars.map((c) => [c.id, workCalendarOf(c)]));
@@ -160,9 +161,16 @@ export class ProjectReportsService {
     return projects.map((p) => {
       const cal = cals.get(p.calendarId) ?? workCalendarOf({ weekendDays: [5, 6], exceptions: [] });
       const leaves = leavesOf(byProject.get(p.id) ?? []).filter((t) => t.type !== 'GROUP');
-      const simple = leaves.map((t) => ({ ...t, endDate: isoOf(t.endDate), deadline: t.deadline ? isoOf(t.deadline) : null }));
+      // DATE columns: for HOUR tasks end_date is already the day of the last working minute (L6).
+      const simple = leaves.map((t) => ({ ...t, startDate: isoOf(t.startDate), endDate: isoOf(t.endDate), deadline: t.deadline ? isoOf(t.deadline) : null }));
+      const st = stats.get(p.id)!;
+      // Portfolio weight (calculations audit): the project's duration in working days, like a
+      // project weighs its roots — HOUR projects convert working minutes with the standard day.
+      const w = st.roots.reduce((sum, r) => sum + progressWeight(r, p.durationUnit), 0);
+      const progressWeightDays = p.durationUnit === 'HOUR' ? Math.round((w / cal.standardMinutesPerDay) * 100) / 100 : w;
       return {
-        project: toProjectDto(p, stats.get(p.id)!),
+        project: toProjectDto(p, st),
+        progressWeightDays,
         leafCount: simple.filter((t) => t.type !== 'MILESTONE').length,
         doneCount: simple.filter((t) => t.type !== 'MILESTONE' && t.status === 'DONE').length,
         overdueCount: simple.filter((t) => dueFlags(t, today, cal).overdue).length,
@@ -196,7 +204,13 @@ export class ProjectReportsService {
         select: { assigneeId: true, type: true, startDate: true, endDate: true, startAt: true, endAt: true, project: { select: { calendarId: true } } },
       }),
       this.prisma.timeEntry.findMany({
-        where: { userId: { in: userIds }, date: { gte: dateOf(q.from), lte: dateOf(q.to) } },
+        // Calculations audit L12: logged time counts only live tasks of live, non-template projects,
+        // exactly like the assigned minutes.
+        where: {
+          userId: { in: userIds },
+          date: { gte: dateOf(q.from), lte: dateOf(q.to) },
+          task: { archivedAt: null, project: { archivedAt: null, isTemplate: false } },
+        },
         select: { userId: true, date: true, minutes: true },
       }),
     ]);

@@ -5,7 +5,7 @@
  * A9 reports as pure functions (budget, people, dashboard, workload, portfolio totals), so
  * the arithmetic is unit-tested without a database. Money is summed in integer cents.
  */
-import type { WorkCalendar } from '@nuzli/scheduling';
+import { WorkCalendar } from '@nuzli/scheduling';
 import type {
   BudgetReportDto,
   CostLine,
@@ -16,7 +16,10 @@ import type {
   TaskStatus,
   WorkloadDto,
 } from '@nuzli/shared';
-import { addCalendarDaysIso, compareWbs, deadlinePassed, dueFlags, fromCents, projectProgress, toCents, type StoredTask } from './engine';
+import { addCalendarDaysIso, compareWbs, deadlinePassed, dueDayOf, dueFlags, fromCents, projectProgress, toCents, type StoredTask } from './engine';
+
+/** Calculations audit L11 (the API's text): shown under «حسب الوسم» when a task carries several labels. */
+export const BY_LABEL_OVERLAP_NOTE = 'المهمة ذات أكثر من وسم تُحسب تحت كلٍّ منها، لذا قد يزيد مجموع الأعمدة على الإجمالي.';
 
 const dateOf = (iso: string): Date => new Date(`${iso.slice(0, 10)}T00:00:00.000Z`);
 
@@ -52,7 +55,8 @@ export interface BudgetInput {
 }
 
 export function buildBudgetReport(input: BudgetInput): BudgetReportDto {
-  const leaves = leavesOf(input.tasks);
+  // An empty GROUP (no live children) is not a leaf that carries work (calculations audit H2).
+  const leaves = leavesOf(input.tasks).filter((t) => t.type !== 'GROUP');
   let planned = 0;
   let actual = 0;
   for (const t of leaves) {
@@ -87,8 +91,10 @@ export function buildBudgetReport(input: BudgetInput): BudgetReportDto {
 
   const labelById = new Map(input.labels.map((l) => [l.id, l]));
   const label = new Map<string | null, { p: number; a: number; n: number }>();
+  let overlapping = false;
   for (const t of leaves) {
     const keys = t.labelIds.filter((l) => labelById.has(l));
+    if (keys.length > 1) overlapping = true;
     for (const k of keys.length ? keys : [null]) {
       const cur = label.get(k) ?? { p: 0, a: 0, n: 0 };
       cur.p += toCents(t.plannedCost);
@@ -127,6 +133,8 @@ export function buildBudgetReport(input: BudgetInput): BudgetReportDto {
     byGroup,
     byAssignee,
     byLabel,
+    byLabelOverlapping: overlapping,
+    byLabelNote: overlapping ? BY_LABEL_OVERLAP_NOTE : null,
     overBudgetTasks,
   };
 }
@@ -192,10 +200,14 @@ export function plannedByWeek(tasks: readonly StoredTask[], cal: WorkCalendar): 
     const cents = toCents(t.plannedCost);
     if (!cents) continue;
     const days: string[] = [];
-    if (t.type === 'MILESTONE' || t.durationDays <= 0) days.push(t.startDate);
+    // HOUR tasks: by the days of their first and last working minute (an end at 24:00 belongs to
+    // the day before — the shared due-day rule, calculations audit L6).
+    const first = t.startDate.slice(0, 10);
+    const last = dueDayOf(t);
+    if (t.type === 'MILESTONE' || t.durationDays <= 0) days.push(first);
     else {
-      for (let d = t.startDate; d <= t.endDate && days.length <= 3660; d = addCalendarDaysIso(d, 1)) if (cal.isWorkingDay(d)) days.push(d);
-      if (!days.length) days.push(t.startDate);
+      for (let d = first; d <= last && days.length <= 3660; d = addCalendarDaysIso(d, 1)) if (cal.isWorkingDay(d)) days.push(d);
+      if (!days.length) days.push(first);
     }
     // Spread the cents exactly: the first `rest` days get one cent more.
     const base = Math.floor(cents / days.length);
@@ -238,7 +250,7 @@ export function buildDashboard(input: DashboardInput): Omit<ProjectDashboardDto,
   const person = (id: string | null) => (id ? (input.people.get(id) ?? { id, fullName: '' }) : null);
   const overdueTasks = leaves.filter((t) => dueFlags(t, input.today, input.cal).overdue);
   const overdue = overdueTasks
-    .map((t) => ({ taskId: t.id, wbs: t.wbsCache, name: t.name, endDate: t.endDate, daysOverdue: daysBetween(t.endDate, input.today), assignee: person(t.assigneeId) }))
+    .map((t) => ({ taskId: t.id, wbs: t.wbsCache, name: t.name, endDate: t.endDate, daysOverdue: daysBetween(dueDayOf(t), input.today), assignee: person(t.assigneeId) }))
     .sort((a, b) => b.daysOverdue - a.daysOverdue || compareWbs(a.wbs, b.wbs))
     .slice(0, 20);
 
@@ -249,8 +261,9 @@ export function buildDashboard(input: DashboardInput): Omit<ProjectDashboardDto,
     if (t.deadline && t.deadline >= input.today && t.deadline <= horizon) {
       upcoming.push({ taskId: t.id, wbs: t.wbsCache, name: t.name, date: t.deadline, kind: 'DEADLINE', assignee: person(t.assigneeId) });
     }
-    if (t.endDate >= input.today && t.endDate <= horizon) {
-      upcoming.push({ taskId: t.id, wbs: t.wbsCache, name: t.name, date: t.endDate, kind: t.type === 'MILESTONE' ? 'MILESTONE' : 'END', assignee: person(t.assigneeId) });
+    const endDay = dueDayOf(t);
+    if (endDay >= input.today && endDay <= horizon) {
+      upcoming.push({ taskId: t.id, wbs: t.wbsCache, name: t.name, date: endDay, kind: t.type === 'MILESTONE' ? 'MILESTONE' : 'END', assignee: person(t.assigneeId) });
     }
   }
   upcoming.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : compareWbs(a.wbs, b.wbs)));
@@ -333,11 +346,17 @@ export function computeWorkload(input: {
   users: readonly Person[];
   tasks: readonly WorkloadTask[];
   entries: ReadonlyArray<{ userId: string; date: string; minutes: number }>;
+  /** The calendar that defines a person's capacity (default: Fri/Sat weekend, 09–13 / 14–18), as the API. */
+  capacity?: WorkCalendar;
 }): WorkloadDto {
+  const capacity = input.capacity ?? new WorkCalendar({});
   const days = dateRange(input.from, input.to);
   const index = new Map(days.map((d, i) => [d, i]));
   const rows = new Map(
-    input.users.map((u) => [u.id, { user: u, days: days.map((date) => ({ date, assignedMinutes: 0, loggedMinutes: 0, taskCount: 0 })) }]),
+    input.users.map((u) => [
+      u.id,
+      { user: u, days: days.map((date) => ({ date, assignedMinutes: 0, loggedMinutes: 0, taskCount: 0, capacityMinutes: capacity.workingMinutesOfDay(date) })) },
+    ]),
   );
   for (const t of input.tasks) {
     const row = rows.get(t.assigneeId);
@@ -363,12 +382,14 @@ export function computeWorkload(input: {
     from: input.from,
     to: input.to,
     days,
-    capacityMinutesPerDay: WORKDAY_MINUTES,
+    capacityMinutesPerDay: capacity.standardMinutesPerDay,
     people: [...rows.values()].map((r) => ({
       user: r.user,
       days: r.days,
       totalAssignedMinutes: r.days.reduce((s, d) => s + d.assignedMinutes, 0),
       totalLoggedMinutes: r.days.reduce((s, d) => s + d.loggedMinutes, 0),
+      // Calculations audit M4: the real capacity of the range (holidays 0, short days their minutes).
+      totalCapacityMinutes: r.days.reduce((s, d) => s + d.capacityMinutes, 0),
     })),
   };
 }
@@ -382,7 +403,7 @@ export function rangeProblem(from: string, to: string, max = MAX_RANGE_DAYS): st
 
 // ───────────────────────────── portfolios, templates, hub (ports of templates.service / hub.service)
 
-type PortfolioRow = { project: import('@nuzli/shared').ProjectDto; leafCount: number; overdueCount: number };
+type PortfolioRow = { project: import('@nuzli/shared').ProjectDto; leafCount: number; overdueCount: number; progressWeightDays?: number };
 
 /** Portfolio totals (as `portfolioTotals` in apps/api templates.service.ts). */
 export function portfolioTotals(rows: ReadonlyArray<PortfolioRow>): import('@nuzli/shared').PortfolioSummaryDto['totals'] {
@@ -398,8 +419,10 @@ export function portfolioTotals(rows: ReadonlyArray<PortfolioRow>): import('@nuz
   const byStatus: Record<string, number> = {};
   for (const r of rows) {
     const p = r.project;
-    weighted += p.progress * r.leafCount;
-    weights += r.leafCount;
+    // Weighted by duration like a project's own progress (calculations audit); leaf count as a fallback.
+    const w = r.progressWeightDays ?? r.leafCount;
+    weighted += p.progress * w;
+    weights += w;
     plain += p.progress;
     if (p.budget !== null && p.budget !== undefined) budgetCents = (budgetCents ?? 0) + Math.round(p.budget * 100);
     planned += Math.round((p.plannedCost ?? 0) * 100);
@@ -433,7 +456,7 @@ export function workingOffset(cal: WorkCalendar, from: string, to: string): numb
 
 /** First characters of a comment for quotes and the hub (whitespace collapsed). */
 export function preview(body: string, max = 160): string {
-  const flat = body.replace(/s+/g, ' ').trim();
+  const flat = body.replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 

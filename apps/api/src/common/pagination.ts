@@ -6,6 +6,14 @@ export function paginate<T>(items: T[], total: number, page: number, pageSize: n
 
 export type SortOrder = 'asc' | 'desc';
 
+/**
+ * Calculations audit L5: offset pagination needs a total order, else rows with equal sort keys
+ * can repeat or vanish between pages. Appends `{ id: 'asc' }` as the last key.
+ */
+export function withIdTiebreak<O extends object>(order: O | O[]): Array<O | { id: SortOrder }> {
+  return [...(Array.isArray(order) ? order : [order]), { id: 'asc' as const }];
+}
+
 /** `field:asc` → `{ field: 'asc' }` when the field is in the allow-list, else the fallback. */
 export function parseSort<F extends string>(
   sort: string | undefined,

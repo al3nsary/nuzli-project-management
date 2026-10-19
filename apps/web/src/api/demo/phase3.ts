@@ -8,6 +8,7 @@ import {
   registerViolationMemberSchema,
   unassignViolationSchema,
   can,
+  isEditWindowOpen,
   changeViolationStatusSchema,
   createViolationSchema,
   isClockDriftSuspect,
@@ -842,7 +843,8 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       if (!can(viewer, 'violations.manage')) {
         const until = Date.parse(v.receivedAt) + w.settings.VIOLATION_EDIT_WINDOW_MINUTES * 60_000;
         if (v.recordedById !== viewer.id) fail('FORBIDDEN');
-        if (Date.now() > until) throw ApiError.of('EDIT_WINDOW_CLOSED', 403);
+        // L13: one boundary with the API — open strictly before editableUntil (shared isEditWindowOpen).
+        if (!isEditWindowOpen(Date.now(), until)) throw ApiError.of('EDIT_WINDOW_CLOSED', 403);
       }
       if (data.typeId !== undefined && data.typeId !== v.typeId) {
         const type = w.types.get(data.typeId);

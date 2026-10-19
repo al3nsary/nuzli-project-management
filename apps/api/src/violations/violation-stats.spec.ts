@@ -111,7 +111,7 @@ describe('assembleStats', () => {
   it('maps rows, computes perMember and fills the trend', () => {
     const s = assembleStats(empty, { from: '2026-10-01', to: '2026-10-04' }, new Date('2026-10-12T00:00:00Z'));
     expect(s).toMatchObject({ total: 7, thisWeek: 3, previousWeek: 2, pointsTruncated: false });
-    expect(s.byTeam[0]).toEqual({ teamId: 't1', teamName: 'أ', color: '#123456', count: 6, members: 4, perMember: 1.5 });
+    expect(s.byTeam[0]).toEqual({ teamId: 't1', teamName: 'أ', color: '#123456', count: 6, members: 4, perMember: 1.5, perMemberRate: 1.5 });
     expect(s.trend).toEqual([
       { date: '2026-10-01', count: 2 },
       { date: '2026-10-02', count: 0 },
@@ -153,5 +153,37 @@ describe('A9: unassigned violations in the statistics (ADR-103)', () => {
     const base: StatsRows = { totals: [], byTeam: [], topMembers: [], byMonitor: [], byType: [], bySeverity: [], trend: [], heatmap: [], points: [] };
     expect(assembleStats({ ...base, unassigned: [{ count: 7 }] }, {}, new Date()).unassigned).toBe(7);
     expect(assembleStats(base, {}, new Date()).unassigned).toBe(0);
+  });
+});
+
+describe('calculations audit 2026-10 — week KPI, per-member rate, top-member ties', () => {
+  // Monday 2026-10-12 10:00 Riyadh (week from Sunday 11th).
+  const now = new Date('2026-10-12T07:00:00Z');
+
+  it('previousWeekToDate counts the previous week up to now − 7 days (same elapsed span)', () => {
+    const q = statsQueries({}, now);
+    expect(text(q.totals)).toContain('AS previous_week_to_date');
+    expect(q.totals.values).toContainEqual(new Date('2026-10-05T07:00:00Z'));
+    const s = assembleStats(
+      { totals: [{ total: 9, this_week: 3, previous_week: 10, previous_week_to_date: 3 }], byTeam: [], topMembers: [], byMonitor: [], byType: [], bySeverity: [], trend: [], heatmap: [], points: [] },
+      {},
+      now,
+    );
+    expect(s).toMatchObject({ thisWeek: 3, previousWeek: 10, previousWeekToDate: 3 });
+  });
+
+  it('perMemberRate is null for a team with no members at the end of the period (perMember stays 0)', () => {
+    const s = assembleStats(
+      { totals: [], byTeam: [{ team_id: 't', team_name: 'ب', color: '#000000', count: 4, members: 0 }], topMembers: [], byMonitor: [], byType: [], bySeverity: [], trend: [], heatmap: [], points: [] },
+      {},
+      now,
+    );
+    expect(s.byTeam[0]).toMatchObject({ perMember: 0, perMemberRate: null });
+  });
+
+  it('top members are ordered deterministically on ties (count, then member id)', () => {
+    const t = text(statsQueries({}, now).topMembers);
+    expect(t).toContain('ORDER BY count(*) DESC, v.member_id LIMIT');
+    expect(t).toContain('ORDER BY g.n DESC, mb.full_name, g.member_id');
   });
 });

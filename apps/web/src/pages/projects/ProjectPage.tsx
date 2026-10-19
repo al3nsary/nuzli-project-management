@@ -50,11 +50,11 @@ import {
   IconDownload,
   IconFileSpreadsheet,
   IconFileTypeCsv,
-  IconFileTypeXml,
   IconFileTypePdf,
   IconFilter,
   IconLayoutKanban,
   IconListTree,
+  IconTimeline,
   IconPalette,
   IconPencil,
   IconPhoto,
@@ -84,7 +84,7 @@ import { useSupervisors } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
 import { ErrorBlock, LoadingBlock } from '../../components/ui';
 import { UserAvatar } from '../../components/UserAvatar';
-import { formatNumber, getDisplayPrefs, t } from '../../i18n';
+import { formatNumber, getDisplayPrefs, t, tCount } from '../../i18n';
 import { Gantt, linkMessage, type AddTaskInput, type ReorderChange } from '../../features/gantt/Gantt';
 import { DEFAULT_COLUMNS, normalizeColumns, type ColumnPref } from '../../features/gantt/columns';
 import { dayOf, fitZoom, zoomsFor, type Zoom } from '../../features/gantt/geometry';
@@ -115,6 +115,7 @@ import { ProjectDashboardTab } from './tabs/DashboardTab';
 import { useOverlayParam, useTabParam } from '../../lib/useUrlState';
 import { TaskChatDrawer } from './TaskWorkspace';
 import { useTaskChatCounts } from '../../features/tasks/TaskChatButton';
+import { EDGE_SAFE_MIDDLEWARES } from '../../lib/floating';
 import './projects.css';
 import './a9-projects.css';
 
@@ -537,7 +538,7 @@ function ProjectBody(p: BodyProps) {
         const dep = await writes.run(() => api.dependencies.create(data.project.id, { predecessorId, successorId, type: 'FS', lagDays: 0 }));
         writes.merge(dep.affected);
         await writes.refresh();
-        notifications.show({ color: 'ok', message: t('gantt.linkAdded', { count: formatNumber(dep.affected.length) }) });
+        notifications.show({ color: 'ok', message: tCount('gantt.linkAdded', dep.affected.length) });
       } catch (err) {
         const msg =
           err instanceof ApiError && err.code === 'DEPENDENCY_CYCLE'
@@ -586,7 +587,7 @@ function ProjectBody(p: BodyProps) {
           try {
             const res = await writes.archive([id]);
             p.setSelected(new Set([...p.selected].filter((s) => !res.archivedIds.includes(s))));
-            notifications.show({ color: 'ok', message: t('grid.deleted', { count: formatNumber(res.archivedIds.length) }) });
+            notifications.show({ color: 'ok', message: tCount('grid.deleted', res.archivedIds.length) });
           } catch (err) {
             notifications.show({ color: 'breach', message: errorMessage(err) });
           }
@@ -600,7 +601,7 @@ function ProjectBody(p: BodyProps) {
     async (id: string, withSubtasks: boolean) => {
       try {
         const res = await writes.duplicate(id, withSubtasks);
-        notifications.show({ color: 'ok', message: t('grid.duplicated', { name: data.tasks.find((x) => x.id === id)?.name ?? '', count: formatNumber(res.tasks.length) }) });
+        notifications.show({ color: 'ok', message: tCount('grid.duplicated', res.tasks.length, { name: data.tasks.find((x) => x.id === id)?.name ?? '' }) });
       } catch (err) {
         notifications.show({ color: 'breach', message: errorMessage(err) });
       }
@@ -694,7 +695,7 @@ function ProjectBody(p: BodyProps) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `project-${riyadhToday()}.${format === 'ganttpro' ? 'xlsx' : format}`;
+      a.download = `project-${riyadhToday()}${format === 'ganttpro' ? '-ganttpro.xlsx' : `.${format}`}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
       notifications.show({ color: 'ok', message: t('gantt.exported', { format: t(`gantt.exportFormat.${format}`) }) });
@@ -796,30 +797,25 @@ function ProjectBody(p: BodyProps) {
             </Menu>
           ) : null}
           {view === 'gantt' || view === 'list' ? (
-            <Menu position="bottom-end" withinPortal>
+            <Menu position="bottom-end" withinPortal width={290} middlewares={EDGE_SAFE_MIDDLEWARES}>
               <Menu.Target>
                 <Button size="xs" variant="default" leftSection={exporting ? <Loader size={12} /> : <IconDownload size={16} />}>
                   {t('toolbar.export')}
                 </Button>
               </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item leftSection={<IconPhoto size={16} />} onClick={() => void exportPng()}>
-                  {t('gantt.exportPng')}
-                </Menu.Item>
-                <Menu.Item leftSection={<IconFileTypePdf size={16} />} onClick={exportPdf}>
-                  {t('gantt.exportPdf')}
-                </Menu.Item>
+              <Menu.Dropdown className="nz-export-menu">
+                {/* A10 (ADR-130): to the two project tools first, then tables, then image/document. */}
+                <Menu.Label>{t('gantt.exportTo.title')}</Menu.Label>
+                <ExportItem icon={<IconTimeline size={18} />} label={t('gantt.exportTo.ganttpro')} hint={t('gantt.exportTo.ganttproHint')} onClick={() => void exportFile('ganttpro')} testId="export-ganttpro" />
+                <ExportItem icon={<IconListTree size={18} />} label={t('gantt.exportTo.msproject')} hint={t('gantt.exportTo.msprojectHint')} onClick={() => void exportFile('xml')} testId="export-xml" />
                 <Menu.Divider />
-                <Menu.Label>{t('gantt.exportData')}</Menu.Label>
-                <Menu.Item leftSection={<IconFileSpreadsheet size={16} />} onClick={() => void exportFile('xlsx')}>
-                  {t('gantt.exportXlsx')}
-                </Menu.Item>
-                <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={() => void exportFile('csv')}>
-                  {t('gantt.exportCsv')}
-                </Menu.Item>
-                <Menu.Item leftSection={<IconFileTypeXml size={16} />} onClick={() => void exportFile('xml')}>
-                  {t('gantt.exportXml')}
-                </Menu.Item>
+                <Menu.Label>{t('gantt.exportTo.data')}</Menu.Label>
+                <ExportItem icon={<IconFileSpreadsheet size={18} />} label={t('gantt.exportTo.excel')} hint={t('gantt.exportTo.excelHint')} onClick={() => void exportFile('xlsx')} testId="export-xlsx" />
+                <ExportItem icon={<IconFileTypeCsv size={18} />} label={t('gantt.exportTo.csv')} hint={t('gantt.exportTo.csvHint')} onClick={() => void exportFile('csv')} testId="export-csv" />
+                <Menu.Divider />
+                <Menu.Label>{t('gantt.exportTo.image')}</Menu.Label>
+                <ExportItem icon={<IconPhoto size={18} />} label={t('gantt.exportTo.png')} hint={t('gantt.exportTo.pngHint')} onClick={() => void exportPng()} testId="export-png" />
+                <ExportItem icon={<IconFileTypePdf size={18} />} label={t('gantt.exportTo.pdf')} hint={t('gantt.exportTo.pdfHint')} onClick={exportPdf} testId="export-pdf" />
               </Menu.Dropdown>
             </Menu>
           ) : null}
@@ -1117,7 +1113,7 @@ function BulkBar({ data, writes, selected, onClear }: { data: GanttView; writes:
   const run = async (patch: Parameters<ProjectWrites['bulk']>[1]) => {
     try {
       const res = await writes.bulk(ids, patch);
-      notifications.show({ color: 'ok', message: t('bulk.done', { count: formatNumber(res.tasks.length) }) });
+      notifications.show({ color: 'ok', message: tCount('bulk.done', res.tasks.length) });
     } catch (err) {
       notifications.show({ color: 'breach', message: err instanceof ApiError && err.code === 'CONFLICT_VERSION' ? t('gantt.conflict') : errorMessage(err) });
     }
@@ -1125,7 +1121,7 @@ function BulkBar({ data, writes, selected, onClear }: { data: GanttView; writes:
   const archive = () =>
     modals.openConfirmModal({
       title: t('bulk.archiveTitle'),
-      children: <Text size="sm">{t('bulk.archiveBody', { count: formatNumber(ids.length) })}</Text>,
+      children: <Text size="sm">{tCount('bulk.archiveBody', ids.length)}</Text>,
       labels: { confirm: t('bulk.archive'), cancel: t('common.cancel') },
       confirmProps: { color: 'breach' },
       onConfirm: async () => {
@@ -1138,8 +1134,8 @@ function BulkBar({ data, writes, selected, onClear }: { data: GanttView; writes:
       },
     });
   return (
-    <div className="nz-bulk" role="region" aria-label={t('bulk.selected', { count: formatNumber(ids.length) })}>
-      <span className="nz-bulk-count">{t('bulk.selected', { count: formatNumber(ids.length) })}</span>
+    <div className="nz-bulk" role="region" aria-label={t('bulk.selected', { count: ids.length })}>
+      <span className="nz-bulk-count">{t('bulk.selected', { count: ids.length })}</span>
       <Menu withinPortal position="bottom-start">
         <Menu.Target>
           <Button size="xs" variant="default" leftSection={<IconChecks size={15} />}>
@@ -1266,5 +1262,17 @@ function EmptyGantt({ editable, onAdd }: { editable: boolean; onAdd(): void }) {
         </>
       ) : null}
     </div>
+  );
+}
+
+/** One export choice: what it is and, under it, what it is for (A10). */
+function ExportItem({ icon, label, hint, onClick, testId }: { icon: ReactNode; label: string; hint: string; onClick(): void; testId: string }) {
+  return (
+    <Menu.Item leftSection={icon} onClick={onClick} data-testid={testId}>
+      <span className="nz-export-item">
+        <span className="nz-export-item-label">{label}</span>
+        <span className="nz-export-item-hint">{hint}</span>
+      </span>
+    </Menu.Item>
   );
 }

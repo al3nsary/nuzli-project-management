@@ -66,11 +66,17 @@ describe('sizes', () => {
       [101.6, 50.8],
       [76.2, 50.8],
       [101.6, 76.2],
-      [57, 32],
+      [57.15, 31.75],
     ]);
     expect(BUILTIN_CARD_SIZES.filter((s) => s.isDefault).map((s) => s.key)).toEqual(['CR80']);
     expect(DEFAULT_CARD_SIZE.key).toBe('CR80');
     for (const s of BUILTIN_CARD_SIZES) expect(s.name).toMatch(/[؀-ۿ]/);
+  });
+
+  it('L9: the 2.25″ × 1.25″ label is exactly 57.15 × 31.75 mm (no rounding past the stock)', () => {
+    const small = BUILTIN_CARD_SIZES.find((s) => s.key === 'IN225_IN125')!;
+    expect([small.widthMm, small.heightMm]).toEqual([2.25 * 25.4, 1.25 * 25.4].map((x) => Math.round(x * 100) / 100));
+    expect(resolveCardDimensions(small, 'PORTRAIT')).toEqual({ widthMm: 31.75, heightMm: 57.15 });
   });
 
   it('swaps for portrait and keeps landscape wide', () => {

@@ -115,3 +115,24 @@ describe('dates and ranges', () => {
     expect(daysInclusive(ending.from, ending.to)).toBe(MAX_RANGE_DAYS);
   });
 });
+
+describe('M4 — the per-day capacity of the API (calculations audit)', () => {
+  // Sun 18 normal, Mon 19 holiday (0), Tue 20 short day (180), Wed 21 normal.
+  const days = [
+    { date: '2026-10-18', assignedMinutes: 480, loggedMinutes: 0, taskCount: 1, capacityMinutes: 480 },
+    { date: '2026-10-19', assignedMinutes: 480, loggedMinutes: 0, taskCount: 1, capacityMinutes: 0 },
+    { date: '2026-10-20', assignedMinutes: 240, loggedMinutes: 0, taskCount: 1, capacityMinutes: 180 },
+    { date: '2026-10-21', assignedMinutes: 0, loggedMinutes: 0, taskCount: 0, capacityMinutes: 480 },
+  ];
+  it('8 h on a holiday and 4 h on a 3 h day are overloads (were «ممتلئ» / balanced)', () => {
+    expect(overloadDays(days, CAP)).toEqual(['2026-10-19', '2026-10-20']);
+    expect(gridSummary({ people: [{ days }] as never, capacityMinutesPerDay: CAP }).overloadDays).toBe(2);
+  });
+  it('utilisation uses the real capacity: the holiday is not capacity', () => {
+    const tot = personTotals({ days }, CAP);
+    expect(tot.capacityMinutes).toBe(480 + 0 + 180 + 480);
+    expect(personTotals({ days, totalCapacityMinutes: 1140 }, CAP).capacityMinutes).toBe(1140);
+    // An older answer without per-day capacity falls back to working days × the standard day.
+    expect(personTotals({ days: days.map(({ capacityMinutes: _c, ...d }) => d) }, CAP).capacityMinutes).toBe(4 * CAP);
+  });
+});

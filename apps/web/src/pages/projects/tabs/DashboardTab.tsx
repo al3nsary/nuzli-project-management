@@ -12,7 +12,7 @@ import {
 import type { Priority, TaskStatus } from '@nuzli/shared';
 import { useBudget, useProjectDashboard } from '../../../api/a9Queries';
 import { ErrorBlock, LoadingBlock } from '../../../components/ui';
-import { formatDate, formatMinutes, formatMoney, formatNumber, getDisplayPrefs, t, type MessageKey } from '../../../i18n';
+import { formatDate, formatMinutes, formatMoney, formatNumber, getDisplayPrefs, t, tCount, type MessageKey } from '../../../i18n';
 import { BudgetSection } from '../../../features/reports/BudgetSection';
 import { BurnChart, ChartLegend, DonutChart, HBars, useChartPalette } from '../../../features/reports/charts';
 import { CardEmpty, Kpi, ReportCard, daysText, overdueText } from '../../../features/reports/parts';
@@ -142,7 +142,7 @@ export function ProjectDashboardTab(props: TabProps) {
                         <span>{t('a9r.dash.endedOn', { date: formatDate(o.endDate.slice(0, 10)) })}</span>
                       </span>
                     </span>
-                    <Badge color="breach" variant="light" radius="xl" style={{ flex: 'none' }}>
+                    <Badge color="breach" variant="light" radius="xl" style={{ flex: 'none' }} title={t('a9r.overdueTip')}>
                       {overdueText(o.daysOverdue)}
                     </Badge>
                   </button>
@@ -154,7 +154,7 @@ export function ProjectDashboardTab(props: TabProps) {
           )}
         </ReportCard>
 
-        <ReportCard title={t('a9r.dash.upcomingTitle')} sub={t('a9r.dash.upcomingSub')}>
+        <ReportCard title={t('a9r.dash.upcomingTitle', { span: tCount('a9r.days', 14) })} sub={t('a9r.dash.upcomingSub')}>
           {d.upcoming.length ? (
             <ul className="rp-list">
               {d.upcoming.map((u) => {

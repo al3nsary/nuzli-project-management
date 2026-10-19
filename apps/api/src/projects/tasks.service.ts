@@ -46,7 +46,9 @@ import {
   normalizeLeaf,
   recompute,
   riyadhToday,
+  roundHalfAway,
   sortOrderBetween,
+  syncStatusProgress,
   subtreeIds,
   workCalendarOf,
   type StoredTask,
@@ -231,8 +233,6 @@ export class TasksService {
       if (input.name !== undefined) next.name = input.name;
       if (input.priority !== undefined) next.priority = input.priority;
       if (input.description !== undefined) next.description = input.description;
-      if (input.status !== undefined) next.status = input.status;
-      if (input.progress !== undefined) next.progress = input.progress;
       if (input.assigneeId !== undefined) next.assigneeId = input.assigneeId;
       if (input.plannedCost !== undefined) next.plannedCost = input.plannedCost;
       if (input.actualCost !== undefined) next.actualCost = input.actualCost;
@@ -242,6 +242,14 @@ export class TasksService {
       if (input.type !== undefined && input.type !== cur.type) {
         if (input.type === 'MILESTONE' && hasChildren) throw new AppError('TASK_PARENT_INVALID', { taskId: id });
         next.type = input.type;
+      }
+      // Calculations audit H1: a group's status is derived from its children — changing it is
+      // refused; its progress is rolled up (a sent value is ignored). A leaf's status and
+      // progress are kept in sync by the shared rule (DONE ⇔ 100, …).
+      if (hasChildren || next.type === 'GROUP') {
+        if (input.status !== undefined && input.status !== cur.status) throw new AppError('TASK_GROUP_STATUS_DERIVED', { taskId: id });
+      } else if (input.status !== undefined || input.progress !== undefined) {
+        Object.assign(next, syncStatusProgress(cur, { status: input.status, progress: input.progress }));
       }
       if (input.parentId !== undefined && input.parentId !== cur.parentId) {
         assertValidParent(s.before, id, input.parentId);
@@ -318,8 +326,11 @@ export class TasksService {
       const hasChildren = new Set([...work.values()].map((t) => t.parentId).filter((p): p is string => !!p));
       for (const c of input.changes) {
         let next = { ...work.get(c.id)! };
-        if (c.progress !== undefined) next.progress = c.progress;
-        if (c.status !== undefined) next.status = c.status;
+        // H1: groups derive status and progress (sent values are ignored, e.g. by an undo step);
+        // leaves sync status ↔ progress with the shared rule.
+        if (!hasChildren.has(c.id) && next.type !== 'GROUP' && (c.progress !== undefined || c.status !== undefined)) {
+          Object.assign(next, syncStatusProgress(next, { status: c.status, progress: c.progress }));
+        }
         if (c.name !== undefined) next.name = c.name;
         if (c.priority !== undefined) next.priority = c.priority;
         if (c.assigneeId !== undefined) next.assigneeId = c.assigneeId;
@@ -375,12 +386,15 @@ export class TasksService {
       this.store.checkVersions(s, ids.map((id) => ({ id, version: input.versions[id]! })));
       await this.store.assertLabels(tx, projectId, [...(p.labelIdsAdd ?? []), ...(p.labelIdsRemove ?? [])]);
       const work = new Map(s.before);
+      const parentIds = new Set(s.tasks.map((t) => t.parentId).filter((x): x is string => !!x));
       for (const id of ids) {
         const next = { ...work.get(id)! };
-        if (p.status !== undefined) next.status = p.status;
+        // H1: a group in the selection keeps its derived status/progress; leaves are synced.
+        if (!parentIds.has(id) && next.type !== 'GROUP' && (p.status !== undefined || p.progress !== undefined)) {
+          Object.assign(next, syncStatusProgress(next, { status: p.status, progress: p.progress }));
+        }
         if (p.priority !== undefined) next.priority = p.priority;
         if (p.assigneeId !== undefined) next.assigneeId = p.assigneeId;
-        if (p.progress !== undefined) next.progress = p.progress;
         if (p.barColor !== undefined) next.barColor = p.barColor;
         if (p.labelIdsAdd || p.labelIdsRemove) {
           const set = new Set(next.labelIds);
@@ -744,7 +758,8 @@ export class TasksService {
           ? hoursToMinutes(input.lagHours)
           : input.lagDays * s.cal.standardMinutesPerDay
         : 0;
-      const lagDays = hour ? Math.round(lagMinutes / s.cal.standardMinutesPerDay) || 0 : input.lagDays;
+      // L7: half away from zero, so −4 h and +4 h round alike (−1 d / +1 d on an 8-hour day).
+      const lagDays = hour ? roundHalfAway(lagMinutes / s.cal.standardMinutesPerDay) : input.lagDays;
       const dep = {
         id,
         predecessorId: input.predecessorId,

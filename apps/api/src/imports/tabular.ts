@@ -380,6 +380,7 @@ export function tableToDraft(rows: TableRow[], opts: { dateOrder: 'DMY' | 'MDY';
       end,
       durationMinutes: dur?.minutes ?? null,
       durationDays: dur?.days ?? null,
+      durationElapsedMinutes: dur?.elapsedMinutes ?? null,
       progress,
       status: parseStatus(value(r, 'status')),
       assigneeName: cleanText(firstName(value(r, 'assignee')), 200),
@@ -434,7 +435,7 @@ export function tableToDraft(rows: TableRow[], opts: { dateOrder: 'DMY' | 'MDY';
         warn(draft, 'PREDECESSOR_MISSING', `السابقة «${ref}» في الصف ${m.row} لا تطابق أي مهمة.`, { row: m.row });
         continue;
       }
-      draft.deps.push({ predKey: key, succKey: tasks[i]!.key, type: it.type, ...(it.lagMinutes !== undefined ? { lagMinutes: it.lagMinutes } : {}), ...(it.lagDays !== undefined ? { lagDays: it.lagDays } : {}) });
+      draft.deps.push({ predKey: key, succKey: tasks[i]!.key, type: it.type, ...(it.lagMinutes !== undefined ? { lagMinutes: it.lagMinutes } : {}), ...(it.lagDays !== undefined ? { lagDays: it.lagDays } : {}), ...(it.lagElapsedMinutes !== undefined ? { lagElapsedMinutes: it.lagElapsedMinutes } : {}) });
     }
   });
   draft.tasks = tasks;

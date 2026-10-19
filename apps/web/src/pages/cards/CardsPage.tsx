@@ -210,7 +210,7 @@ export function CardsPage() {
       putPrintRun(batch.id, batch.cards);
       void qc.invalidateQueries({ queryKey: ['cards', 'batches'] });
       if (selected.some((c) => c.saveBack)) await invalidateTeams();
-      notifications.show({ color: 'ok', message: t('cards.batchLogged', { count: batch.cardCount }) });
+      notifications.show({ color: 'ok', message: tCount('cards.batchLogged', batch.cardCount) });
       navigate(`/cards/print/${batch.id}?auto=1`);
     } catch (err) {
       setError(err);
@@ -374,7 +374,7 @@ export function CardsPage() {
                   loading={printing}
                   onClick={() => void print()}
                 >
-                  {t('cards.printN', { count: formatNumber(selected.length) })}
+                  {tCount('cards.printN', selected.length)}
                 </Button>
               </Group>
             </Group>

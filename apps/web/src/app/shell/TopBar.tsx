@@ -25,7 +25,7 @@ import { useOnline } from '../../lib/useOnline';
 import { useOfflineStore, useUnsyncedCount } from '../../features/violations/offline/runtime';
 import { offlineDb } from '../../features/violations/offline/db';
 import { unsyncedCount } from '../../features/violations/offline/outbox';
-import { formatNumber, t } from '../../i18n';
+import { formatNumber, t, tCount } from '../../i18n';
 import { roleLabel } from '../../components/ui';
 import { UserPhotoAvatar } from '../../components/UserAvatar';
 import { NotificationBell } from '../NotificationBell';
@@ -76,7 +76,7 @@ function SyncChip() {
   }
   if (recorder && pending > 0) {
     return (
-      <Link to="/violations/pending" className="nz-chip nz-chip--wait" aria-label={t('shell.syncPendingAria', { n: pending })}>
+      <Link to="/violations/pending" className="nz-chip nz-chip--wait" aria-label={tCount('shell.syncPendingAria', pending)}>
         <IconCloudUpload size={15} stroke={1.8} aria-hidden className={running ? 'nz-spin-soft' : undefined} />
         <b className="num">{formatNumber(pending)}</b>
         <span className="nz-chip-label">{running ? t('shell.syncing') : t('nav.pendingSync')}</span>
@@ -145,7 +145,7 @@ function UserMenu() {
         <Stack>
           <Group gap="sm" wrap="nowrap" align="flex-start">
             <IconAlertTriangle size={24} color="var(--red)" style={{ flexShrink: 0 }} aria-hidden />
-            <Text>{t('shell.logoutUnsyncedBody', { n: unsynced })}</Text>
+            <Text>{tCount('shell.logoutUnsyncedBody', unsynced)}</Text>
           </Group>
           <Group justify="flex-end" gap="xs">
             <Button variant="default" onClick={() => setUnsynced(0)}>
@@ -164,7 +164,7 @@ function UserMenu() {
                 }
               }}
             >
-              {t('shell.logoutWipe', { n: unsynced })}
+              {tCount('shell.logoutWipe', unsynced)}
             </Button>
           </Group>
         </Stack>

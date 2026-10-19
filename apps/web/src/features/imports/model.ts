@@ -9,8 +9,12 @@
 import {
   DEFAULT_WORKING_HOURS as ENGINE_HOURS,
   WorkCalendar,
+  addCalendarDays,
   computeWbs,
   detectCycle,
+  elapsedToWorkingMinutes,
+  rollUp,
+  roundHalfAway,
   type WorkingHours,
 } from '@nuzli/scheduling';
 import {
@@ -21,11 +25,13 @@ import {
   type ImportPreviewDependencyDto,
   type ImportPreviewTaskDto,
   type ImportWarningDto,
+  type Priority,
   type TaskStatus,
   type TaskType,
 } from '@nuzli/shared';
 import { ApiError } from '../../api/errors';
 import {
+  RIYADH_OFFSET_MS,
   minutesToHours,
   normalizeLeaf,
   recompute,
@@ -78,6 +84,8 @@ export interface DraftTask {
   durationMinutes?: number | null;
   /** Working days, when the source gave a day-based duration. */
   durationDays?: number | null;
+  /** Calendar (elapsed) minutes, when the source gave an elapsed duration (`2 edays`). */
+  durationElapsedMinutes?: number | null;
   progress: number;
   status: TaskStatus | null;
   assigneeName: string | null;
@@ -85,6 +93,10 @@ export interface DraftTask {
   actualCost: number;
   deadline: string | null;
   notes: string | null;
+  /** A10 (GanttPRO): the stated priority (default MEDIUM). */
+  priority?: Priority | null;
+  /** A10 (GanttPRO): `#RRGGBB`. */
+  barColor?: string | null;
 }
 
 export interface DraftDependency {
@@ -94,6 +106,11 @@ export interface DraftDependency {
   /** Working minutes (time-based lag) or working days. */
   lagMinutes?: number;
   lagDays?: number;
+  /**
+   * Calendar (elapsed) minutes — MS Project `edays`/elapsed lag formats. Converted to working
+   * time on the project calendar from the predecessor's end (calculations audit L8).
+   */
+  lagElapsedMinutes?: number;
 }
 
 export interface DraftCalendar {
@@ -119,6 +136,16 @@ export interface ImportDraft {
   tasks: DraftTask[];
   deps: DraftDependency[];
   warnings: ImportWarningDto[];
+  /** A10: the format recognised from the content (`ganttpro` for a GanttPRO export sent as xlsx). */
+  detectedFormat?: string;
+  /** A10: figures the preview reports but does not import (GanttPRO estimates, time log, types). */
+  sourceStats?: SourceStats;
+}
+
+export interface SourceStats {
+  sourceTypes?: Record<string, number>;
+  estimatedHours?: number;
+  timeLogMinutes?: number;
 }
 
 export function emptyDraft(): ImportDraft {
@@ -175,14 +202,25 @@ export function cleanText(v: unknown, max: number): string | null {
   return s.length > max ? s.slice(0, max) : s;
 }
 
+/**
+ * Tolerant number: `1,234.50`, European `1.234,50` (calculations audit L8), `12,5`, `1 234`,
+ * `١٢٬٥٠٠٫٧٥`, `SAR 1,000`. With both separators the LAST one is the decimal mark; a lone comma
+ * is a thousands separator only in the `1,234` / `1,234,567` shape; several dots are thousands.
+ */
 export function parseNumber(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (typeof v !== 'string') return null;
-  const s = westernize(v)
-    .replace(/[^\d.,-]/g, '')
-    .replace(/,(?=\d{3}(\D|$))/g, '')
-    .replace(',', '.');
-  if (!s || s === '-' || s === '.') return null;
+  let s = westernize(v).replace(/[^\d.,-]/g, '');
+  if (!s || s === '-' || s === '.' || s === ',') return null;
+  const dot = s.lastIndexOf('.');
+  const comma = s.lastIndexOf(',');
+  if (dot >= 0 && comma >= 0) {
+    s = dot > comma ? s.replace(/,/g, '') : s.replace(/\./g, '').replace(',', '.');
+  } else if (comma >= 0) {
+    s = /^-?\d{1,3}(,\d{3})+$/.test(s) ? s.replace(/,/g, '') : s.slice(0, comma).replace(/,/g, '') + '.' + s.slice(comma + 1);
+  } else if ((s.match(/\./g) ?? []).length > 1) {
+    s = s.replace(/\./g, '');
+  }
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
@@ -318,8 +356,9 @@ function withTime(date: string | null, h?: string, mi?: string, ampm?: string): 
     if (hh === 12) hh = pm ? 12 : 0;
     else if (pm) hh += 12;
   }
-  if (hh > 24 || mm > 59) return date;
-  if (hh === 24) hh = 23;
+  if (hh > 24 || mm > 59 || (hh === 24 && mm > 0)) return date;
+  // 24:00 is the end of the day = 00:00 of the next day (calculations audit L8; was 23:00).
+  if (hh === 24) return `${addCalendarDays(date, 1)}T00:00`;
   if (hh === 0 && mm === 0) return date;
   return `${date}T${pad(hh)}:${pad(mm)}`;
 }
@@ -355,10 +394,14 @@ const MONTHS: Record<string, number> = {
   ديسمبر: 12,
 };
 
-/** Excel serial date (1900 system) → local date or date-time. */
+/**
+ * Excel serial date (1900 system) → local date or date-time. Excel counts the fictitious
+ * 1900-02-29 as serial 60, so serials below 61 are one day early with the plain epoch: they get
+ * one day added (1 → 1900-01-01, 59 → 1900-02-28, 60 → 1900-03-01; calculations audit L8).
+ */
 export function fromExcelSerial(n: number): string | null {
   if (!Number.isFinite(n) || n < 1 || n > 120000) return null;
-  const ms = Math.round((n - 25569) * 86_400_000);
+  const ms = Math.round((n - 25569 + (n < 61 ? 1 : 0)) * 86_400_000);
   const d = new Date(ms);
   const date = d.toISOString().slice(0, 10);
   const mins = Math.round((n % 1) * 1440);
@@ -385,6 +428,13 @@ export function parseDateValue(v: unknown, order: 'DMY' | 'MDY' = 'DMY'): string
   if (typeof v === 'number') return fromExcelSerial(v);
   let s = westernize(String(v)).trim();
   if (!s) return null;
+  // An ISO instant with an explicit zone (`Z`, `+hh:mm`) is converted to Riyadh wall time
+  // instead of dropping the zone (calculations audit L8: was a 3-hour shift).
+  const zoned = parseZonedInstant(s);
+  if (zoned !== null) {
+    const local = new Date(zoned + RIYADH_OFFSET_MS).toISOString();
+    return local.slice(11, 16) === '00:00' ? local.slice(0, 10) : local.slice(0, 16);
+  }
   if (/^\d+(\.\d+)?$/.test(s)) {
     const n = Number(s);
     return n > 20000 && n < 120000 ? fromExcelSerial(n) : null;
@@ -416,6 +466,16 @@ export function parseDateValue(v: unknown, order: 'DMY' | 'MDY' = 'DMY'): string
   return null;
 }
 
+/** Epoch ms of an ISO date-time that carries an explicit zone (`Z` or `±hh:mm`), else null. */
+export function parseZonedInstant(s: string): number | null {
+  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})$/i.exec(s.trim());
+  if (!m) return null;
+  const z = m[5]!;
+  const zone = z.toUpperCase() === 'Z' ? 'Z' : z.length === 5 ? `${z.slice(0, 3)}:${z.slice(3)}` : z;
+  const ms = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4] ?? '00'}${zone}`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function monthOf(word: string): number | null {
   return (
     MONTHS[word] ?? MONTHS[word.toLowerCase().slice(0, 3)] ?? MONTHS[word.toLowerCase()] ?? null
@@ -427,9 +487,11 @@ function monthOf(word: string): number | null {
 export interface ParsedDuration {
   minutes?: number;
   days?: number;
+  /** Elapsed (calendar) minutes: `2 edays` = 2880, `3eh` = 180 (MS Project elapsed units). */
+  elapsedMinutes?: number;
 }
 
-const UNIT_RE = String.raw`(mo|mon|mons|month|months|w|wk|wks|week|weeks|d|day|days|h|hr|hrs|hour|hours|m|min|mins|minute|minutes|e?d|اسبوع|أسبوع|اسابيع|أسابيع|يوم|ايام|أيام|ي|ساعه|ساعة|ساعات|س|دقيقه|دقيقة|دقائق|د|شهر|اشهر|أشهر)?`;
+const UNIT_RE = String.raw`(e?(?:mo|mon|mons|month|months|w|wk|wks|week|weeks|d|day|days|h|hr|hrs|hour|hours|m|min|mins|minute|minutes)|اسبوع|أسبوع|اسابيع|أسابيع|يوم|ايام|أيام|ي|ساعه|ساعة|ساعات|س|دقيقه|دقيقة|دقائق|د|شهر|اشهر|أشهر)?`;
 
 /**
  * `5`, `5d`, `5 days`, `٣ أيام`, `1.5w`, `4h`, `4 ساعات`, `30m`, `2 mons`, ISO `PT16H0M0S`.
@@ -449,7 +511,13 @@ export function parseDuration(
   const m = new RegExp(String.raw`^(\d+(?:\.\d+)?)\s*${UNIT_RE}$`).exec(s);
   if (!m) return null;
   const n = Number(m[1]);
-  const u = (m[2] ?? '').replace(/^e/, '');
+  const u = m[2] ?? '';
+  if (/^e[a-z]/.test(u)) {
+    // Elapsed units run on the clock, not the work calendar: a day is 24 h, a week 7 days, a month 30.
+    const eu = u.slice(1);
+    const per = /^(mo|mon|mons|month|months)$/.test(eu) ? 43200 : /^(w|wk|wks|week|weeks)$/.test(eu) ? 10080 : /^(d|day|days)$/.test(eu) ? 1440 : /^(h|hr|hrs|hour|hours)$/.test(eu) ? 60 : 1;
+    return { elapsedMinutes: Math.round(n * per) };
+  }
   if (!u) return defaultUnit === 'h' ? { minutes: Math.round(n * 60) } : { days: n };
   if (/^(mo|mon|mons|month|months|شهر|اشهر|أشهر)$/.test(u)) return { days: n * 20 };
   if (/^(w|wk|wks|week|weeks|اسبوع|أسبوع|اسابيع|أسابيع)$/.test(u)) return { days: n * 5 };
@@ -479,6 +547,8 @@ export interface ParsedPredecessor {
   type: DependencyType;
   lagMinutes?: number;
   lagDays?: number;
+  /** Elapsed lag (`+2 edays`), in calendar minutes. */
+  lagElapsedMinutes?: number;
 }
 
 /**
@@ -509,7 +579,8 @@ export function parsePredecessors(v: unknown): { items: ParsedPredecessor[]; bad
     if (m[3] && m[4]) {
       const d = parseDuration(`${m[4]}${m[5] ?? 'd'}`);
       const sign = m[3] === '-' ? -1 : 1;
-      if (d?.minutes !== undefined) item.lagMinutes = sign * d.minutes;
+      if (d?.elapsedMinutes !== undefined) item.lagElapsedMinutes = sign * d.elapsedMinutes;
+      else if (d?.minutes !== undefined) item.lagMinutes = sign * d.minutes;
       else if (d?.days !== undefined) item.lagDays = sign * d.days;
     }
     items.push(item);
@@ -582,6 +653,9 @@ export interface PreviewPayload {
   warnings: ImportWarningDto[];
   /** The file carried a calendar (it is created on commit; else the default calendar is reused). */
   calendarFromFile?: boolean;
+  /** A10: see ImportDraft. */
+  detectedFormat?: string;
+  sourceStats?: SourceStats;
 }
 
 const workingFloor = (cal: WorkCalendar, d: string): string =>
@@ -761,14 +835,14 @@ export function buildPreview(
       durationDays: 1,
       progress,
       status: statusOf(t.status, progress),
-      priority: 'MEDIUM',
+      priority: t.priority ?? 'MEDIUM',
       assigneeId: null,
       description: t.notes ? t.notes.slice(0, 8000) : null,
       version: 0,
       plannedCost: t.plannedCost,
       actualCost: t.actualCost,
       deadline: t.deadline ? t.deadline.slice(0, 10) : null,
-      barColor: null,
+      barColor: t.barColor ?? null,
       labelIds: [],
       sourceId: t.sourceId,
       assigneeName: t.assigneeName,
@@ -788,6 +862,10 @@ export function buildPreview(
   };
   const deps: PreviewPayload['deps'] = [];
   const pairs = new Set<string>();
+  // Elapsed lags start at the predecessor's end (groups rolled up first).
+  const rolled = draft.deps.some((d) => d.lagElapsedMinutes !== undefined)
+    ? new Map(rollUp(stored, cal, unit).tasks.map((t) => [t.id, t]))
+    : null;
   let ignoredTypes = 0;
   for (const d of draft.deps) {
     const label =
@@ -812,9 +890,20 @@ export function buildPreview(
       warn({ warnings }, 'DEPENDENCY_DUPLICATE', `ربطٌ مكرّر تُرك: ${label}.`);
       continue;
     }
-    const lagMinutes =
-      d.lagMinutes !== undefined ? Math.round(d.lagMinutes) : Math.round((d.lagDays ?? 0) * std);
-    const lagDays = d.lagDays !== undefined ? Math.round(d.lagDays) : Math.round(lagMinutes / std);
+    // L7: lags round half away from zero (−0.5 d → −1 d like +0.5 d → +1 d).
+    let lagMinutes: number;
+    let lagDays: number;
+    if (d.lagElapsedMinutes !== undefined && rolled) {
+      // L8: an elapsed lag is calendar time; on the project calendar it is the working time
+      // between the predecessor's end and end + the elapsed span.
+      const pred = rolled.get(d.predKey)!;
+      const from = unit === 'HOUR' ? pred.endDate : `${addCalendarDays(pred.endDate.slice(0, 10), 1)}T00:00`;
+      lagMinutes = elapsedToWorkingMinutes(cal, from, d.lagElapsedMinutes);
+      lagDays = roundHalfAway(lagMinutes / std);
+    } else {
+      lagMinutes = d.lagMinutes !== undefined ? roundHalfAway(d.lagMinutes) : roundHalfAway((d.lagDays ?? 0) * std);
+      lagDays = d.lagDays !== undefined ? roundHalfAway(d.lagDays) : roundHalfAway(lagMinutes / std);
+    }
     const candidate = {
       predecessorId: d.predKey,
       successorId: d.succKey,
@@ -857,11 +946,8 @@ export function buildPreview(
       throw importError('IMPORT_FILE_INVALID', { reason: err.code, details: err.details });
     throw err;
   }
-  // A group without a stated status follows its rolled-up progress.
-  const stated = new Set(tasksIn.filter((t) => t.status).map((t) => t.key));
-  finals = finals.map((t) =>
-    t.type === 'GROUP' && !stated.has(t.id) ? { ...t, status: statusOf(null, t.progress) } : t,
-  );
+  // Groups: status derived from their children by recompute (calculations audit H1), whatever
+  // the file states — the same rule as every other write.
   const name = (opts.projectName ?? draft.projectName ?? opts.fallbackName ?? 'مشروع مستورد').slice(
     0,
     160,
@@ -879,6 +965,8 @@ export function buildPreview(
     tasks: finals,
     deps,
     warnings,
+    ...(draft.detectedFormat ? { detectedFormat: draft.detectedFormat } : {}),
+    ...(draft.sourceStats ? { sourceStats: draft.sourceStats } : {}),
   };
 }
 
@@ -892,13 +980,20 @@ function leafSchedule(
 ): PreviewTask {
   const std = cal.standardMinutesPerDay;
   const start = t.start;
+  const elapsed =
+    t.durationElapsedMinutes != null && t.durationElapsedMinutes > 0 ? t.durationElapsedMinutes : null;
   const hasDuration =
     (t.durationDays != null && t.durationDays > 0) ||
-    (t.durationMinutes != null && t.durationMinutes > 0);
+    (t.durationMinutes != null && t.durationMinutes > 0) ||
+    elapsed !== null;
   if (unit === 'DAY') {
     let days: number;
     if (base.type === 'MILESTONE') days = 0;
-    else if (t.durationDays != null && t.durationDays > 0)
+    else if (elapsed !== null) {
+      // L8: an elapsed duration = the working days inside [start, start + elapsed) on the calendar.
+      const from = `${workingFloor(cal, (start ?? projectStart).slice(0, 10))}T00:00`;
+      days = Math.max(1, roundHalfAway(elapsedToWorkingMinutes(cal, from, elapsed) / std));
+    } else if (t.durationDays != null && t.durationDays > 0)
       days = Math.max(1, Math.ceil(t.durationDays - 1e-9));
     else if (t.durationMinutes != null && t.durationMinutes > 0)
       days = Math.max(1, Math.ceil(t.durationMinutes / std - 1e-9));
@@ -923,6 +1018,7 @@ function leafSchedule(
   if (start) s = cal.nextWorkingMinute(isLocalDateTime(start) ? start : `${start}T00:00`);
   else s = cal.nextWorkingMinute(`${projectStart}T00:00`);
   if (base.type === 'MILESTONE') minutes = 0;
+  else if (elapsed !== null) minutes = elapsedToWorkingMinutes(cal, s, elapsed) || std;
   else if (t.durationMinutes != null && t.durationMinutes > 0) minutes = t.durationMinutes;
   else if (t.durationDays != null && t.durationDays > 0) minutes = Math.round(t.durationDays * std);
   else if (start && endLocal) minutes = Math.max(cal.workingMinutesBetween(s, endLocal), 0) || std;
@@ -960,6 +1056,8 @@ export function previewTasksDto(p: PreviewPayload): ImportPreviewTaskDto[] {
     actualCost: t.actualCost,
     deadline: t.deadline,
     notes: t.description,
+    priority: t.priority,
+    barColor: t.barColor,
   }));
   return out.sort((a, b) => cmpWbs(a.wbs, b.wbs));
 }

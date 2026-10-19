@@ -525,3 +525,13 @@ describe('roster — A10 worker foreman', () => {
     expect(args.select.memberships.select.role).toBe(true);
   });
 });
+
+describe('calculations audit L13 — one edit-window boundary', () => {
+  it('open 1 ms before editableUntil, closed at exactly editableUntil (shared isEditWindowOpen)', async () => {
+    const received = new Date('2026-10-12T06:05:00Z');
+    const s = setup({ settings: { VIOLATION_EDIT_WINDOW_MINUTES: 15 } });
+    await s.svc.update('v1', { description: 'قبل الحد' }, MONITOR, ctx, new Date(received.getTime() + 15 * 60_000 - 1));
+    expect(s.tx.violation.update).toHaveBeenCalledTimes(1);
+    await expectCode(s.svc.update('v1', { description: 'عند الحد' }, MONITOR, ctx, new Date(received.getTime() + 15 * 60_000)), 'EDIT_WINDOW_CLOSED');
+  });
+});

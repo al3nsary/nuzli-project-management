@@ -14,7 +14,7 @@ import { ApiError, errorMessage } from '../../api/errors';
 import { qkA9, useTaskTime } from '../../api/a9Queries';
 import { useUsers } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
-import { formatDate, formatMinutes, formatNumber, riyadhDay, t } from '../../i18n';
+import { formatDate, formatMinutes, formatNumber, riyadhDay, t, tCount } from '../../i18n';
 import { addCalendarDaysIso } from '../projects/engine';
 
 interface Draft {
@@ -234,7 +234,7 @@ export function TaskTimeLog({ taskId, admin, canLog }: { taskId: string; admin: 
       )}
       {entries.data?.length ? (
         <Text size="xs" c="dimmed">
-          {t('a9s.time.count', { count: formatNumber(entries.data.length) })}
+          {tCount('a9s.time.count', entries.data.length)}
         </Text>
       ) : null}
     </Stack>

@@ -15,7 +15,7 @@ import { IconCheck, IconPalette } from '@tabler/icons-react';
 import { PhotoAvatar } from '../../components/UserAvatar';
 import type { ReferenceItemDto, TeamColorDto, TeamStatus } from '@nuzli/shared';
 import { useReference } from '../../api/queries';
-import { t, tKey } from '../../i18n';
+import { t, tCount, tKey } from '../../i18n';
 import './teams-a9.css';
 
 const TEAM_STATUS_COLOR: Record<TeamStatus, string> = {
@@ -61,7 +61,7 @@ export function ColorPicker({
         </Text>
         {colors ? (
           <Text size="xs" c="dimmed">
-            {t('teams.colorsAvailable', { count: colors.length })}
+            {tCount('teams.colorsAvailable', colors.length)}
           </Text>
         ) : null}
       </Group>

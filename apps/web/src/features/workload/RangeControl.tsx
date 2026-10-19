@@ -1,6 +1,6 @@
 import { SegmentedControl, Text, TextInput } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { formatNumber, t } from '../../i18n';
+import { formatNumber, t, tCount } from '../../i18n';
 import { MAX_RANGE_DAYS, clampRange, presetOf, presetRange, type Range, type RangePreset } from './math';
 
 /**
@@ -54,7 +54,7 @@ export function RangeControl({
       </div>
       {clamped ? (
         <Text size="xs" c="var(--amber)" fw={500} style={{ flexBasis: '100%' }} role="status">
-          {t('a9r.wl.clamped', { n: formatNumber(MAX_RANGE_DAYS) })}
+          {tCount('a9r.wl.clamped', MAX_RANGE_DAYS)}
         </Text>
       ) : null}
     </div>

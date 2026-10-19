@@ -100,10 +100,10 @@ describe('task-engine', () => {
     expect(riyadhToday(new Date('2026-10-11T20:59:00Z'))).toBe('2026-10-11');
     expect(riyadhToday(new Date('2026-10-11T21:00:00Z'))).toBe('2026-10-12');
     // Today Sun 18; 2 working days ahead skips the Tue 20 holiday → Wed 21.
-    expect(dueFlags({ endDate: '2026-10-21', status: 'IN_PROGRESS' }, '2026-10-18', cal)).toEqual({ overdue: false, dueSoon: true });
-    expect(dueFlags({ endDate: '2026-10-22', status: 'IN_PROGRESS' }, '2026-10-18', cal)).toEqual({ overdue: false, dueSoon: false });
-    expect(dueFlags({ endDate: '2026-10-17', status: 'IN_PROGRESS' }, '2026-10-18', cal)).toEqual({ overdue: true, dueSoon: false });
-    expect(dueFlags({ endDate: '2026-10-17', status: 'DONE' }, '2026-10-18', cal)).toEqual({ overdue: false, dueSoon: false });
+    expect(dueFlags({ startDate: '2026-10-01', endDate: '2026-10-21', status: 'IN_PROGRESS' }, '2026-10-18', cal)).toEqual({ overdue: false, dueSoon: true });
+    expect(dueFlags({ startDate: '2026-10-01', endDate: '2026-10-22', status: 'IN_PROGRESS' }, '2026-10-18', cal)).toEqual({ overdue: false, dueSoon: false });
+    expect(dueFlags({ startDate: '2026-10-01', endDate: '2026-10-17', status: 'IN_PROGRESS' }, '2026-10-18', cal)).toEqual({ overdue: true, dueSoon: false });
+    expect(dueFlags({ startDate: '2026-10-01', endDate: '2026-10-17', status: 'DONE' }, '2026-10-18', cal)).toEqual({ overdue: false, dueSoon: false });
   });
 });
 

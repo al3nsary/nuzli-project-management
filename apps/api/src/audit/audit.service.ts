@@ -240,7 +240,7 @@ export class AuditService {
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.auditLog.findMany({
         where,
-        orderBy: { at: 'desc' },
+        orderBy: [{ at: 'desc' }, { id: 'asc' }],
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
         include: { actor: { select: { id: true, fullName: true } } },

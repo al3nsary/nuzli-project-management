@@ -69,4 +69,12 @@ describe('TaskDueService — daily reminders', () => {
     expect(sent[0]!.payload).toMatchObject({ taskId: 'later', deadline: '2026-10-10' });
     expect((await service.run(NOW)).deadlinePassed).toBe(0);
   });
+
+  it('calculations audit L10: a GROUP (e.g. a promoted task that kept its assignee) is never reminded', async () => {
+    const { fake, service } = setup();
+    fake.data.tasks.find((t) => t.id === 'late')!.type = 'GROUP';
+    fake.data.tasks.find((t) => t.id === 'later')!.type = 'GROUP';
+    fake.data.tasks.find((t) => t.id === 'later')!.deadline = d('2026-10-10');
+    expect(await service.run(NOW)).toEqual({ overdue: 0, dueSoon: 1, deadlinePassed: 0 });
+  });
 });

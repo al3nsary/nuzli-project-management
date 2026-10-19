@@ -32,7 +32,7 @@ const PAGE = 48;
 
 /** «١٫٢ م.ب» / «٣٤٠ ك.ب». */
 export function fileSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return t('att.sizeMb', { n: formatNumber(Math.round((bytes / (1024 * 1024)) * 10) / 10) });
+  if (bytes >= 1024 * 1024) return t('att.sizeMb', { n: Math.round((bytes / (1024 * 1024)) * 10) / 10 });
   return t('att.sizeKb', { n: formatNumber(Math.max(1, Math.round(bytes / 1024))) });
 }
 

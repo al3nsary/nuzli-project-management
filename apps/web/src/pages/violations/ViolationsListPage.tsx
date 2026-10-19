@@ -29,7 +29,7 @@ import { errorMessage } from '../../api/errors';
 import { useViolationStats, useViolations } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
-import { formatDateTime, formatNumber, t } from '../../i18n';
+import { formatDateTime, formatNumber, t, tCount } from '../../i18n';
 import { useViolationFilters } from '../../features/violations/filterStore';
 import { riyadhDate } from '../../features/violations/time';
 import { FilterBar } from './FilterBar';
@@ -112,7 +112,7 @@ export function ViolationsListPage() {
     <>
       <PageHeader
         title={t('vlist.title')}
-        lead={data ? t('vlist.lead', { n: data.total }) : undefined}
+        lead={data ? tCount('vlist.lead', data.total) : undefined}
         actions={
           can(user, 'violations.export') ? (
             <Button

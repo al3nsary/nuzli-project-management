@@ -47,12 +47,16 @@ export function hijriDay(day: IsoDay, digits: Digits): string {
   return Number(latin) === 1 ? `${d} ${m}` : d;
 }
 
-/** «ربيع الآخر – جمادى الأولى 1448» for a range of days. */
+/** «ربيع الآخر – جمادى الأولى 1448» for a range of days; both years when it crosses a Hijri year. */
 export function hijriSpan(from: IsoDay, to: IsoDay, digits: Digits): string {
   const f = fmt('islamic-umalqura', digits, { month: 'long', year: 'numeric' });
   const a = f.format(noon(from));
   const b = f.format(noon(to));
   if (a === b) return a;
+  // Calculations audit L2: the short form only within one Hijri year; across years both are shown
+  // («ذو الحجة 1447 هـ – محرم 1448 هـ»).
+  const year = fmt('islamic-umalqura', digits, { year: 'numeric' });
+  if (year.format(noon(from)) !== year.format(noon(to))) return `${a} – ${b}`;
   const m = fmt('islamic-umalqura', digits, { month: 'long' }).format(noon(from));
   return `${m} – ${b}`;
 }

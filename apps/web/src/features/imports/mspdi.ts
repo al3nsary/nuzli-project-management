@@ -33,6 +33,8 @@ export const LINK_TYPES: Record<string, DependencyType> = {
 const LINK_CODES: Record<DependencyType, number> = { FF: 0, FS: 1, SF: 2, SS: 3 };
 /** DurationFormat / LagFormat codes that mean hours or minutes (elapsed and estimated variants included). */
 const TIME_FORMATS = new Set([3, 4, 5, 6, 35, 36, 37, 38]);
+/** Elapsed lag formats (em, eh, ed, ew, emo and their estimated forms): calendar time, not working time. */
+const ELAPSED_FORMATS = new Set([4, 6, 8, 10, 12, 36, 38, 40, 42, 44]);
 const PERCENT_FORMATS = new Set([19, 20, 51, 52]);
 
 const ARRAYS = new Set([
@@ -229,9 +231,18 @@ export function parseMspdi(xml: string): ImportDraft {
     assigned.set(task, arr);
   }
 
-  const rows = list((project.Tasks as X | undefined)?.Task)
+  const all = list((project.Tasks as X | undefined)?.Task)
     .filter((t) => !bool(t.IsNull) && str(t.UID) !== null)
     .sort((a, b) => (num(a.ID) ?? 0) - (num(b.ID) ?? 0));
+  // A10: MS Project 2010+ «inactive» tasks (<Active>0</Active>) are not scheduled there either.
+  const rows = all.filter((t) => str(t.Active) !== '0');
+  if (rows.length < all.length) {
+    warn(
+      draft,
+      'INACTIVE_SKIPPED',
+      `${all.length - rows.length} مهمة معطّلة (Inactive) في MS Project لم تُستورد.`,
+    );
+  }
   const real = rows.filter((t) => (num(t.OutlineLevel) ?? 1) >= 1 && str(t.UID) !== '0');
   const summaryRow = rows.find((t) => str(t.UID) === '0' || num(t.OutlineLevel) === 0);
   if (!draft.projectName && summaryRow) draft.projectName = cleanText(summaryRow.Name, 160);
@@ -330,6 +341,12 @@ export function parseMspdi(xml: string): ImportDraft {
             { sourceId: str(t.UID) ?? undefined },
           );
       } else lagMinutes = Math.round(rawLag / 10);
+      if (ELAPSED_FORMATS.has(lagFormat)) {
+        // Calculations audit L8: LinkLag of an elapsed format is calendar minutes (×10); it is
+        // converted to working time on the project calendar in buildPreview.
+        draft.deps.push({ predKey: pred, succKey: succ, type, lagElapsedMinutes: lagMinutes });
+        continue;
+      }
       if (TIME_FORMATS.has(lagFormat) && lagMinutes % minutesPerDay !== 0) anyHours = true;
       draft.deps.push({ predKey: pred, succKey: succ, type, lagMinutes });
     }

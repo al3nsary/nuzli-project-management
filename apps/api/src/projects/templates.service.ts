@@ -404,8 +404,14 @@ export class TemplatesService {
   }
 }
 
-/** Portfolio totals (pure; unit-tested). */
-export function portfolioTotals(rows: ReadonlyArray<{ project: ProjectDto; leafCount: number; overdueCount: number }>): PortfolioSummaryDto['totals'] {
+/**
+ * Portfolio totals (pure; unit-tested). Progress is weighted by duration like a project's own
+ * progress (calculations audit): each project weighs `progressWeightDays` (its roots' working
+ * days); a row without it (older callers) falls back to its leaf count.
+ */
+export function portfolioTotals(
+  rows: ReadonlyArray<{ project: ProjectDto; leafCount: number; overdueCount: number; progressWeightDays?: number }>,
+): PortfolioSummaryDto['totals'] {
   let weighted = 0;
   let weights = 0;
   let plain = 0;
@@ -418,8 +424,9 @@ export function portfolioTotals(rows: ReadonlyArray<{ project: ProjectDto; leafC
   const byStatus: Record<string, number> = {};
   for (const r of rows) {
     const p = r.project;
-    weighted += p.progress * r.leafCount;
-    weights += r.leafCount;
+    const w = r.progressWeightDays ?? r.leafCount;
+    weighted += p.progress * w;
+    weights += w;
     plain += p.progress;
     if (p.budget !== null && p.budget !== undefined) budgetCents = (budgetCents ?? 0) + Math.round(p.budget * 100);
     planned += Math.round((p.plannedCost ?? 0) * 100);

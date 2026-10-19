@@ -485,7 +485,7 @@ export class PrintService {
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.cardPrintBatch.findMany({
         select: BATCH_SELECT,
-        orderBy: { printedAt: 'desc' },
+        orderBy: [{ printedAt: 'desc' }, { id: 'asc' }],
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
       }),

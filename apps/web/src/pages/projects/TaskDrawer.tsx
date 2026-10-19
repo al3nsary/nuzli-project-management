@@ -29,6 +29,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { IconFlag, IconLink, IconRefresh, IconTrash } from '@tabler/icons-react';
 import { can, type Priority, type TaskStatus } from '@nuzli/shared';
+import { syncStatusProgress } from '@nuzli/scheduling';
 import { useApi } from '../../api/context';
 import { ApiError, errorMessage } from '../../api/errors';
 import { useSupervisors } from '../../api/queries';
@@ -37,7 +38,7 @@ import type { ProjectWrites } from '../../api/projectWrites';
 import { unitOf, type GanttView, type TaskView } from '../../api/hoursWire';
 import { useAuthStore } from '../../stores/auth';
 import { FormError } from '../../components/ui';
-import { formatDate, formatDateTime, formatLocalTime, formatMoney, formatNumber, t, tKey } from '../../i18n';
+import { formatDate, formatDateTime, formatLocalTime, formatMoney, formatNumber, t, tCount, tKey } from '../../i18n';
 import { calendarOf, checkNewLink, engineState } from '../../features/gantt/batch';
 import { linkMessage } from '../../features/gantt/Gantt';
 import { useTabParam } from '../../lib/useUrlState';
@@ -82,8 +83,8 @@ export function TaskDrawer({ data, taskId, writes, onClose }: { data: GanttView;
                 : t('a9s.drawer.tabChecklist')}
             </Tabs.Tab>
             <Tabs.Tab value="meta">{t('a9s.drawer.tabMeta')}</Tabs.Tab>
-            <Tabs.Tab value="comments">{t('task.tab.comments', { count: formatNumber(task.commentCount) })}</Tabs.Tab>
-            <Tabs.Tab value="files">{t('task.tab.files', { count: formatNumber(task.attachmentCount) })}</Tabs.Tab>
+            <Tabs.Tab value="comments">{t('task.tab.comments', { count: task.commentCount })}</Tabs.Tab>
+            <Tabs.Tab value="files">{t('task.tab.files', { count: task.attachmentCount })}</Tabs.Tab>
             <Tabs.Tab value="time">{t('a9s.drawer.tabTime')}</Tabs.Tab>
             <Tabs.Tab value="activity">{t('task.tab.activity')}</Tabs.Tab>
           </Tabs.List>
@@ -167,6 +168,9 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
   const [error, setError] = useState<unknown>(null);
   const [colorError, setColorError] = useState<string | null>(null);
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
+  /** Calculations audit H1: status and progress move together in the form, as the server will store them. */
+  const setStatusProgress = (edit: { status?: TaskStatus; progress?: number }) =>
+    setForm((f) => ({ ...f, ...syncStatusProgress({ status: f.status, progress: f.progress }, edit) }));
   const endPreview =
     form.type === 'MILESTONE'
       ? cal.addWorkingDays(form.startDate || task.startDate, 0)
@@ -179,8 +183,10 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
       return;
     }
     const patch: Record<string, unknown> = { version: task.version };
-    if (form.progress !== task.progress) patch.progress = form.progress;
-    if (form.status !== task.status) patch.status = form.status;
+    if (!isGroup) {
+      if (form.progress !== task.progress) patch.progress = form.progress;
+      if (form.status !== task.status) patch.status = form.status;
+    }
     if (admin) {
       if (form.name.trim() !== task.name) patch.name = form.name.trim();
       if (form.priority !== task.priority) patch.priority = form.priority;
@@ -210,7 +216,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
       const res = await writes.updateTask(task.id, patch as never, t('undo.label.edit'));
       notifications.show({
         color: 'ok',
-        message: res.affected.length ? t('task.savedShifted', { count: formatNumber(res.affected.length) }) : t('common.saved'),
+        message: res.affected.length ? tCount('task.savedShifted', res.affected.length) : t('common.saved'),
       });
     } catch (err) {
       setError(err);
@@ -227,7 +233,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
         try {
           const res = await writes.archive([task.id]);
           onClose();
-          notifications.show({ color: 'ok', message: t('task.archived', { count: formatNumber(res.archivedIds.length) }) });
+          notifications.show({ color: 'ok', message: tCount('task.archived', res.archivedIds.length) });
         } catch (err) {
           notifications.show({ color: 'breach', message: errorMessage(err) });
         }
@@ -429,7 +435,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
         <Slider
           aria-labelledby="task-progress-label"
           value={form.progress}
-          onChange={(v) => set('progress', v)}
+          onChange={(v) => setStatusProgress({ progress: v })}
           step={5}
           min={0}
           max={100}
@@ -443,8 +449,9 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
           label={t('task.status')}
           data={TASK_STATUSES.map((s) => ({ value: s, label: taskStatusLabel(s) }))}
           value={form.status}
-          onChange={(v) => v && set('status', v as TaskStatus)}
-          disabled={readOnly}
+          onChange={(v) => v && setStatusProgress({ status: v as TaskStatus })}
+          disabled={readOnly || isGroup}
+          description={isGroup ? t('task.groupStatusDerived') : undefined}
           allowDeselect={false}
         />
         <Select
@@ -545,7 +552,7 @@ function Dependencies({ data, task, writes, editable }: { data: GanttView; task:
     <Group key={id} justify="space-between" wrap="nowrap" gap="xs">
       <Text size="sm" truncate>
         <span className="mono">{names.get(otherId)?.wbs}</span> {names.get(otherId)?.name ?? '—'}
-        {lagDays ? <Text span size="xs" c="dimmed">{` (${t('task.lag', { days: formatNumber(lagDays) })})`}</Text> : null}
+        {lagDays ? <Text span size="xs" c="dimmed">{` (${lagDays > 0 ? tCount('task.lag', lagDays) : tCount('task.lead', -lagDays)})`}</Text> : null}
       </Text>
       {editable ? (
         <ActionIcon variant="subtle" color="breach" aria-label={t('task.removeLink')} onClick={() => void remove(id)}>

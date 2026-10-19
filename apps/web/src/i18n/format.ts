@@ -4,6 +4,7 @@
  * Umm al-Qura optional), always displayed in Asia/Riyadh. Storage stays UTC.
  */
 import { ar } from './ar';
+import { plural } from './plural';
 
 export type Digits = 'latn' | 'arab';
 
@@ -69,8 +70,16 @@ export function localizeDigits(text: string, prefs: Partial<DisplayPrefs> = {}):
 const DATE_OPTS: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
 const TIME_OPTS: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
 
+/** A zone-less local date-time (HOUR projects store Asia/Riyadh wall time: `YYYY-MM-DDTHH:MM`). */
+const LOCAL_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/**
+ * A string or Date as an instant. A zone-less local date-time is Riyadh wall time, so it is read
+ * with `+03:00` (calculations audit L3: `new Date('…T18:00')` would use the DEVICE zone and show
+ * the 23rd in New York); a bare `YYYY-MM-DD` is UTC midnight, the same day in Riyadh.
+ */
 function toDate(value: string | Date): Date | null {
-  const d = typeof value === 'string' ? new Date(value) : value;
+  const d = typeof value === 'string' ? new Date(LOCAL_DATE_TIME.test(value) ? `${value}+03:00` : value) : value;
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -156,7 +165,8 @@ export function formatMinutes(minutes: number, prefs: Partial<DisplayPrefs> = {}
 /** Working hours as «٢٫٥ ساعة». */
 export function formatHours(hours: number, prefs: Partial<DisplayPrefs> = {}): string {
   const v = Math.round(hours * 100) / 100;
-  return ar['duration.hours'].replace('{n}', numberFormat(prefs.digits ?? current.digits, { maximumFractionDigits: 2 }).format(v));
+  const forms = { one: ar['duration.hours.one'], two: ar['duration.hours.two'], few: ar['duration.hours.few'], many: ar['duration.hours.many'], other: ar['duration.hours'] };
+  return plural(v, forms).replace('{n}', numberFormat(prefs.digits ?? current.digits, { maximumFractionDigits: 2 }).format(v));
 }
 
 /** `HH:MM` (24 h wall clock, `24:00` allowed) as «٩:٠٠ ص» / «١:٠٠ م» (Arabic-friendly 12 h). */

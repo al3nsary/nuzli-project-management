@@ -11,7 +11,7 @@ import { IconMessageCircle2, IconMessageCircle2Filled } from '@tabler/icons-reac
 import type { TaskDto } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { useAuthStore } from '../../stores/auth';
-import { formatNumber, t } from '../../i18n';
+import { formatNumber, t, tCount } from '../../i18n';
 import './taskChatButton.css';
 
 export interface ChatCount {
@@ -67,7 +67,7 @@ export const TaskChatButton = memo(function TaskChatButton({
   const unread = chat?.unread ?? 0;
   const Icon = count > 0 ? IconMessageCircle2Filled : IconMessageCircle2;
   const label = count > 0
-    ? t('a10.chat.aria', { name: taskName, count: formatNumber(count), unread: formatNumber(unread) })
+    ? tCount('a10.chat.aria', count, { name: taskName, unread: formatNumber(unread) })
     : t('a10.chat.ariaNone', { name: taskName });
   return (
     <Tooltip label={count > 0 ? t('a10.chat.tooltip') : t('a10.chat.tooltipNone')} openDelay={350} withinPortal>

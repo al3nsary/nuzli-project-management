@@ -57,7 +57,8 @@ describe('imports — upload, preview, commit', () => {
     await loginAs(ADMIN);
     const fileId = await upload('mspdi-hours.xml', XML);
     const pv = await api.imports.preview({ fileId, format: 'xml' });
-    expect(pv.stats).toEqual({ taskCount: 5, groupCount: 1, milestoneCount: 1, dependencyCount: 3 });
+    expect(pv.stats).toMatchObject({ taskCount: 5, groupCount: 1, milestoneCount: 1, dependencyCount: 3, maxLevel: 2, colorCount: 0, coloredCount: 0 });
+    expect(pv.detectedFormat).toBe('xml');
     expect(pv.project).toMatchObject({ name: 'تشطيب البرج', durationUnit: 'HOUR', calendar: { workingHours: [{ start: '08:00', end: '12:00' }, { start: '13:00', end: '17:00' }] } });
     expect(pv.unmappedAssignees.map((a) => [a.name, a.taskCount, a.suggestedUserId])).toEqual([
       ['أحمد', 1, null],
@@ -137,7 +138,12 @@ describe('imports — upload, preview, commit', () => {
   it('errors: format mismatch, someone else’s file, a broken structure, supervisors refused, .mpp → 501, Jira Cloud needs the server', async () => {
     await loginAs(ADMIN);
     const fileId = await upload('mspdi-hours.xml', XML);
-    expect((await errOf(api.imports.preview({ fileId, format: 'xlsx' }))).code).toBe('IMPORT_FORMAT_MISMATCH');
+    // A10 (ADR-124): MS Project XML is read as XML whatever was chosen; a CSV chosen as Excel is still refused.
+    const asXlsx = await api.imports.preview({ fileId, format: 'xlsx' });
+    expect(asXlsx.detectedFormat).toBe('xml');
+    expect(asXlsx.warnings.map((w) => w.code)).toContain('FORMAT_DETECTED');
+    const csvFile = await upload('tasks-ar.csv', CSV);
+    expect((await errOf(api.imports.preview({ fileId: csvFile, format: 'xlsx' }))).code).toBe('IMPORT_FORMAT_MISMATCH');
     // A CSV that is really a ZIP fails the structure check at confirm.
     expect((await errOf(api.imports.upload(new Blob([fx('tasks.xlsx')]), CSV))).code).toBe('FILE_TYPE_NOT_ALLOWED');
     const mpp = await api.imports.upload(new Blob([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 1, 2])]), 'application/vnd.ms-project');

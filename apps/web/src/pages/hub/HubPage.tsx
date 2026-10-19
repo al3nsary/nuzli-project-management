@@ -21,7 +21,7 @@ import { useProjects } from '../../api/projectQueries';
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { TaskChat } from '../../features/chat/TaskChat';
-import { formatDate, formatNumber, riyadhDay, t, type MessageKey } from '../../i18n';
+import { formatDate, formatNumber, riyadhDay, t, tCount, type MessageKey } from '../../i18n';
 import { riyadhClock } from '../../features/chat/timeline';
 import './hub.css';
 
@@ -110,11 +110,11 @@ function HubRow({ item, selected, onOpen }: { item: HubItemDto; selected: boolea
         </span>
         <span className="hb-row-side">
           {unread ? (
-            <span className="hb-unread" aria-label={t('hub.unreadAria', { n: item.unreadCount })}>
+            <span className="hb-unread" aria-label={tCount('hub.unreadAria', item.unreadCount)}>
               {formatNumber(item.unreadCount)}
             </span>
           ) : (
-            <span className="hb-count" aria-label={t('hub.commentsAria', { n: item.commentCount })}>
+            <span className="hb-count" aria-label={tCount('hub.commentsAria', item.commentCount)}>
               <IconMessage2 size={14} aria-hidden />
               {formatNumber(item.commentCount)}
             </span>

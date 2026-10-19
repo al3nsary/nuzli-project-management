@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   can,
   isClockDriftSuspect,
+  isEditWindowOpen,
   maskNationalIdParts,
   type Paginated,
   type RosterResponse,
@@ -412,7 +413,8 @@ export class ViolationsService {
     const isAdmin = can(viewer, 'violations.manage');
     if (!isAdmin) {
       if (current.recordedById !== viewer.id) throw new AppError('NOT_FOUND');
-      if (now >= editableUntil(current.receivedAt, window)) throw new AppError('EDIT_WINDOW_CLOSED');
+      // L13: one boundary rule, shared with the demo — open strictly before editableUntil.
+      if (!isEditWindowOpen(now, editableUntil(current.receivedAt, window))) throw new AppError('EDIT_WINDOW_CLOSED');
     }
     const data: Prisma.ViolationUncheckedUpdateInput = {};
     const before: Record<string, unknown> = {};

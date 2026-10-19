@@ -47,9 +47,10 @@ import {
   IconSubtask,
   IconTrash,
 } from '@tabler/icons-react';
-import { MINUTES_PER_DAY, toDayNumber, toMinuteNumber } from '@nuzli/scheduling';
-import type { CustomFieldDto, GanttDto, LabelDto, TaskDto } from '@nuzli/shared';
-import { formatMoney, formatNumber, t } from '../../i18n';
+import { MINUTES_PER_DAY, dueDayOf, toDayNumber, toMinuteNumber } from '@nuzli/scheduling';
+import { calendarDaysOverdue, type CustomFieldDto, type GanttDto, type LabelDto, type TaskDto } from '@nuzli/shared';
+import { formatMoney, formatNumber, t, tCount } from '../../i18n';
+import { overdueText } from '../reports/parts';
 import type { Digits } from '../../i18n/format';
 import { RIYADH_OFFSET_MS, riyadhToday } from '../projects/today';
 import { sortOrderBetween } from '../projects/engine';
@@ -218,15 +219,15 @@ export function initials(name: string): string {
   return (parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '');
 }
 
-/** Whole calendar days a task is overdue (end before today, not DONE); 0 otherwise. */
-export function overdueDays(task: Pick<TaskDto, 'endDate' | 'status' | 'type'>, today: string): number {
+/**
+ * Whole CALENDAR days a task is overdue, with the server's rule (calculations audit L1/L6): due
+ * day (`dueDayOf`: an HOUR end at 24:00 belongs to the day before) before today and not DONE;
+ * the count is `calendarDaysOverdue` — the same number as the dashboard. 0 otherwise.
+ */
+export function overdueDays(task: Pick<TaskDto, 'startDate' | 'endDate' | 'status' | 'type'>, today: string): number {
   if (task.status === 'DONE' || task.type === 'GROUP') return 0;
-  const end = task.endDate.length > 10 ? task.endDate.slice(0, 10) : task.endDate;
-  if (task.endDate.length > 10) {
-    // HOUR tasks end exclusively at a time: overdue from the end instant.
-    return toMinuteNumber(task.endDate) < nowMinute() ? Math.max(0, daysBetweenIso(end, today)) : 0;
-  }
-  return end < today ? daysBetweenIso(end, today) : 0;
+  const due = dueDayOf(task);
+  return due < today ? calendarDaysOverdue(due, today) : 0;
 }
 
 export function Gantt(props: GanttProps) {
@@ -327,7 +328,11 @@ export function Gantt(props: GanttProps) {
       const centreX = zoom === 'hour' ? xOfPos(scale, centerDay.current + 13 / 24) : dayStartX(scale, centerDay.current);
       left = Math.max(0, Math.min(scale.width - vw, centreX - vw / 2));
     } else {
-      const anchor = Math.max(toDayNumber(data.project.startDate), Math.min(today, scale.endDay));
+      // Today when it falls inside the project's span; otherwise its start (A10: an imported
+      // project that ended before today used to open on an empty «now»).
+      const startDay = toDayNumber(data.project.startDate);
+      const lastDay = data.tasks.reduce((m, t) => Math.max(m, toDayNumber(t.endDate)), startDay);
+      const anchor = today >= startDay && today <= lastDay ? today : startDay;
       left = unit === 'HOUR' ? Math.max(0, Math.min(scale.width - vw, xOfPos(scale, anchor + 9 / 24) - vw * 0.8)) : scrollLeftFor(scale, anchor, vw);
     }
     anchored.current = { project: data.project.id, zoom, width: vw };
@@ -350,7 +355,7 @@ export function Gantt(props: GanttProps) {
       requestAnimationFrame(retry);
     };
     if (Math.abs(apply() - left) > 1) requestAnimationFrame(retry);
-  }, [data.project.id, data.project.startDate, zoom, scale, today, view.width, unit]);
+  }, [data.project.id, data.project.startDate, data.tasks, zoom, scale, today, view.width, unit]);
 
   const frame = useRef(0);
   const onBodyScroll = useCallback(() => {
@@ -947,10 +952,9 @@ export function Gantt(props: GanttProps) {
       </div>
       {drag?.moved && drag.mode !== 'link' && preview ? (
         <div className={classes.dragTip} role="status" aria-live="polite">
-          {t('gantt.dragTip', {
+          {tCount('gantt.dragTip', Math.max(0, preview.changes.length - 1), {
             start: when((preview.byId.get(drag.task.id) ?? drag.task).startDate, digits),
             end: when((preview.byId.get(drag.task.id) ?? drag.task).endDate, digits),
-            count: formatNumber(Math.max(0, preview.changes.length - 1)),
           })}
         </div>
       ) : null}
@@ -1021,8 +1025,8 @@ function shortDate(iso: string, digits: Digits) {
 
 function durationText(task: TaskDto & { durationHours?: number }, unit: 'DAY' | 'HOUR'): string {
   if (task.type === 'MILESTONE') return '—';
-  if (unit === 'HOUR' && task.durationHours != null) return t('duration.hours', { n: formatNumber(Math.round(task.durationHours * 100) / 100) });
-  return t('duration.days', { n: formatNumber(task.durationDays) });
+  if (unit === 'HOUR' && task.durationHours != null) return tCount('duration.hours', Math.round(task.durationHours * 100) / 100);
+  return tCount('duration.days', task.durationDays);
 }
 
 function customValueText(field: CustomFieldDto | undefined, value: unknown, digits: Digits): string {
@@ -1466,7 +1470,7 @@ const TimeHeader = memo(function TimeHeader(p: {
         <line className={classes.headSep} x1={x1} x2={x1} y1={y} y2={y + HEADER_ROW} />
         {/* A label is drawn only where it fits (≈ 6 px per character at 11 px). */}
         {label.length * 7 + 6 <= w ? (
-          <text className={cls} x={x2 + w / 2} y={y + 16} textAnchor="middle">
+          <text className={cls} x={x2 + w / 2} y={y + 16} textAnchor="middle" direction="rtl">
             {label}
           </text>
         ) : null}
@@ -1502,7 +1506,7 @@ const TimeHeader = memo(function TimeHeader(p: {
       {showNow ? (
         <g>
           <rect className={classes.todayPill} x={nowX - lw / 2} y={h - 19} width={lw} height={17} rx={8.5} />
-          <text className={classes.todayText} x={nowX} y={h - 6.5} textAnchor="middle">
+          <text className={classes.todayText} x={nowX} y={h - 6.5} textAnchor="middle" direction="rtl">
             {label}
           </text>
         </g>
@@ -1613,13 +1617,8 @@ function rangeLabel(task: TaskDto, digits: Digits): string {
   return `${shortDate(task.startDate.slice(0, 10), digits)} – ${shortDate(task.endDate.slice(0, 10), digits)}`;
 }
 
-/** «متأخرة يومًا واحدًا / يومين / ٥ أيام / ١٢ يومًا» (Arabic number agreement). */
-export function overdueLabel(days: number): string {
-  if (days === 1) return t('bar.overdueOne');
-  if (days === 2) return t('bar.overdueTwo');
-  if (days >= 3 && days <= 10) return t('bar.overdueFew', { count: formatNumber(days) });
-  return t('bar.overdue', { count: formatNumber(days) });
-}
+/** «متأخرة يومًا واحدًا / يومين / ٥ أيام / ١٢ يومًا / ١٠٣ أيام» — the dashboard's wording (L1). */
+export const overdueLabel = (days: number): string => overdueText(days);
 
 const Bar = memo(function Bar(p: {
   bar: BarGeom;
@@ -1655,7 +1654,7 @@ const Bar = memo(function Bar(p: {
       <g data-task-id={task.id} data-bar className={`${classes.bar} ${p.dragging ? classes.dragging : ''}`} data-handle="move" aria-label={aria} {...hoverProps}>
         {deadline}
         <path d={`M${cx} ${cy - r}L${cx + r} ${cy}L${cx} ${cy + r}L${cx - r} ${cy}Z`} className={task.status === 'DONE' ? classes.milestoneDone : classes.milestone} style={task.barColor ? { fill: task.barColor } : undefined} />
-        <text className={classes.barLabel} x={cx - r - 6} y={cy + 4} textAnchor="end">
+        <text className={classes.barLabel} x={cx - r - 6} y={cy + 4} textAnchor="start" direction="rtl">
           {task.name}
         </text>
         {p.editable ? <circle data-handle="link" className={classes.linkHandle} cx={cx - r - 6} cy={cy} r={5} /> : null}
@@ -1670,7 +1669,7 @@ const Bar = memo(function Bar(p: {
         <rect x={bar.startX - bar.progressW} y={bar.y} width={bar.progressW} height={bar.h} className={classes.groupProgress} rx={2} />
         <path d={`M${bar.x} ${bar.y + bar.h}l0 5l6 -5z`} className={classes.group} />
         <path d={`M${bar.startX} ${bar.y + bar.h}l0 5l-6 -5z`} className={classes.group} />
-        <text className={classes.rangeLabel} x={bar.x - 8} y={bar.y + bar.h / 2 + 4} textAnchor="end">
+        <text className={classes.rangeLabel} x={bar.x - 8} y={bar.y + bar.h / 2 + 4} textAnchor="start" direction="rtl">
           {rangeLabel(task, p.digits)}
         </text>
         {p.editable ? <circle data-handle="link" className={classes.linkHandle} cx={bar.x - 8} cy={bar.y + bar.h / 2} r={5} /> : null}
@@ -1717,11 +1716,12 @@ const Bar = memo(function Bar(p: {
         </g>
       ) : null}
       {late > 0 ? (
-        <text className={classes.overdueLabel} x={after} y={cy + 4} textAnchor="end">
+        <text className={classes.overdueLabel} x={after} y={cy + 4} textAnchor="start" direction="rtl">
+          <title>{t('a9r.overdueTip')}</title>
           {overdueLabel(late)}
         </text>
       ) : task.assignee ? (
-        <text className={classes.barLabel} x={after} y={cy + 4} textAnchor="end">
+        <text className={classes.barLabel} x={after} y={cy + 4} textAnchor="start" direction="rtl">
           {task.assignee.fullName}
         </text>
       ) : null}

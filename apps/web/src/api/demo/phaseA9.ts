@@ -53,7 +53,10 @@ import {
   deadlinePassed,
   dueFlags,
   normalizeLeaf,
+  progressWeight,
   riyadhToday,
+  rootsForProgress,
+  syncStatusProgress,
   siblingsOf,
   sortOrderBetween,
   subtreeIds,
@@ -448,8 +451,14 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       const tasks = await core.liveTasks(p.id);
       const cal = await calendarOf(p.calendarId);
       const leaves = leavesOf(tasks).filter((t) => t.type !== 'GROUP');
+      // Portfolio weight (calculations audit, as the API): the roots' working days; HOUR projects
+      // convert working minutes with the calendar's standard day.
+      const unit = p.durationUnit === 'HOUR' ? 'HOUR' : 'DAY';
+      const w = rootsForProgress(tasks).reduce((sum, r) => sum + progressWeight(r, unit), 0);
+      const progressWeightDays = unit === 'HOUR' ? Math.round((w / cal.standardMinutesPerDay) * 100) / 100 : w;
       out.push({
         project: await core.projectDto(p, tasks),
+        progressWeightDays,
         leafCount: leaves.filter((t) => t.type !== 'MILESTONE').length,
         doneCount: leaves.filter((t) => t.type !== 'MILESTONE' && t.status === 'DONE').length,
         overdueCount: leaves.filter((t) => dueFlags(t, today, cal).overdue).length,
@@ -775,12 +784,15 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
         core.checkVersions(s, ids.map((id) => ({ id, version: data.versions[id]! })));
         await core.assertLabels(projectId, [...(p.labelIdsAdd ?? []), ...(p.labelIdsRemove ?? [])]);
         const work = new Map(s.before);
+        const parentIds = new Set(s.tasks.map((t) => t.parentId).filter((x): x is string => !!x));
         for (const id of ids) {
           const next = { ...work.get(id)! };
-          if (p.status !== undefined) next.status = p.status;
+          // H1: a group in the selection keeps its derived status/progress; leaves are synced.
+          if (!parentIds.has(id) && next.type !== 'GROUP' && (p.status !== undefined || p.progress !== undefined)) {
+            Object.assign(next, syncStatusProgress(next, { status: p.status, progress: p.progress }));
+          }
           if (p.priority !== undefined) next.priority = p.priority;
           if (p.assigneeId !== undefined) next.assigneeId = p.assigneeId;
-          if (p.progress !== undefined) next.progress = p.progress;
           if (p.barColor !== undefined) next.barColor = p.barColor ? p.barColor.toUpperCase() : null;
           if (p.labelIdsAdd || p.labelIdsRemove) {
             const set = new Set(next.labelIds);
@@ -1176,11 +1188,16 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
           t.startDate.slice(0, 10) <= q.to &&
           t.endDate.slice(0, 10) >= q.from,
       );
-      const entries = (await db.timeEntries.toArray()).filter((e) => ids.has(e.userId) && e.date >= q.from && e.date <= q.to);
+      // Calculations audit L12: logged time counts only live tasks of live, non-template projects.
+      const liveTaskIds = new Set((await db.tasks.toArray()).filter((t) => !t.archivedAt && live.has(t.projectId)).map((t) => t.id));
+      const entries = (await db.timeEntries.toArray()).filter((e) => ids.has(e.userId) && e.date >= q.from && e.date <= q.to && liveTaskIds.has(e.taskId));
+      // M4: the default calendar defines a person's per-day capacity (holidays 0, short days their minutes).
+      const capacityCal = (await db.calendars.toArray()).find((c) => c.isDefault);
       return computeWorkload({
         from: q.from,
         to: q.to,
         users: people,
+        capacity: capacityCal ? workCalendarOf(capacityCal) : fallback,
         tasks: rows.map((t) => {
           const p = live.get(t.projectId)!;
           return { assigneeId: t.assigneeId!, type: t.type, startDate: t.startDate, endDate: t.endDate, cal: cals.get(p.calendarId) ?? fallback, unit: unitOf(p) };

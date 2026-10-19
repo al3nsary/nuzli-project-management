@@ -14,6 +14,7 @@ import { DemoApi } from '../../../api/demo/DemoApi';
 import { DEMO_PASSWORD } from '../../../api/demo/constants';
 import { useAuthStore } from '../../../stores/auth';
 import { jiraFieldErrors } from './ImportWizardPage';
+import { isolateRanges } from './ImportPreview';
 
 const ADMIN = 'admin1@demo.nuzli.example';
 const SUP1_ID = '00000000-0000-4000-8000-000000000003';
@@ -130,10 +131,64 @@ describe('import wizard /projects/import', () => {
     await waitFor(() => expect(router.state.location.search).toBe('?source=jira-csv&step=2'));
   });
 
+  it('A10: GanttPRO and Microsoft Project come first with how-to text; a GanttPRO file chosen as «Excel» is recognised on the file step and in the preview, then created with its colours', { timeout: 60_000 }, async () => {
+    const { api, router } = await renderAt('/projects/import');
+    expect(await screen.findByText('مشروع جاهز من برنامج آخر', {}, T)).toBeInTheDocument();
+    expect(screen.getByText('من GanttPRO: تصدير ← Excel')).toBeInTheDocument();
+    expect(screen.getByText('من MS Project: حفظ باسم ← XML')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^GanttPRO \(Excel\)/ })).toBeInTheDocument();
+    expect(screen.getByText('Microsoft Project (XML / MPP)')).toBeInTheDocument();
+
+    // MS Project: one source — a .mpp picked under XML switches the reader.
+    fireEvent.click(screen.getByRole('button', { name: /^MS Project XML/ }));
+    await waitFor(() => expect(router.state.location.search).toBe('?source=xml&step=2'));
+    expect(screen.getByText('كيف تحصل على الملف')).toBeInTheDocument();
+    fireEvent.change(await screen.findByTestId('import-file-input', {}, T), {
+      target: { files: [new File([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0])], 'plan.mpp')] },
+    });
+    await waitFor(() => expect(router.state.location.search).toBe('?source=mpp&step=2'));
+
+    // A GanttPRO export chosen as «Excel».
+    await router.navigate('/projects/import?source=xlsx&step=2');
+    expect(await screen.findByText('ملف Excel', {}, T)).toBeInTheDocument();
+    const input = screen.getByTestId('import-file-input');
+    fireEvent.change(input, {
+      target: { files: [new File([fx('ganttpro-sample.xlsx')], 'villa.xlsx')] },
+    });
+    expect(await screen.findByTestId('import-detected-file', {}, T)).toHaveTextContent(
+      'تم التعرّف على ملف GanttPRO',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'رفع ومعاينة' }));
+    expect(await screen.findByTestId('import-detected', {}, T)).toHaveTextContent(
+      'تم التعرّف على ملف GanttPRO',
+    );
+    expect(screen.getByTestId('import-detected')).toHaveTextContent('اخترت «Excel»');
+    expect(screen.getByTestId('import-format')).toHaveTextContent('GanttPRO (Excel)');
+    expect(screen.getByTestId('import-source-types')).toHaveTextContent('مشروعان، 3 مجموعات مهام، 7 مهام، معلَم واحد');
+    expect(screen.getByTestId('import-unit')).toHaveTextContent('ساعات');
+    expect(screen.getByText('الصيغة المكتشفة')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^إنشاء المشروع/ }));
+    await waitFor(
+      () => expect(router.state.location.pathname).toMatch(/^\/projects\/[0-9a-f-]{36}$/),
+      T,
+    );
+    const g = await api.projects.gantt(router.state.location.pathname.split('/').pop()!);
+    expect(g.tasks).toHaveLength(13);
+    expect(new Set(g.tasks.map((x) => x.barColor)).size).toBe(7);
+  });
+
   it('a reload on the preview step goes back to the file step (the preview lives in memory)', async () => {
     const { router } = await renderAt('/projects/import?source=csv&step=3');
     await waitFor(() => expect(router.state.location.search).toBe('?source=csv&step=2'), T);
     expect(await screen.findByText('ملف CSV', {}, T)).toBeInTheDocument();
+  });
+});
+
+describe('warning text', () => {
+  it('time ranges inside the Arabic message are isolated left-to-right (no «14:00–10:00»)', () => {
+    expect(isolateRanges('ساعات العمل 10:00–14:00 و15:30–20:30، والعطلة')).toBe(
+      'ساعات العمل ⁦10:00–14:00⁩ و⁦15:30–20:30⁩، والعطلة',
+    );
   });
 });
 
@@ -171,5 +226,18 @@ describe('Jira form validation (instant Arabic messages)', () => {
     );
     expect(jiraFieldErrors({ ...base, mode: 'jql', jql: '' }).projectKey).toBe('اكتب استعلام JQL.');
     expect(jiraFieldErrors({ ...base, mode: 'jql', jql: 'project = OPS' })).toEqual({});
+  });
+});
+
+describe('A10 QA — the source cards fit a 360 px phone', () => {
+  // jsdom has no layout; the browser check measured the MS Project card at 401 px in a 336 px column
+  // (the «.mpp — الملف الأصلي · يتطلّب الخادم» button does not wrap). These rules are the fix.
+  const css = readFileSync(join(__dirname, 'import.css'), 'utf8');
+  it('a card may shrink below its content width', () => {
+    expect(css).toMatch(/\.nz-imp-source-item > \.nz-imp-source \{[^}]*min-width: 0/);
+  });
+  it('the MS Project buttons wrap their label and never exceed the card', () => {
+    expect(css).toMatch(/\.nz-imp-featured \.mantine-Button-root \{[^}]*max-width: 100%[^}]*height: auto/);
+    expect(css).toMatch(/\.nz-imp-featured \.mantine-Button-label \{[^}]*white-space: normal/);
   });
 });

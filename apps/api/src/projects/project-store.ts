@@ -21,6 +21,7 @@ import {
 import {
   dateOf,
   diffTasks,
+  dueDayOf,
   endDayOfLocal,
   hoursToMinutes,
   instantOf,
@@ -126,7 +127,7 @@ export class ProjectStore {
     const [roots, agg] = await Promise.all([
       db.task.findMany({
         where: { projectId: { in: projectIds }, parentId: null, archivedAt: null },
-        select: { projectId: true, type: true, durationDays: true, progress: true, plannedCost: true, actualCost: true },
+        select: { id: true, projectId: true, type: true, durationDays: true, durationMinutes: true, progress: true, plannedCost: true, actualCost: true },
       }),
       db.task.groupBy({
         by: ['projectId'],
@@ -135,13 +136,22 @@ export class ProjectStore {
         _max: { endDate: true },
       }),
     ]);
+    // Calculations audit H2: a root GROUP without live children weighs 0 in the project progress.
+    const groupIds = roots.filter((r) => r.type === 'GROUP').map((r) => r.id);
+    const filled = new Set<string>();
+    if (groupIds.length) {
+      const kids = await db.task.groupBy({ by: ['parentId'], where: { parentId: { in: groupIds }, archivedAt: null }, _count: { _all: true } });
+      for (const k of kids) if (k.parentId) filled.add(k.parentId);
+    }
     for (const r of roots) {
       out.get(r.projectId)?.roots.push({
         type: r.type,
         durationDays: r.durationDays,
+        ...(r.durationMinutes != null ? { durationHours: minutesToHours(r.durationMinutes) } : {}),
         progress: Number(r.progress),
         plannedCost: Number(r.plannedCost),
         actualCost: Number(r.actualCost),
+        isEmptyGroup: r.type === 'GROUP' && !filled.has(r.id),
       });
     }
     for (const a of agg) {
@@ -347,7 +357,9 @@ export class ProjectStore {
       };
       for (const f of fields) assignField(data, f, after);
       if (fields.includes('startDate') || fields.includes('endDate') || fields.includes('durationHours')) Object.assign(data, timeColumns(after));
-      if (fields.includes('endDate')) {
+      // Calculations audit L10: reminders are daily, so they are re-armed only when the DUE DAY
+      // moves (an HOUR edit that changes only the time within the same day sends nothing again).
+      if (fields.includes('endDate') && dueDayOf(before) !== dueDayOf(after)) {
         data.dueSoonNotifiedAt = null;
         data.overdueNotifiedAt = null;
       }

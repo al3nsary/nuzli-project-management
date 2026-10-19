@@ -18,6 +18,7 @@ import {
   importJiraSchema,
   importProjectSchema,
   type ImportCommitResultDto,
+  type ImportFileFormat,
   type ImportPreviewDto,
 } from '@nuzli/shared';
 import type { ApiClient } from '../client';
@@ -27,7 +28,7 @@ import type { ProjectsCore } from './phase4';
 import { ensureProjectCalendar } from './calendars';
 import { rebaseTasks, topoOrder } from './phaseA9';
 import { fail, newId, validate } from './util';
-import { draftOf, FORMAT_FILE } from '../../features/imports/files';
+import { draftOf, familyOf, FORMAT_FILE, sniffFormat } from '../../features/imports/files';
 import { assertJiraSite } from '../../features/imports/jira';
 import {
   buildPreview,
@@ -51,6 +52,48 @@ interface StoredPreview {
   createdById: string;
   expiresAt: number;
   payload: PreviewPayload;
+}
+
+/** The upload content types each format accepts (`FORMAT_TYPES` of the API). */
+const formatTypes = (f: ImportFileFormat): string[] =>
+  f === 'xml' ? ['application/xml', 'text/xml'] : [FORMAT_FILE[f].contentType];
+
+/** Names of the formats in warnings — the API's `FORMAT_NAMES`. */
+const FORMAT_NAMES: Record<string, string> = {
+  xlsx: 'Excel',
+  ganttpro: 'GanttPRO (Excel)',
+  csv: 'CSV',
+  'jira-csv': 'Jira CSV',
+  xml: 'MS Project XML',
+  mpp: 'MS Project (.mpp)',
+};
+
+const normName = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** A10: supervisors by normalised full name and by e-mail local part (two people, one key → none). */
+export function suggestionIndex(
+  users: ReadonlyArray<{ id: string; fullName: string; email?: string | null }>,
+): Map<string, string | null> {
+  const byKey = new Map<string, string | null>();
+  const add = (k: string, id: string) => {
+    if (!k) return;
+    const prev = byKey.get(k);
+    byKey.set(k, prev === undefined || prev === id ? id : null);
+  };
+  for (const u of users) {
+    add(normName(u.fullName), u.id);
+    if (u.email) add(normName(u.email.split('@')[0]!), u.id);
+  }
+  return byKey;
+}
+
+/** A name from the file → a supervisor id: exact (case-insensitive) name, e-mail, or its local part. */
+export function suggestFor(index: Map<string, string | null>, name: string): string | null {
+  const n = normName(name);
+  const byName = index.get(n);
+  if (byName !== undefined) return byName;
+  if (n.includes('@')) return index.get(n.split('@')[0]!) ?? null;
+  return null;
 }
 
 export type ImportsApi = ApiClient['imports'] & {
@@ -93,30 +136,33 @@ export function createImports(
     const supervisors = names.length
       ? (await db.users.toArray()).filter((u) => u.role === 'SUPERVISOR' && u.status === 'ACTIVE')
       : [];
-    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    const byName = new Map<string, string | null>();
-    for (const u of supervisors) {
-      const k = norm(u.fullName);
-      byName.set(k, byName.has(k) ? null : u.id); // two supervisors with one name → no suggestion
-    }
+    const byName = suggestionIndex(supervisors);
+    const tasks = previewTasksDto(p);
+    const colors = new Set(p.tasks.map((t) => t.barColor).filter((c): c is string => !!c));
     return {
       previewId,
       expiresAt: new Date(expiresAt).toISOString(),
       format: p.format as ImportPreviewDto['format'],
+      detectedFormat: (p.detectedFormat ?? p.format) as ImportPreviewDto['format'],
       project: p.project,
-      tasks: previewTasksDto(p),
+      tasks,
       dependencies: previewDepsDto(p),
       warnings: p.warnings,
       unmappedAssignees: names.sort().map((name) => ({
         name,
         taskCount: counts.get(name)!,
-        suggestedUserId: byName.get(norm(name)) ?? null,
+        suggestedUserId: suggestFor(byName, name),
       })),
       stats: {
         taskCount: p.tasks.length,
         groupCount: p.tasks.filter((t) => t.type === 'GROUP').length,
         milestoneCount: p.tasks.filter((t) => t.type === 'MILESTONE').length,
         dependencyCount: p.deps.length,
+        maxLevel: tasks.reduce((m, t) => Math.max(m, t.wbs ? t.wbs.split('.').length : 1), 0),
+        coloredCount: p.tasks.filter((t) => !!t.barColor).length,
+        colorCount: colors.size,
+        deadlineCount: p.tasks.filter((t) => !!t.deadline).length,
+        ...(p.sourceStats ?? {}),
       },
     };
   }
@@ -138,6 +184,7 @@ export function createImports(
       projectName: meta.options.projectName,
     });
     payload.calendarFromFile = !!draft.calendar;
+    const detected = payload.detectedFormat ?? meta.format;
     const id = newId();
     const expiresAt = Date.now() + PREVIEW_TTL_MS;
     // Security review A9 L2: at most MAX_PREVIEWS_PER_USER per admin — the oldest go first, with
@@ -157,6 +204,7 @@ export function createImports(
       before: null,
       after: {
         format: meta.format,
+        ...(detected !== meta.format ? { detectedFormat: detected } : {}),
         tasks: payload.tasks.length,
         dependencies: payload.deps.length,
         durationUnit: payload.project.durationUnit,
@@ -192,26 +240,27 @@ export function createImports(
         file.createdById !== viewer.id
       )
         fail('NOT_FOUND');
-      // A10: `ganttpro` (shared IMPORT_FILE_FORMATS) is an .xlsx in the GanttPRO layout; the demo
-      // reads it with the Excel reader.
-      const fileFormat = data.format === 'ganttpro' ? 'xlsx' : data.format;
-      const accepted =
-        fileFormat === 'xml'
-          ? ['application/xml', 'text/xml']
-          : [FORMAT_FILE[fileFormat].contentType];
-      if (!accepted.includes(file.mimeType))
+      const obj = await db.objects.get(file.id);
+      if (!obj) fail('NOT_FOUND');
+      const bytes = new Uint8Array(obj.data);
+      // A10 (ADR-124): the content decides within what the upload really is — a GanttPRO workbook
+      // sent as «xlsx», or MS Project XML sent under another choice, is read as what it is.
+      const sniffed = sniffFormat(bytes);
+      const sniffedFits = sniffed !== null && formatTypes(sniffed).includes(file.mimeType);
+      if (!formatTypes(data.format).includes(file.mimeType) && !sniffedFits)
         throw importError('IMPORT_FORMAT_MISMATCH', {
           format: data.format,
           contentType: file.mimeType,
         });
-      const obj = await db.objects.get(file.id);
-      if (!obj) fail('NOT_FOUND');
-      const draft = await draftOf(
-        fileFormat,
-        new Uint8Array(obj.data),
-        data.options.dateOrder,
-        data.options.sheetName,
-      );
+      const format =
+        sniffed && sniffedFits && familyOf(sniffed) !== familyOf(data.format) ? sniffed : data.format;
+      const draft = await draftOf(format, bytes, data.options.dateOrder, data.options.sheetName);
+      draft.detectedFormat ??= format;
+      if (draft.detectedFormat !== data.format) {
+        const was = FORMAT_NAMES[data.format] ?? data.format;
+        const is = FORMAT_NAMES[draft.detectedFormat] ?? draft.detectedFormat;
+        warn(draft, 'FORMAT_DETECTED', `الملف بصيغة ${is}، فقُرئ بها بدل «${was}».`);
+      }
       return savePreview(
         draft,
         { format: data.format, fileId: file.id, options: data.options },
@@ -389,4 +438,3 @@ export const isDemoJiraError = (err: unknown): boolean =>
   err.code === 'JIRA_REQUEST_FAILED' &&
   (err.details as { reason?: string } | undefined)?.reason === 'demo';
 
-void warn;

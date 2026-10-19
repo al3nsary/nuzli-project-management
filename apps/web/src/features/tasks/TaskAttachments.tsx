@@ -84,7 +84,7 @@ export function TaskAttachments({ taskId, projectId, assigneeId }: { taskId: str
               <FileThumb taskId={taskId} file={f} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Text size="sm" fw={600} truncate>
-                  {t('task.fileName', { n: formatNumber(i + 1), type: isImage(f.mimeType) ? t('task.image') : 'PDF' })}
+                  {t('task.fileName', { n: i + 1, type: isImage(f.mimeType) ? t('task.image') : 'PDF' })}
                 </Text>
                 <Text size="xs" c="dimmed" truncate>
                   {t('task.fileMeta', { by: f.uploadedBy?.fullName ?? t('common.unknownUser'), at: formatDateTime(f.createdAt), size: formatNumber(Math.max(1, Math.ceil(f.sizeBytes / 1024))) })}

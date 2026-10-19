@@ -59,6 +59,10 @@ import {
   dueFlags,
   needsRenumber,
   normalizeLeaf,
+  dueDayOf,
+  rootsForProgress,
+  roundHalfAway,
+  syncStatusProgress,
   previousOf,
   projectProgress,
   recompute,
@@ -77,6 +81,7 @@ import {
 import { notificationPreview, preview } from '../../features/projects/reports';
 import { buildTasksCsv, buildTasksWorkbook, type TaskExportRow } from '../../features/projects/excel';
 import { writeMspdi } from '../../features/imports/mspdi';
+import { writeGanttpro } from '../../features/imports/ganttpro';
 import { workbookToBlob } from '../../features/violations/excel';
 import type { DemoCalendar, DemoDependency, DemoFile, DemoProject, DemoTask, DemoUser } from './db';
 import type { DemoInternals } from './phase2';
@@ -299,8 +304,12 @@ export function createPhase4(
     const live = tasks ?? (await liveTasks(p.id));
     const ids = new Set(live.map((t) => t.id));
     const owner = await db.users.get(p.ownerId);
-    const endDate = live.reduce<string | null>((m, t) => (m === null || t.endDate > m ? t.endDate : m), null);
-    const roots = live.filter((t) => !t.parentId || !ids.has(t.parentId));
+    // The project ends on the latest due day (an HOUR end at 24:00 belongs to the day before, L6).
+    const endDate = live.reduce<string | null>((m, t) => {
+      const day = dueDayOf(t);
+      return m === null || day > m ? day : m;
+    }, null);
+    const roots = rootsForProgress(live);
     let planned = 0;
     let actual = 0;
     for (const r of roots) {
@@ -319,7 +328,7 @@ export function createPhase4(
       calendarId: p.calendarId,
       autoSchedule: p.autoSchedule,
       owner: { id: p.ownerId, fullName: owner?.fullName ?? '' },
-      progress: projectProgress(roots),
+      progress: projectProgress(roots, unitOf(p)),
       taskCount: live.length,
       createdAt: p.createdAt,
       budget,
@@ -480,7 +489,8 @@ export function createPhase4(
       });
     }
     for (const v of versioned) {
-      const endMoved = v.fields.includes('endDate');
+      // Calculations audit L10: reminders are daily, so they are re-armed only when the DUE DAY moves.
+      const endMoved = v.fields.includes('endDate') && dueDayOf(v.before) !== dueDayOf(v.after);
       const deadlineMoved = v.fields.includes('deadline');
       await db.tasks.put({
         ...v.after,
@@ -528,7 +538,7 @@ export function createPhase4(
     const deps: DemoDependency[] = s.deps.map((d) => {
       if (s.unit === 'HOUR') return { ...d, lagMinutes: (Math.trunc(d.lagDays) || 0) * std };
       const { lagMinutes, ...rest } = d;
-      return lagMinutes == null ? rest : { ...rest, lagDays: Math.round(lagMinutes / std) || 0 };
+      return lagMinutes == null ? rest : { ...rest, lagDays: roundHalfAway(lagMinutes / std) };
     });
     for (const d of deps) await db.dependencies.put(d);
     s.deps = deps;
@@ -914,6 +924,47 @@ export function createPhase4(
           })),
         });
         blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+      } else if (format === 'ganttpro') {
+        // A10 (ADR-125, ADR-130): GanttPRO's Excel layout; the GanttPRO importer reads it back identically.
+        const bytes = await writeGanttpro({
+          name: g.project.name,
+          unit,
+          generatedAt,
+          calendar: {
+            name: g.calendar.name,
+            weekendDays: g.calendar.weekendDays,
+            workingHours: g.calendar.workingHours ?? DEFAULT_WORKING_HOURS,
+            exceptions: g.calendar.exceptions.map((e) => ({ date: e.date, isWorking: e.isWorking, name: e.name, workingHours: e.workingHours ?? null })),
+          },
+          tasks: g.tasks.map((t) => ({
+            id: t.id,
+            parentId: t.parentId,
+            wbs: t.wbs,
+            name: t.name,
+            type: t.type,
+            startDate: t.startDate,
+            endDate: t.endDate,
+            durationDays: t.durationDays,
+            ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
+            progress: t.progress,
+            status: t.status,
+            priority: t.priority,
+            assigneeName: t.assignee?.fullName ?? null,
+            description: t.description,
+            plannedCost: t.plannedCost ?? 0,
+            actualCost: t.actualCost ?? 0,
+            deadline: t.deadline ?? null,
+            barColor: t.barColor ?? null,
+          })),
+          deps: g.dependencies.map((d) => ({
+            predecessorId: d.predecessorId,
+            successorId: d.successorId,
+            type: d.type,
+            lagDays: d.lagDays,
+            lagMinutes: d.lagHours !== undefined ? Math.round(d.lagHours * 60) : 0,
+          })),
+        });
+        blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       } else {
         const wb = await buildTasksWorkbook(
           {
@@ -1079,8 +1130,6 @@ export function createPhase4(
         if (data.name !== undefined) next.name = data.name;
         if (data.priority !== undefined) next.priority = data.priority;
         if (data.description !== undefined) next.description = data.description;
-        if (data.status !== undefined) next.status = data.status;
-        if (data.progress !== undefined) next.progress = data.progress;
         if (data.assigneeId !== undefined) next.assigneeId = data.assigneeId;
         if (data.plannedCost !== undefined) next.plannedCost = data.plannedCost;
         if (data.actualCost !== undefined) next.actualCost = data.actualCost;
@@ -1090,6 +1139,13 @@ export function createPhase4(
         if (data.type !== undefined && data.type !== cur.type) {
           if (data.type === 'MILESTONE' && hasChildren) fail('TASK_PARENT_INVALID', { taskId: id });
           next.type = data.type;
+        }
+        // Calculations audit H1 (as the API): a group's status is derived — changing it is refused;
+        // a leaf's status and progress move together (shared syncStatusProgress).
+        if (hasChildren || next.type === 'GROUP') {
+          if (data.status !== undefined && data.status !== cur.status) fail('TASK_GROUP_STATUS_DERIVED', { taskId: id });
+        } else if (data.status !== undefined || data.progress !== undefined) {
+          Object.assign(next, syncStatusProgress(cur, { status: data.status, progress: data.progress }));
         }
         if (data.parentId !== undefined && data.parentId !== cur.parentId) {
           assertValidParent(s.before, id, data.parentId);
@@ -1164,8 +1220,11 @@ export function createPhase4(
         const day = (v: string | undefined) => (v === undefined ? undefined : s.unit === 'HOUR' ? v : v.slice(0, 10));
         for (const c of data.changes) {
           let next = { ...work.get(c.id)! };
-          if (c.progress !== undefined) next.progress = c.progress;
-          if (c.status !== undefined) next.status = c.status;
+          // H1: groups derive status and progress (values sent by an undo step are ignored);
+          // leaves sync status ↔ progress with the shared rule.
+          if (!hasChildren.has(c.id) && next.type !== 'GROUP' && (c.progress !== undefined || c.status !== undefined)) {
+            Object.assign(next, syncStatusProgress(next, { status: c.status, progress: c.progress }));
+          }
           if (c.name !== undefined) next.name = c.name;
           if (c.priority !== undefined) next.priority = c.priority;
           if (c.assigneeId !== undefined) next.assigneeId = c.assigneeId;
@@ -1553,7 +1612,11 @@ export function createPhase4(
       await tx(async () => {
         const s = await load(projectId);
         // A9 hours: an HOUR project stores the lag in working minutes (lagHours wins over lagDays).
-        if (s.unit === 'HOUR') dep.lagMinutes = data.lagHours !== undefined ? Math.round(data.lagHours * 60) : Math.round(data.lagDays * s.cal.standardMinutesPerDay);
+        if (s.unit === 'HOUR') {
+          dep.lagMinutes = data.lagHours !== undefined ? Math.round(data.lagHours * 60) : Math.round(data.lagDays * s.cal.standardMinutesPerDay);
+          // L7 (as the API): the day lag rounds half away from zero (−4 h and +4 h → −1 d / +1 d).
+          dep.lagDays = roundHalfAway(dep.lagMinutes / s.cal.standardMinutesPerDay);
+        }
         const missing = [data.predecessorId, data.successorId].filter((x) => !s.before.has(x));
         if (missing.length) fail('NOT_FOUND', { taskIds: missing });
         if (s.deps.some((d) => d.predecessorId === data.predecessorId && d.successorId === data.successorId)) {
@@ -1711,7 +1774,8 @@ export function createPhase4(
       await tx(async () => {
         const cur = await getCalendar(id);
         if (cur.exceptions.some((e) => e.date === data.date)) fail('CALENDAR_DATE_EXISTS');
-        const ex = { id: newId(), date: data.date, isWorking: data.isWorking, name: data.name };
+        // As the API: a working exception keeps its own hours (a short day), used by the engine and the workload capacity.
+        const ex = { id: newId(), date: data.date, isWorking: data.isWorking, name: data.name, ...(data.isWorking && data.workingHours?.length ? { workingHours: data.workingHours } : {}) };
         await db.calendars.put({ ...cur, exceptions: [...cur.exceptions, ex] });
         const rescheduled = await rescheduleUsers(id, viewer.id, 'calendar_exception.created');
         await api.writeAudit({
@@ -1784,7 +1848,9 @@ export function createPhase4(
         const cal = cals.get(p.calendarId);
         if (!cal) continue;
         const payload = { taskId: t.id, taskName: t.name, projectId: p.id, projectName: p.name, endDate: t.endDate };
-        if (t.assigneeId) {
+        const leaf = !parents.has(t.id) && t.type !== 'GROUP';
+        // L10: groups are never reminded (a TASK promoted to GROUP keeps its assignee).
+        if (t.assigneeId && leaf) {
           const { overdue, dueSoon } = dueFlags(t, today, cal);
           if (overdue && !t.overdueNotifiedAt) {
             await db.tasks.update(t.id, { overdueNotifiedAt: now.toISOString() });
@@ -1796,7 +1862,6 @@ export function createPhase4(
             sent++;
           }
         }
-        const leaf = !parents.has(t.id);
         if (leaf && deadlinePassed(t, today) && !t.deadlineNotifiedAt) {
           await db.tasks.update(t.id, { deadlineNotifiedAt: now.toISOString() });
           for (const to of new Set([t.assigneeId, p.ownerId].filter((u): u is string => !!u))) {

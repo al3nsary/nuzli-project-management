@@ -10,7 +10,7 @@ import { WorkCalendar, addCalendarDays } from '@nuzli/scheduling';
 import type { Priority, TaskStatus, TaskType } from '@nuzli/shared';
 import a9 from '../../../../../seed/demo/a9.json';
 import projectsSeed from '../../../../../seed/demo/projects.json';
-import { recompute, riyadhToday, rollUpCosts, withA9, workCalendarOf } from '../../features/projects/engine';
+import { recompute, riyadhToday, rollUpCosts, rollUpStatus, withA9, workCalendarOf } from '../../features/projects/engine';
 import type { DemoCalendar, DemoDb, DemoDependency, DemoProject, DemoTask } from './db';
 import { ADMIN_OWNER_ID } from './seedProjects';
 
@@ -178,7 +178,7 @@ export async function seedA9(db: DemoDb, now: Date = new Date()): Promise<void> 
           });
         }
       }
-      await db.tasks.bulkPut(rollUpCosts([...byId.values()]));
+      await db.tasks.bulkPut(rollUpStatus(rollUpCosts([...byId.values()])));
 
       // Chat between the admin and the supervisors (flat threads with quotes).
       const threadIds = new Map<string, string[]>();

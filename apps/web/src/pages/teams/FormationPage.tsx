@@ -61,7 +61,8 @@ import { ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { VestBand } from '../../theme/VestBand';
 import { MemberAvatar } from '../../components/UserAvatar';
 import { scrollInline } from '../../lib/direction';
-import { formatNumber, localizeDigits, t } from '../../i18n';
+import { EDGE_SAFE_MIDDLEWARES, revealTarget } from '../../lib/floating';
+import { formatNumber, localizeDigits, t, tCount } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
 import { useOverlayParam } from '../../lib/useUrlState';
 import { ForemanAvatar, foremanFirst } from '../../components/Foreman';
@@ -141,6 +142,7 @@ const MemberCard = memo(function MemberCard({
     id: member.id,
     data: { from: colOf(member) },
   });
+  const menuTarget = useRef<HTMLButtonElement>(null);
   const style: CSSProperties = {
     opacity: isDragging || (dragging && selected) ? 0.4 : 1,
     ['--team' as string]: member.team?.color.hex ?? 'var(--muted)',
@@ -192,9 +194,17 @@ const MemberCard = memo(function MemberCard({
         </span>
       </button>
       {onForeman && member.team ? (
-        <Menu position="bottom-end" width={220} shadow="md" withinPortal>
+        <Menu
+          position="bottom-end"
+          width={220}
+          shadow="md"
+          withinPortal
+          middlewares={EDGE_SAFE_MIDDLEWARES}
+          onOpen={() => revealTarget(menuTarget.current)}
+        >
           <Menu.Target>
             <ActionIcon
+              ref={menuTarget}
               variant="subtle"
               color="slate"
               size={32}
@@ -508,7 +518,7 @@ export function FormationPage() {
       await api.members.move({ memberIds, toTeamId: toTeam.id, reason: reason.trim() || undefined });
       notifications.show({
         color: 'ok',
-        message: t('formation.moved', { count: memberIds.length, team: toTeam.name }),
+        message: tCount('formation.moved', memberIds.length, { team: toTeam.name }),
       });
       await invalidate();
     } catch (err) {
@@ -636,7 +646,7 @@ export function FormationPage() {
                 </Text>
                 {dragCount > 1 ? (
                   <Badge color="field" variant="filled" size="sm">
-                    {t('formation.dragMany', { count: dragCount })}
+                    {tCount('formation.dragMany', dragCount)}
                   </Badge>
                 ) : null}
               </VestBand>
@@ -695,10 +705,7 @@ export function FormationPage() {
         {pending ? (
           <Stack>
             <Text>
-              {t('formation.confirmBody', {
-                count: pending.memberIds.length,
-                team: pending.toTeam.name,
-              })}
+              {tCount('formation.confirmBody', pending.memberIds.length, { team: pending.toTeam.name })}
             </Text>
             <Box component="ul" m={0} ps="lg" mah={160} style={{ overflow: 'auto' }}>
               {pending.memberIds.slice(0, 20).map((id) => {
@@ -731,7 +738,7 @@ export function FormationPage() {
                 {t('common.cancel')}
               </Button>
               <Button onClick={() => void confirmMove()} leftSection={<IconArrowsExchange size={18} />}>
-                {t('formation.confirm', { count: pending.memberIds.length })}
+                {tCount('formation.confirm', pending.memberIds.length)}
               </Button>
             </Group>
           </Stack>

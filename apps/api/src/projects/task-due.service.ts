@@ -46,8 +46,11 @@ export class TaskDueService {
 
   async run(now: Date = new Date()): Promise<DueRunResult> {
     const today = riyadhToday(now);
+    // Calculations audit L10: groups are never reminded (a TASK promoted to GROUP keeps its
+    // assignee); the demo sweeps leaves only too. The DATE column end_date is the due day (L6).
     const base = {
       archivedAt: null,
+      type: { not: 'GROUP' as const },
       assigneeId: { not: null },
       status: { not: 'DONE' as const },
       project: { archivedAt: null },
@@ -96,6 +99,7 @@ export class TaskDueService {
     const late = await this.prisma.task.findMany({
       where: {
         archivedAt: null,
+        type: { not: 'GROUP' },
         status: { not: 'DONE' },
         project: { archivedAt: null, isTemplate: false },
         deadlineNotifiedAt: null,

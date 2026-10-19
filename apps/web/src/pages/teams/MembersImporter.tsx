@@ -26,7 +26,7 @@ import type { ImportMembersResultDto, ImportRowResult } from '@nuzli/shared';
 import { parsePastedRows, parseXlsx, type ImportRow } from '../../features/members/importRows';
 import { errorMessage } from '../../api/errors';
 import { FormError } from '../../components/ui';
-import { formatNumber, t } from '../../i18n';
+import { formatNumber, t, tCount } from '../../i18n';
 
 type Mode = 'manual' | 'paste' | 'excel';
 
@@ -114,7 +114,7 @@ export function MembersImporter({
       if (!parsed.length) setFileNote(t('import.fileEmpty'));
       else {
         loadRows(parsed);
-        setFileNote(t('import.fileRead', { count: parsed.length }));
+        setFileNote(tCount('import.fileRead', parsed.length));
       }
     } catch (err) {
       setError(new Error(errorMessage(err)));
@@ -129,7 +129,7 @@ export function MembersImporter({
     return (
       <Stack>
         <Alert color="ok" icon={<IconCircleCheck size={18} />}>
-          {t('import.committed', { count: done.committed })}
+          {tCount('import.committed', done.committed)}
         </Alert>
         {failed.length ? <ResultsTable rows={filled} results={done.results} onlyErrors /> : null}
         {extraActions}
@@ -291,7 +291,7 @@ export function MembersImporter({
 
       <Group justify="space-between" wrap="wrap">
         <Text size="sm" c="dimmed">
-          {t('import.rowCount', { count: filled.length })}
+          {tCount('import.rowCount', filled.length)}
         </Text>
         <Group gap="xs">
           {extraActions}
@@ -309,7 +309,7 @@ export function MembersImporter({
               loading={busy === 'commit'}
               disabled={validCount === 0}
             >
-              {commitLabel ? commitLabel(validCount) : t('import.commit', { count: validCount })}
+              {commitLabel ? commitLabel(validCount) : tCount('import.commit', validCount)}
             </Button>
           ) : null}
         </Group>

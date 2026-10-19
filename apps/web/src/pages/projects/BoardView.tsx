@@ -18,15 +18,11 @@ import { Button, Group, SegmentedControl, Text } from '@mantine/core';
 import { IconDots, IconFolder } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { can, type GanttDto, type TaskDto, type TaskStatus } from '@nuzli/shared';
-import { useApi } from '../../api/context';
 import { errorMessage } from '../../api/errors';
 import type { useProjectWrites } from '../../api/projectWrites';
 import { useAuthStore } from '../../stores/auth';
-import { formatDate, formatNumber, t } from '../../i18n';
-import { mergeTasks } from '../../features/gantt/batch';
-import { riyadhToday } from '../../features/projects/engine';
-import { useQueryClient } from '@tanstack/react-query';
-import { qk4 } from '../../api/projectQueries';
+import { formatDate, formatDateTime, formatNumber, t } from '../../i18n';
+import { dueDayOf, riyadhToday } from '../../features/projects/engine';
 import { UserAvatar } from '../../components/UserAvatar';
 import { TASK_STATUSES, priorityLabel, taskStatusLabel } from './parts';
 import { ConflictAlert } from './TaskDrawer';
@@ -49,8 +45,6 @@ export function BoardView({
   chatCounts?: ReadonlyMap<string, ChatCount>;
   onOpenChat?(id: string): void;
 }) {
-  const api = useApi();
-  const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const admin = can(user, 'tasks.manage');
   const [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine');
@@ -66,17 +60,17 @@ export function BoardView({
   );
   const canMove = (task: TaskDto) => admin || (task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned'));
 
+  /**
+   * A move is a status edit: the card moves at once and its progress follows the shared rule
+   * (calculations audit H1: «منجزة» ⇒ 100 %, back to «لم تبدأ» ⇒ 0 %), optimistic in
+   * `updateTask` (rolled back on an error) and undoable with Ctrl+Z.
+   */
   const move = async (task: TaskDto, status: TaskStatus) => {
     if (task.status === status || !canMove(task)) return;
-    const key = qk4.gantt(data.project.id);
-    const snapshot = qc.getQueryData<GanttDto>(key);
-    if (snapshot) qc.setQueryData(key, mergeTasks(snapshot, [{ ...task, status }])); // optimistic
     try {
-      const res = await writes.run(() => api.tasks.update(task.id, { version: task.version, status }));
-      writes.merge([res.task, ...res.affected]);
+      await writes.updateTask(task.id, { version: task.version, status }, t('undo.label.edit'));
       notifications.show({ color: 'ok', message: t('board.moved', { name: task.name, status: taskStatusLabel(status) }) });
     } catch (err) {
-      if (snapshot) qc.setQueryData(key, snapshot); // rollback
       notifications.show({ color: 'breach', message: errorMessage(err) });
     }
   };
@@ -131,7 +125,7 @@ export function BoardView({
                 ))}
                 {items.length > shown.length ? (
                   <Button variant="subtle" size="xs" onClick={() => setLimit((l) => ({ ...l, [status]: (l[status] ?? PAGE) + PAGE }))}>
-                    {t('board.more', { count: formatNumber(items.length - shown.length) })}
+                    {t('board.more', { count: items.length - shown.length })}
                   </Button>
                 ) : null}
               </Column>
@@ -184,7 +178,8 @@ function Card({
   onOpenChat?(id: string): void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id, disabled: locked });
-  const late = task.status !== 'DONE' && task.endDate < riyadhToday();
+  // The server's rule (calculations audit L6): due day before today, never for a DONE task.
+  const late = task.status !== 'DONE' && dueDayOf(task) < riyadhToday();
   // dnd-kit gives a physical delta; the transform is applied as is (not a logical offset).
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)${isDragging ? ' rotate(3deg)' : ''}`, zIndex: 5 } : undefined;
   return (
@@ -212,7 +207,7 @@ function Card({
       <h4 className="nz-bcard-title nz-clamp-2">{task.name}</h4>
       {task.description ? <p className="nz-bcard-desc nz-clamp-2">{task.description}</p> : null}
       <p className="nz-bcard-due">
-        {t('board.due', { date: formatDate(task.endDate) })} · {`${formatNumber(Math.round(task.progress))}٪`}
+        {t('board.due', { date: task.endDate.length > 10 ? formatDateTime(task.endDate) : formatDate(task.endDate) })} · {`${formatNumber(Math.round(task.progress))}٪`}
       </p>
       <div className="nz-bcard-foot">
         {task.assignee ? (

@@ -12,7 +12,7 @@ import { AuditAction, AuditService } from '../audit/audit.service';
 import { AuthService, ActionPurpose } from '../auth/auth.service';
 import { RefreshTokenService } from '../auth/refresh-tokens';
 import { AppError } from '../common/app-error';
-import { paginate, parseSort } from '../common/pagination';
+import { paginate, parseSort, withIdTiebreak } from '../common/pagination';
 import { withPrismaErrors } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { CryptoService } from '../crypto/crypto.service';
@@ -85,7 +85,7 @@ export class UsersService {
       this.prisma.user.findMany({
         where,
         select: USER_DTO_SELECT,
-        orderBy: parseSort(query.sort, SORTABLE, { createdAt: 'desc' }),
+        orderBy: withIdTiebreak(parseSort(query.sort, SORTABLE, { createdAt: 'desc' })),
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
       }),

@@ -446,7 +446,7 @@ Format: each ADR has **Context · Decision · Consequences**. Status is *Accepte
 
 ## ADR-098 — A9 identity: white GanttPRO-clean surfaces with Nozoly indigo; Muhsen secondary
 **Context.** Owner request A9: «ليس بالضرورة أن تلتزم بهوية مُحسن، فقط هوية نزلي الزرقاء. اجعل النظام أبيض كما GanttPRO… فقط أضف لون نزلي الأزرق (أزرق نيلي). وحسّن شكل صفحة الدخول». Supersedes the A7 green/gold shell (ADR-085, ADR-089 placement).
-**Status (A11).** **Superseded by ADR-130** (owner approved the Figma violet design on 2026-10-19): the indigo `#303F9F`, the green logo and the Muhsen footer line are gone. Kept here as history.
+**Status (A11).** **Superseded by ADR-138** (owner approved the Figma violet design on 2026-10-19): the indigo `#303F9F`, the green logo and the Muhsen footer line are gone. Kept here as history.
 **Decision.** `tokens.css` gets semantic tokens — white surfaces (`--panel #FFFFFF`, page `#F7F8FA`, lines `#E6E8EC`, ink `#1F2430`, dim `#5E6676`), Nozoly indigo `--primary #303F9F` (hover `#283593`, pressed `#1A237E`, `--tint #E8EAF6`, `--focus #5C6BC0`, `--accent`), status `--live #2E7D32`, `--amber #A35C00`, `--red #C62828`, `--blue #1565C0` (all ≥ 4.5:1 on white; pills ≥ 5.5:1), and a neutral dark scheme (`#0F1115`/`#171A21`, accents `#7986CB`, filled buttons `#3F51B5`). The Muhsen-era names (`--g*`, `--gold*`, `--mark-bg`, `--p-gold-*`) and the phase 1–4 names stay as aliases, so every screen recoloured without edits; Mantine's `field` ramp is Material indigo (`primaryShade` light 6 / dark 5), `gold`/`indigo` resolve to it. Cards use a 1px `--line` border and a whisper shadow; radii 12/16/8/6. Remaining hard-coded green/gold (charts and Gantt export fallbacks, the map selection rectangle, the cropper ring, the boot loader, the empty-state tile, KPI hairlines, the demo strip) were swept. Logos stay the real files: `NozolyLogo` places `nozoly-green.png` (light: `nozoly-light.png`) in a box sized to its measured artwork (x 14–415, y 44–141 of 540×156) so widths are visible widths, and shows the mark part only on the 68px rail and favicons; the Muhsen mark appears only in the «منظومة مُحسن» footer line. PWA icons: white with the full green logo; maskable on indigo with a white rounded tile (56 %); favicons the mark on white; manifest/theme colour `#303F9F`, background `#FFFFFF`. Auth pages share one layout: white page, card with the 220px logo (164px on phones), «تسجيل الدخول إلى نُزلي» + «إدارة المشاريع والفرق الميدانية», an indigo-tinted value panel (three lines, no illustration) on desktop where the form column scrolls on its own, demo logins as outline buttons.
 **Consequences.** Team colours are now the only strong colour while browsing. Print cards (`packages/ui-print`) still default to the Muhsen mark logo record — unchanged here.
 
@@ -621,7 +621,142 @@ Format: each ADR has **Context · Decision · Consequences**. Status is *Accepte
 **Decision.** *Chat:* `TaskWorkspace` (extracted from `/my-tasks/:id`) is the one task screen — chat as main area, status/progress header, checklist, description, time log, attachments, activity, labels/fields. Admins open it over the project as `TaskChatDrawer` (inline-end panel `min(1180px, 94vw)` on desktop, full screen on phones), bound to `?chat=<taskId>` (deep link; Esc and back close). Every task row of the Gantt grid and the list (new column «المحادثة», on by default, in the column manager) and every board card carries `TaskChatButton`: indigo bubble, outlined when empty and filled with the count when not, a red unread pill. Counts come from `TaskDto.commentCount` and `unreadCount` (the DemoApi computes it per viewer; when absent, from the hub filtered to the project). Marking read refreshes the Gantt and «مهامي»; the hub's «فتح المهمة» opens the same screen for admins. *Foreman:* one module (`components/Foreman.tsx`, `HardHat.tsx`, `foreman.css`): the filled indigo «مشرف عمّال» badge with a hard-hat glyph (the same glyph as the printed ribbon), an indigo inline-start bar and tint on rows/cards, a hard-hat corner mark on the avatar, and «مشرف عمّال: الاسم» lines. Applied to team detail (foreman first under «مشرف العمّال», then «العمّال (n)»), team cards, the formation board (pinned first, named in the column header), members list, member drawer, violation detail, roster pickers (the device roster now keeps `isForeman`), org tree/chart and the supervisor's dashboard. Work cards (ui-print): a labelled indigo ribbon with an inline-SVG hard hat under the name, in mm/pt, never dropped, plus an indigo photo frame — from `isForeman` or `roleLabel: «مشرف عمّال»`; the web derives it from `MemberDto.isForeman` when the API sends neither.
 **Consequences.** Team cards read `foreman` from the list when present (the demo sends it) and otherwise fetch the team detail per card. The marker never relies on colour alone (the words are always printed and shown).
 
-## ADR-130 — A11: adopting the Figma violet design as the identity; removing Muhsen
+## ADR-130 — A10 web: GanttPRO read in the browser with the API's rules; GanttPRO and MS Project as first-class sources
+**Context.** Owner request A10 item 3: ready projects from GanttPRO and Microsoft Project «تلقائيا». The API reads GanttPRO and sniffs the format from the content (ADR-124); the GitHub Pages demo parses imports in the browser (ADR-121) and screens must not know which adapter is active. GanttPRO keeps the bar colour only as the fill of column A, which the web xlsx reader did not expose.
+**Decision.** `features/imports/ganttpro.ts` is a port of `apps/api/src/imports/ganttpro.ts` (detection with locale synonyms and positional fallback, merged C..G names, WBS hierarchy with the Level cross-check, types and the project-root rule, UTC → Riyadh, HOUR unit, `inferCalendar`, status/priority maps, ARGB fills, WBS predecessors with type/lag, UTC-day deadlines, costs, footer skip, the same warnings, the hidden «Nozoly calendar» sheet). The web `tabular.ts` now passes the solid fill of columns A–C, keeps hyperlink addresses, picks a GanttPRO sheet and reads the calendar sheet; `model.ts` carries `priority`, `barColor`, `detectedFormat` and `sourceStats`; MSPDI skips inactive tasks. The DemoApi preview applies the API's `sniffFormat`/family rule (`FORMAT_DETECTED`, `detectedFormat`, the richer stats, suggestions by e-mail local part). The API's synthetic fixture and `mspdi-2019.xml` are copied byte for byte and the API's expectations run in Vitest. The wizard shows «مشروع جاهز من برنامج آخر» first — «GanttPRO (Excel)» and «Microsoft Project (XML / MPP)» with text and icons only (no third-party logos) and the one-line how-to («من GanttPRO: تصدير ← Excel» / «من MS Project: حفظ باسم ← XML») — then the table sources; MS Project is one source whose file extension picks XML or .mpp; the file step tells a GanttPRO workbook before the upload, and the preview says «تم التعرّف على ملف GanttPRO» (and that the chosen source was overridden) from `detectedFormat`, so it works on HttpApi too.
+**Consequences.** One mapping on both sides; changes to the API's GanttPRO reader must be ported (the shared fixture tests catch drift). Verified locally on the owner's file in the demo build: 181 tasks (31 groups, 149 tasks, 1 milestone), 5 levels, 7 colours drawn, HOUR with 10:00–14:00 / 15:30–20:30 and Friday off, 4 links, 3 deadlines, no console errors. The owner's file is never committed.
+
+## ADR-131 — A10 web: one export menu ordered by destination; GanttPRO layout written by the demo
+**Context.** The owner wants export «الى الاثنين» plus normal Excel, CSV, image and PDF. The API writes `?format=ganttpro` (ADR-125); the demo must produce the same file.
+**Decision.** The project's «تصدير» menu has three labelled groups — «إلى برامج إدارة المشاريع» (تصدير إلى GanttPRO (Excel), تصدير إلى Microsoft Project (XML)), «جداول» (Excel, CSV), «صورة ومستند» (صورة PNG, PDF) — each item with a one-line purpose. HttpApi calls `GET /projects/:id/export?format=ganttpro|xml|xlsx|csv`; the GanttPRO file is saved as `project-<date>-ganttpro.xlsx`. The DemoApi uses `writeGanttpro` (ported: banner rows, the 26 English headers on row 5, column-A fills, merged indented names, UTC dates, hours, GanttPRO vocabulary, WBS predecessors with type/lag, costs, type/path/level, footer «Exported from Nozoly», hidden «Nozoly calendar», RTL view, no frozen panes) and audits `project.exported { format: 'ganttpro' }`.
+**Consequences.** Round trips are tested (pure writer DAY/HOUR; DemoApi after an edit) and verified on the owner's project after two drag edits: 0 differing rows through GanttPRO; through MS Project XML the same counts and dates (MSPDI has no bar colour).
+
+## ADR-132 — A10 web: menus that stay on screen; past projects open on their bars
+**Context.** The formation-board card menu opened past the page edge when its column was scrolled partly off-screen: Mantine's default `shift` uses `limitShift`, which keeps the dropdown attached to a target that is itself outside the viewport. Separately, the owner's GanttPRO project (all in 2025) opened on an empty «now», because the first-view anchor clamped today to a scale that always includes today.
+**Decision.** `lib/floating.ts`: `EDGE_SAFE_MIDDLEWARES` (`flip` with fallbacks, `shift` on both axes with 8px padding and no limiter) for portal menus, plus `revealTarget` (scroll the target into view on open); used by the board card menu and the export menu. The Gantt's first view anchors on today only when today lies inside the project's span (start … last task end); otherwise on the project start.
+**Consequences.** A dropdown may detach slightly from a target near the edge rather than leave the screen; checked at 1440 and 360 px. Projects in the past or future open on their first bars; current projects still open on today.
+
+## ADR-133 — Calculations audit: a group's status is derived; status and progress move together; an empty group is zeroed
+**Context.** The calculations audit of October 2026 (`docs/calculations-audit-2026-10.md`, H1/H2) found three problems. A group's status was never derived, so a group at 100 % showed «لم تبدأ». A leaf could be DONE at 30 %, or at 100 % and still IN_PROGRESS (and then counted as overdue). A group left without live children kept the cost and progress of archived tasks. The owner asked for correct calculations and chose the rules below.
+**Decision.** The rules are pure functions in `@nuzli/scheduling` (`status.ts`). The API uses them on every write, and the web demo can import them.
+- *Leaf invariant* (`normalizeStatusProgress`): DONE ⇒ progress 100; progress ≥ 100 ⇒ DONE; NOT_STARTED with progress > 0 ⇒ IN_PROGRESS.
+- *Leaf edit* (`syncStatusProgress`): the field that changed decides.
+  - Progress only: 100 ⇒ DONE; below 100 on a DONE task ⇒ IN_PROGRESS; > 0 on NOT_STARTED ⇒ IN_PROGRESS.
+  - Status only: DONE ⇒ 100; NOT_STARTED ⇒ 0; leaving DONE while at 100 ⇒ 0.
+  - Both sent (an undo step): taken as sent, then the invariant.
+- *Group* (`deriveGroupStatus`), in the owner's order: every child DONE → DONE; any child IN_PROGRESS or DONE, or rolled progress > 0 → IN_PROGRESS; every non-DONE child ON_HOLD → ON_HOLD; otherwise NOT_STARTED.
+- *Roll-up*: `rollUpStatus` applies these rules bottom-up after the date and cost roll-ups. `task-engine.recompute` runs it on every write: create, update, batch, bulk, archive, restore, duplicate, dependency, reschedule, conversion, templates and imports. Moves and archives therefore always recompute.
+- *Group status is not editable*: `PATCH /tasks/:id` answers `TASK_GROUP_STATUS_DERIVED` (400) when the status differs. Batch and bulk ignore status and progress sent for groups, because an undo step may send them.
+- *Empty group* (a GROUP with no live child): progress 0, planned and actual cost 0, NOT_STARTED. Its dates and duration are kept and it stays a GROUP (it is not demoted to TASK), so a restore or a new child finds it as it was. It weighs 0 in every progress roll-up (engine `rollUpModel`, `progressWeight`).
+- *Due flags*: DONE tasks are never overdue, due soon or past their deadline.
+- *Existing data*: migration `20261022000000_calc_audit_fixes` applies the invariant to existing leaves, zeroes empty groups, and recomputes every group's progress, costs and status bottom-up. Each changed row gets version + 1. The migration was verified on PGlite.
+
+**Consequences.**
+- A board move to «منجزة» now shows 100 %. Dragging a card out of DONE reopens it at 0 %.
+- Imports no longer keep a status that the file gave to a group.
+- The web demo must adopt the same functions (pending web port).
+
+## ADR-134 — Calculations audit: one set of scheduling rules for the API and the demo (HOUR edits, due day, weighting)
+**Context.** Audit M1/M2/M3/L6 found four problems:
+- In HOUR projects, project and person progress were weighted by touched days (50 % instead of the engine's 12.5 %).
+- The demo and the API disagreed on HOUR edits: bare end dates, field priority and fractional days.
+- They also disagreed on snapping HOUR starts in a full reschedule.
+- With a 16:00–24:00 working day, an end at `…T00:00` made `endDate.slice(0,10)` one day later than the DATE column the reminder cron uses.
+
+**Decision.** The API's rules move to `@nuzli/scheduling` (`edits.ts`, `progress.ts`), and `task-engine.ts` re-exports them.
+- *HOUR edits* (`applyScheduleEdit` / `applyScheduleEditHours`):
+  - The start is always snapped forward into working time, also in a full reschedule (`normalizeLeaf` ignores `snapStart` there).
+  - Priority: `durationHours` > `durationDays` > `endDate`.
+  - `durationDays` = whole days × the standard day (1.5 → 1 day).
+  - A bare `endDate` = the end of that day's working time (`coerceEndLocal`). Example: Sun 09:00 with `{endDate:'2026-10-20'}` ends Tue 18:00, 24 h.
+  - A non-milestone lasts at least 15 minutes.
+  - DAY edits are unchanged: `durationDays` wins over `endDate`.
+- *Due day* (`dueDayOf`): DAY = `endDate`; HOUR = the day of the last working minute (`endDayOfLocal`). It is used by `dueFlags`, the dashboard (overdue days, upcoming), `plannedByWeek`, the project end date, the reminder cron (DATE column) and the reminder reset.
+- *Weighting* (`weightedProgress(items, unit)`): milestones and empty groups weigh 0; HOUR weighs by working minutes, DAY by working days; plain average when every weight is 0. It is used for:
+  - project progress (`toProjectDto(stats, unit)`; roots now carry `durationHours` and `isEmptyGroup`);
+  - people;
+  - the export header.
+- *Portfolio* progress is weighted by duration too: `ProjectReportRow.progressWeightDays` is the roots' working days (HOUR: minutes ÷ the calendar's standard day).
+- *Days overdue* are calendar days from the due day (shared `calendarDaysOverdue`).
+
+**Consequences.** HOUR projects where short tasks are done now show a lower, correct progress. The demo must import these functions instead of its own copies (pending web port).
+
+## ADR-135 — Calculations audit: import edge cases and symmetric lag rounding
+**Context.** Audit L7/L8 found these import problems:
+- `Math.round(-0.5)` is −0, so −4 h became 0 d while +4 h became 1 d.
+- `24:00` became 23:00.
+- ISO text with `Z` or an offset was read as Riyadh wall time (a 3 h shift).
+- Excel serials ≤ 60 were one day early.
+- `2 edays` did not parse, and MSPDI elapsed lags were treated as working minutes (1 elapsed day = 3 working days).
+- `1.234,50` became 0.
+
+**Decision.**
+- `roundHalfAway` (shared) is used for every lag conversion: `dependenciesToDays`, `createDependency` in HOUR projects, and the import preview.
+- `24:00` = 00:00 of the next day.
+- An ISO instant with `Z` or `±hh:mm` is converted to Riyadh wall time (`parseZonedInstant`). GanttPRO text cells are no longer shifted twice.
+- Excel 1900 serials below 61 get one extra day (1 → 1900-01-01, 60 → 1900-03-01).
+- Elapsed units (`ed`, `eday(s)`, `eh`, `ew`, `emo`, …) parse as calendar minutes (`elapsedMinutes`, `lagElapsedMinutes`). MSPDI LagFormat 4/6/8/10/12 and the estimated forms 36–44 are read as elapsed.
+- `buildPreview` converts elapsed spans to working time on the project calendar (`elapsedToWorkingMinutes`): a lag from the predecessor's end, a duration from the task's start.
+- Numbers:
+  - With both separators, the last one is the decimal mark.
+  - A lone comma is a thousands separator only in the `1,234` shape.
+  - Several dots are thousands separators.
+
+**Consequences.** An elapsed lag is converted once, from the predecessor's pre-schedule end. If the forward pass later moves the predecessor, the stored working lag is kept, because the engine schedules in working time only.
+
+## ADR-136 — Calculations audit: reports, reminders, statistics and pagination
+**Context.** Audit findings L5, L9–L13 and M4 (server side), plus the design questions in the audit.
+**Decision.**
+- *L5*: every offset-paginated list ends its `orderBy` with `{ id: 'asc' }` (`withIdTiebreak`): members, users, audit, notifications and print batches; the file-retention sweep too. `topMembers` breaks ties by member id.
+- *L9*: 2.25″ × 1.25″ = 57.15 × 31.75 mm in ui-print, the seed and a data migration.
+- *L10*: reminders skip GROUP rows (overdue, due soon, deadline). `dueSoonNotifiedAt` and `overdueNotifiedAt` are reset only when the due DAY moves.
+- *L11*: `BudgetReportDto.byLabelOverlapping` and an Arabic `byLabelNote` are set when a task with several labels is counted under each.
+- *L12*: workload logged minutes count only live tasks of live, non-template projects.
+- *L13*: one boundary, `isEditWindowOpen(now, until) = now < until` (shared), for edits and late uploads.
+- *M4*: `WorkloadDto.people[].totalCapacityMinutes` sums the per-day capacity (holidays 0, short days their own minutes).
+- *Week KPI*: `ViolationStats.previousWeekToDate` = the previous week over the same elapsed span. The change % is `weekChangePct(thisWeek, previousWeekToDate)` (shared; null without a base).
+- *Per member*: `byTeam[].perMemberRate` is null when the team had no members at the end of the period. `perMember` keeps 0 for older clients.
+- All DTO changes are additive.
+
+**Consequences.** The web must show `byLabelNote` and use `perMemberRate`, `previousWeekToDate`, `totalCapacityMinutes` and `days[].capacityMinutes` (pending web port).
+
+## ADR-137 — Calculations audit (web): the demo imports the server's rules instead of copying them
+**Context.** ADR-133..136 moved the API's calculation rules to `@nuzli/scheduling` and `@nuzli/shared`, but the web demo kept its own copies (`features/projects/engine.ts`, `api/demo/phase4.ts`, `features/imports/model.ts`), so the demo still showed a group at 100 % as «لم تبدأ», disagreed on HOUR edits, and imported edge cases differently.
+**Decision.**
+- `features/projects/engine.ts` deletes its copies and re-exports the shared helpers (`applyScheduleEdit*`, `normalizeLeaf*`, `coerceStart`, `coerceEndLocal`, `MIN_TASK_MINUTES`, `dueDayOf`, `dueFlags`, `deadlinePassed`, `syncStatusProgress`, `normalizeStatusProgress`, `deriveGroupStatus`, `rollUpStatus`, `weightedProgress`, `progressWeight`, `roundHalfAway`). `recompute` applies the leaf invariant and `rollUpStatus`, exactly like `task-engine.recompute`. `projectProgress` = `weightedProgress` with the unit; `rootsForProgress` marks empty groups.
+- DemoApi mirrors the server: a group's status `PATCH` → `TASK_GROUP_STATUS_DERIVED`; update, batch and bulk sync status ↔ progress on leaves and ignore it on groups; reminders skip groups and are re-armed only when the due day moves; the edit window uses `isEditWindowOpen`; HOUR lags round half away from zero; the project end date is the latest due day; a working calendar exception keeps its hours (as the API stores them).
+- Reports in the demo: budget leaves exclude empty groups, `byLabelOverlapping`/`byLabelNote`, the due day in `plannedByWeek` and the dashboard, workload `capacityMinutes` per day from the default calendar and `totalCapacityMinutes`, logged time of live tasks only, `previousWeekToDate`, `perMemberRate`, portfolio `progressWeightDays`. The importer ports the API's L7/L8 parsers and drops the group status from the file.
+- The seed goes through the same `recompute`/`rollUpStatus`; `seed/demo/version.json` → 11 so returning browsers are re-seeded.
+**Consequences.** One rule set for the API, the demo and the UI previews; the API's audit cases run as web tests (`calc-audit.test.ts`, `import-audit.test.ts`, `DemoApi.calcAudit.test.ts`).
+
+## ADR-138 — Calculations audit (web): group status is read-only; status and progress move together on screen
+**Context.** H1 on the server makes a group's status derived and couples a leaf's status with its progress. The UI let a group's status be chosen in the drawer and only showed the server's answer after a round trip.
+**Decision.**
+- The list view shows a group's status as a disabled select with the tooltip «تُحسب من مهامها» (progress too); the drawer disables the status select for groups with the same hint. The server's `TASK_GROUP_STATUS_DERIVED` message is shown as is.
+- `updateTask` (one write path for the list, the board and the drawer) applies the shared `syncStatusProgress` optimistically (`features/projects/statusSync.ts`) and rolls back on an error. The drawer form syncs the two fields while editing. The board now writes through `updateTask`, so a move is undoable; the inverse batch carries both fields because the server reports both as changed.
+- The board, the dashboard widget and the Gantt compute "late" with `dueDayOf` and never for a DONE task; the Gantt days overdue are `calendarDaysOverdue`, the same number and wording as the dashboard, with a tooltip saying they are calendar days.
+**Consequences.** Moving a card to «مكتملة» shows 100 % at once; a group reads «مكتملة» when all its tasks are.
+
+## ADR-139 — Calculations audit (web): Arabic plural forms everywhere, enforced by the i18n check
+**Context.** M5/L1: count messages produced «أُعيدت جدولة ٥ مهمة», «٥ يوم», «(١ مهام)», and several callers passed `formatNumber(n)` so the plural rules could not read the number.
+**Decision.**
+- `i18n/plural.ts`: `plural(n, { zero, one, two, few, many, other })` on `Intl.PluralRules('ar')` (the sign ignored); `tCount(key, n, vars)` takes the forms from `key.zero` … `key.many` with `key` as "other" and fills `{count}` and `{n}` with the formatted number. `formatHours` uses the same forms.
+- 53 messages gained forms: the audit's 27 and every other counted noun in `ar.ts` (e.g. «لون متاح», «صف», «كرت», «رسالة», «منصب»/«فريق», «ثانية», «يوم عمل», «رابط»). Messages with two counts are composed from per-count forms. The Gantt overdue label uses the dashboard's forms (103–110 = few). Unused `bar.overdue*` keys are removed.
+- No caller passes a formatted count; `interpolate` formats numbers.
+- `scripts/check-i18n.mjs` fails when a number placeholder is followed by a counted noun without `.one/.two/.few/.many`, when a plural key is called with `t()`, and when `tCount` gets `formatNumber(…)`.
+**Consequences.** New count messages must ship their forms or the build check fails.
+
+## ADR-140 — Calculations audit (web): Riyadh-anchored HOUR dates, HOUR-aware list, per-day capacity, KPI wording
+**Context.** L2–L4, M4, L11 and the owner's design decisions on the violations dashboard.
+**Decision.**
+- `formatDate`/`formatDateTime` read a zone-less `YYYY-MM-DDTHH:MM` as Asia/Riyadh (`+03:00`), so the list, the board and the drawer show the same day on any device. The list view edits HOUR tasks with a date-time start and working hours (quarter hours), never `durationDays`.
+- `hijriSpan` names both years when a range crosses a Hijri year. The demo `parseBbox` orders south and north like the API.
+- Workload: each cell uses `days[].capacityMinutes ?? capacityMinutesPerDay`; a holiday column is hatched with «٠ س», a short day shows its capacity; totals use `totalCapacityMinutes`.
+- «حسب الوسم» shows `byLabelNote` when tasks are counted under several labels.
+- «هذا الأسبوع»: the change % is `weekChangePct(thisWeek, previousWeekToDate)` labelled «مقارنةً بالفترة نفسها من الأسبوع الماضي»; the per-member chart shows «—» when `perMemberRate` is null.
+**Consequences.** A device-zone test (`i18n/timezone.test.ts`, TZ = America/New_York) guards L3.
+
+## ADR-138 — A11: adopting the Figma violet design as the identity; removing Muhsen
 **Status.** Accepted (2026-10-19). Owner: «اعجبني التصميم اعتمده كرئيسي». **Supersedes** ADR-098 (A9 indigo identity), the A9 decision to keep Muhsen as a secondary mark (the «منظومة مُحسن» foot line and public-page footer) and the Muhsen-based placement in ADR-085/086/089.
 **Context.** Owner request A11: apply the Figma «Project Management Dashboard» (file `AYHpU1YNalsf0TNeYOMKDf`, node `2:163`; one screen, the Kanban board), recolour the Nozoly logo to fit, and leave no trace of Muhsen. During review the design was built as a second, switchable design (`data-design='figma'`, a top-bar toggle, `design-figma.css`, a `useDesign()` store) so the owner could compare. On approval that mechanism was **removed again**: there is one design.
 **Decision.** Nozoly violet `#5030E5` is the single brand colour on white (tokens in `apps/web/src/theme/tokens.css`, dark mode `#6a4ff0` / accent `#a592ff`). Radii 16 cards, 20 dialogs, 6 buttons/inputs, 4 chips. The logo is the owner's Nozoly artwork recoloured once to `#5030E5` (alpha kept): `nozoly.png`, plus `nozoly-light.png` for dark mode. `nozoly-green.png` and every `muhsen-*` file were deleted; Muhsen is removed from components, i18n (`brand.muhsenLogo`, `brand.system`), footers and the PWA precache; the print-card default logo is «شعار نُزلي»; PWA icons were regenerated and the manifest `theme_color` is `#5030E5`. The shell, project page and board follow the Figma file (sidebar with «+ إنشاء مشروع جديد», «مشاريعي» and the «وقت الأفكار» card; top bar with a search field opening the palette; member stack and pill tabs; grey Kanban columns with state lines and white priority-tagged cards).

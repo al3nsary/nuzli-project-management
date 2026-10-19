@@ -5,7 +5,8 @@
  * (apps/api/src/storage/magic-bytes.ts `verifyImportBytes`), and `draftOf`, which routes a file to
  * its parser exactly like `ImportsService.draftOf`.
  */
-import { MAX_IMPORT_BYTES, type ImportFormat } from '@nuzli/shared';
+import { MAX_IMPORT_BYTES, type ImportFileFormat } from '@nuzli/shared';
+import { detectGanttpro, ganttproToDraft } from './ganttpro';
 import { importError, type ImportDraft } from './model';
 import { parseJiraCsv } from './jira';
 import { parseMspdi } from './mspdi';
@@ -14,12 +15,17 @@ import { decodeText, readCsv, readXlsx, tableToDraft } from './tabular';
 export { MAX_IMPORT_BYTES };
 
 /** What the wizard's first step offers (Jira Cloud is not a file). */
-export type ImportSource = ImportFormat | 'jira-cloud';
+export type ImportSource = ImportFileFormat | 'jira-cloud';
+/**
+ * A10: GanttPRO and MS Project first (the owner's request: ready projects from either tool), then
+ * the plain sheets and Jira.
+ */
 export const IMPORT_SOURCES: readonly ImportSource[] = [
-  'xlsx',
-  'csv',
+  'ganttpro',
   'xml',
   'mpp',
+  'xlsx',
+  'csv',
   'jira-csv',
   'jira-cloud',
 ];
@@ -34,8 +40,12 @@ export type ImportContentType =
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const;
 
 /** The extension a format accepts, and the content type sent to `presign` (never the browser's guess). */
-export const FORMAT_FILE: Record<ImportFormat, { ext: string; contentType: ImportContentType }> = {
+export const FORMAT_FILE: Record<
+  ImportFileFormat,
+  { ext: string; contentType: ImportContentType }
+> = {
   xlsx: { ext: '.xlsx', contentType: XLSX },
+  ganttpro: { ext: '.xlsx', contentType: XLSX },
   csv: { ext: '.csv', contentType: 'text/csv' },
   'jira-csv': { ext: '.csv', contentType: 'text/csv' },
   xml: { ext: '.xml', contentType: 'application/xml' },
@@ -47,7 +57,7 @@ export type FileProblem = 'type' | 'size' | 'empty';
 /** Client-side checks before any upload: the extension of the chosen format and 1 B … 20 MB. */
 export function checkImportFile(
   file: { name: string; size: number },
-  format: ImportFormat,
+  format: ImportFileFormat,
 ): FileProblem | null {
   if (!file.name.toLowerCase().endsWith(FORMAT_FILE[format].ext)) return 'type';
   if (file.size <= 0) return 'empty';
@@ -56,7 +66,7 @@ export function checkImportFile(
 }
 
 /** The format a dropped file most likely is (the wizard pre-selects it). */
-export function formatOfName(name: string): ImportFormat | null {
+export function formatOfName(name: string): ImportFileFormat | null {
   const n = name.toLowerCase();
   if (n.endsWith('.xlsx')) return 'xlsx';
   if (n.endsWith('.csv')) return 'csv';
@@ -111,17 +121,50 @@ export function verifyImportBytes(bytes: Uint8Array, declared: string): boolean 
   }
 }
 
+/**
+ * A10 (`ImportsService.sniffFormat`): the format the bytes are — a ZIP workbook (`xlsx`; GanttPRO
+ * is told apart by its layout later), MS Project XML (`<Project` in the MS Project namespace, or a
+ * bare `<Project>` with `<Tasks>`), an OLE2 file (`mpp`) — or null for text.
+ */
+export function sniffFormat(bytes: Uint8Array): ImportFileFormat | null {
+  if (startsWith(bytes, ZIP)) return 'xlsx';
+  if (startsWith(bytes, OLE2)) return 'mpp';
+  const head = decodeText(bytes.subarray(0, 4096)).trimStart();
+  if (
+    head.startsWith('<') &&
+    /<(?:\w+:)?Project[\s>]/.test(head) &&
+    (/schemas\.microsoft\.com\/project/.test(head) ||
+      /<(?:\w+:)?Tasks[\s>]/.test(decodeText(bytes.subarray(0, 65536))))
+  )
+    return 'xml';
+  return null;
+}
+
+/** Container family: what the upload physically is (the content type was checked on confirm). */
+export function familyOf(format: ImportFileFormat): 'zip' | 'xml' | 'ole' | 'text' {
+  if (format === 'xlsx' || format === 'ganttpro') return 'zip';
+  if (format === 'xml') return 'xml';
+  if (format === 'mpp') return 'ole';
+  return 'text';
+}
+
 /** Parses one file into a draft (`ImportsService.draftOf`). `.mpp` needs the server's converter. */
 export async function draftOf(
-  format: ImportFormat,
+  format: ImportFileFormat,
   bytes: Uint8Array,
   dateOrder: 'DMY' | 'MDY' = 'DMY',
   sheetName?: string,
 ): Promise<ImportDraft> {
   switch (format) {
-    case 'xlsx': {
-      const { rows } = await readXlsx(bytes, sheetName);
-      return tableToDraft(rows, { dateOrder });
+    case 'xlsx':
+    case 'ganttpro': {
+      // A10: a workbook in GanttPRO's layout is read as GanttPRO whichever of the two was chosen.
+      const { rows, sheet, calendarRows } = await readXlsx(bytes, sheetName);
+      const layout = detectGanttpro(rows);
+      if (layout) return ganttproToDraft(rows, layout, { sheetName: sheet, calendarRows });
+      const draft = tableToDraft(rows, { dateOrder });
+      draft.detectedFormat = 'xlsx';
+      return draft;
     }
     case 'csv':
       return tableToDraft(readCsv(bytes), { dateOrder });
