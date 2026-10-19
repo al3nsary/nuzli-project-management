@@ -566,3 +566,15 @@ Begin with Phase 1. Before writing code, output: (a) the repository tree, (b) th
 **Identity:** not bound to the Muhsen identity. **White, clean interface like GanttPRO**, with **Nozoly indigo blue (أزرق نيلي)** as the primary colour; team colours express identity while browsing. Improved login page (logo size, placement, copy). Logos remain the real files.
 
 **Quality bar:** every item is verified working in the browser (demo build) and covered by tests against the API before it is reported done; anything that could not be verified is listed with the reason.
+
+### A10 — review, project-manager chat, GanttPRO/MS Project import-export, foreman everywhere, light by default (2026-10-19)
+
+Owner's words (summarised faithfully; verbatim in `docs/brief/A10-request.md`):
+1. **Review everything added** — no breakage, no bugs, nothing forgotten, no wrong calculations.
+2. **Project-manager chat from inside projects:** the admin/project manager must be able to send a note to the supervisor from the project itself (Gantt and grid columns). The same screen the supervisor has (categories, chat, details…) is also available to the project manager on every task, reachable from a **distinctive chat icon** on each task row (with unread count).
+3. **Import ready projects from MS Project and GanttPRO automatically**, then edit them later. The owner's GanttPRO export (`Arafat NOZOLY Live _(GanttPRO.com)…xlsx`) must import correctly. **Export** to both formats (GanttPRO-style Excel and MS Project XML) plus normal Excel, CSV, image (PNG) and PDF.
+4. **Worker foreman (مشرف عمّال):** one of the workers under the supervisor, distinguished by a mark/icon/colour and titled «مشرف عمّال» — distinguished **everywhere**: member lists under the supervisor, team views, formation board, **work cards**, roster/violations, org chart, search.
+5. **Light mode is the default.** The white identity must show by default regardless of the device's dark setting; keep the dark mode (the owner likes it) as an option the user chooses.
+6. Tell the owner what has not been done.
+
+Note on the owner's GanttPRO file: it contains real company data (people's names, links). It is used to verify the importer locally and is **not** committed to the repository or published in the public demo; the owner can import it themselves through the import wizard (in the demo the data stays in their browser).
