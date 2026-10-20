@@ -80,6 +80,7 @@ import {
   refFields,
   supervisorsOf,
 } from './shared';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import { MembersImporter } from './MembersImporter';
 import { useOverlayParam } from '../../lib/useUrlState';
 import { ForemanAvatar, ForemanLine, foremanFirst, foremanOf } from '../../components/Foreman';
@@ -526,6 +527,7 @@ function SupervisorsCard({
               <div className="nz-sup-main">
                 <span className="nz-sup-name">
                   {s.fullName}
+                  <DualRoleBadge user={full ?? s} />
                   {s.isPrimary ? (
                     <Badge size="xs" variant="filled" color="field" leftSection={<IconCrown size={11} aria-hidden />}>
                       {t('teams.sup.primary')}

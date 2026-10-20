@@ -365,6 +365,8 @@ const CASES: Record<string, Case> = {
   'memberRequests.approve': p((b) => api.memberRequests.approve(b.requestId)),
   'memberRequests.reject': p((b) => api.memberRequests.reject(b.requestId, { reason: 'اختبار العزل' })),
   'participants.list': p((b) => api.participants.list(b.projectId)),
+  // A12 round 3 — the picker: B's project refused; on A's project, B's names find nobody.
+  'participants.candidates': p((b) => api.participants.candidates(b.projectId), (_b, a) => api.participants.candidates(a.projectId, MARK)),
   'participants.add': p((b) => api.participants.add(b.projectId, { userId: b.memberUserId, title: 'x', level: 'VIEWER' }), (b, a) => api.participants.add(a.projectId, { userId: b.memberUserId, title: 'x', level: 'VIEWER' })),
   'participants.update': p((b) => api.participants.update(b.projectId, b.memberUserId, { level: 'VIEWER' })),
   'participants.remove': p((b) => api.participants.remove(b.projectId, b.memberUserId)),

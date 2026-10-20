@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { assistantGrants, effectiveRole, maskNationalIdParts, type Role, type UserDto, type UserRoleEntryDto, type UserStatus, type WorkspaceRole } from '@nuzli/shared';
+import { assistantGrants, displayRoleOf, effectiveRole, maskNationalIdParts, type DisplayRole, type Role, type UserDto, type UserRoleEntryDto, type UserStatus, type WorkspaceRole } from '@nuzli/shared';
 import type { CryptoService } from '../crypto/crypto.service';
 import { preferencesOf } from '../notifications/notifications.service';
 import { activeWorkspaceIdOrNull } from '../prisma/workspace-context';
@@ -49,13 +49,27 @@ export function rolesIn(u: { memberships: ReadonlyArray<MembershipCore> }, works
 }
 
 /**
- * A12: the `role` shown for a user in a workspace — the strongest live role there; owners show
- * ADMIN; a registration shows the role it asked for. Falls back to MONITOR (least privilege)
- * for a user with no role there (the field is display-only; rights come from the guard).
+ * A12 round 3: the role SHOWN for a user in a workspace — truthful, never a fallback: OWNER for an
+ * owner; else the strongest role held there (matrix roles first, then ASSISTANT, then MEMBER —
+ * `DISPLAY_ROLE_ORDER`), the suspended memberships counting when nothing is active (the status
+ * says SUSPENDED); a registration shows the role it asked for; null = no role there.
+ * Display only: rights come from the guard (`matrixRole`, `rolesIn`, grants).
  */
-export function displayRole(u: Pick<UserRow, 'accountRole' | 'requestedRole'> & { memberships: ReadonlyArray<MembershipCore> }, workspaceId: string | null): Role {
+export function displayRole(u: Pick<UserRow, 'accountRole' | 'requestedRole'> & { memberships: ReadonlyArray<MembershipCore> }, workspaceId: string | null): DisplayRole | null {
+  if (u.accountRole === 'OWNER') return 'OWNER';
+  const here = workspaceId ? u.memberships.filter((m) => m.workspaceId === workspaceId) : [];
+  const active = here.filter((m) => m.status === 'ACTIVE').map((m) => m.role);
+  return displayRoleOf({ roles: active.length ? active : here.map((m) => m.role) }) ?? u.requestedRole ?? null;
+}
+
+/**
+ * A12: the MATRIX role of a user in a workspace (last-admin protection, the permission subject,
+ * notifications): owners act as ADMIN; else the strongest live matrix role; a registration the
+ * role it asked for; null for an assistant or a member (their rights are grants).
+ */
+export function matrixRole(u: Pick<UserRow, 'accountRole' | 'requestedRole'> & { memberships: ReadonlyArray<MembershipCore> }, workspaceId: string | null): Role | null {
   if (u.accountRole === 'OWNER') return 'ADMIN';
-  return effectiveRole(rolesIn(u, workspaceId)) ?? u.requestedRole ?? 'MONITOR';
+  return effectiveRole(rolesIn(u, workspaceId)) ?? u.requestedRole ?? null;
 }
 
 /** A12: SUSPENDED when the membership in this workspace is suspended, else the account status. */

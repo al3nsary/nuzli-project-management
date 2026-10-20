@@ -14,6 +14,7 @@ import type {
   PrintBatchDetailDto,
   PrintBatchDto,
   ReferenceItemDto,
+  DisplayRole,
   Role,
   Settings,
   SupervisorHistoryDto,
@@ -89,6 +90,7 @@ import type {
   MyParticipationDto,
   OwnerDto,
   ParticipantDto,
+  ParticipantCandidateDto,
   ParticipantLevel,
   PublicWorkspaceDto,
   SystemInfoDto,
@@ -285,7 +287,8 @@ export interface CreateViolationResult {
 export type CalendarListDto = CalendarDto & { isDefault: boolean };
 
 export interface DemoAccount {
-  role: Role;
+  /** A12 round 3: the account's display role (OWNER, ASSISTANT, MEMBER included — no MONITOR stand-in). */
+  role: DisplayRole;
   /** A12: what the quick-login button says (owner, assistant and project participants added). */
   kind?: 'OWNER' | 'ADMIN' | 'SUPERVISOR' | 'MONITOR' | 'ASSISTANT' | 'EDITOR' | 'VIEWER';
   identifier: string;
@@ -539,6 +542,12 @@ export interface ApiClient {
   /** A12 round 2 — project participants (محرّر / مساهم / مطّلع). */
   participants: {
     list(projectId: string): Promise<ParticipantDto[]>;
+    /**
+     * A12 round 3 — who may be added (live members of the workspace, not yet participants), for
+     * whoever manages the project's participants (admins, owners, assistants with projects:edit in
+     * scope). Minimal data: id, name, username, photo flag, role, dual-role flag. Max 20.
+     */
+    candidates(projectId: string, q?: string): Promise<ParticipantCandidateDto[]>;
     /** 409 PARTICIPANT_NOT_MEMBER / PARTICIPANT_EXISTS / PROJECT_ARCHIVED. */
     add(projectId: string, input: { userId: string; title: string; level: ParticipantLevel }): Promise<ParticipantDto>;
     update(projectId: string, userId: string, input: { title?: string; level?: ParticipantLevel }): Promise<ParticipantDto>;

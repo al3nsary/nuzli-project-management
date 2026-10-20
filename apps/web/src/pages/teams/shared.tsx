@@ -14,6 +14,7 @@ import {
 import { IconCheck, IconPalette } from '@tabler/icons-react';
 import { PhotoAvatar } from '../../components/UserAvatar';
 import type { ReferenceItemDto, TeamColorDto, TeamStatus } from '@nuzli/shared';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import { useReference } from '../../api/queries';
 import { t, tCount, tKey } from '../../i18n';
 import './teams-a9.css';
@@ -160,15 +161,34 @@ export function refFields(
 
 // ---------------------------------------------------------------- A9: supervisors and the foreman
 
-type SupervisorLike = { id: string; fullName: string; isPrimary?: boolean; hasPhoto?: boolean };
+type SupervisorLike = { id: string; fullName: string; isPrimary?: boolean; hasPhoto?: boolean; dualRole?: boolean };
 
 /** A team's supervisors (TeamDto.supervisors, else the single legacy supervisor), primary first. */
 export function supervisorsOf(team: {
   supervisors?: SupervisorLike[];
-  supervisor: { id: string; fullName: string } | null;
+  supervisor: { id: string; fullName: string; dualRole?: boolean } | null;
 }): SupervisorLike[] {
   if (team.supervisors?.length) return [...team.supervisors].sort((a, b) => Number(!!b.isPrimary) - Number(!!a.isPrimary));
   return team.supervisor ? [{ ...team.supervisor, isPrimary: true }] : [];
+}
+
+/**
+ * A12 round 3: a team's supervisors as one line of names («الاسم (رئيسي)، الاسم») — each with the
+ * compact «صلاحية مزدوجة» mark when it applies (team cards, formation column headers).
+ */
+export function SupervisorNames({ supervisors, primaryLabel = true }: { supervisors: SupervisorLike[]; primaryLabel?: boolean }) {
+  if (!supervisors.length) return <>{t('teams.noSupervisor')}</>;
+  return (
+    <>
+      {supervisors.map((s, i) => (
+        <span key={s.id} className="nz-sup-inline">
+          {i > 0 ? '، ' : ''}
+          {s.isPrimary && primaryLabel ? t('teams.sup.namePrimary', { name: s.fullName }) : s.fullName}
+          <DualRoleBadge user={s} compact />
+        </span>
+      ))}
+    </>
+  );
 }
 
 /**
@@ -229,6 +249,7 @@ export function SupervisorAvatars({
             <span key={s.id}>
               {i > 0 ? ' · ' : ''}
               {s.fullName}
+              <DualRoleBadge user={s} compact />
               {s.isPrimary ? <span className="nz-primary-chip">{t('teams.sup.primary')}</span> : null}
             </span>
           ))}

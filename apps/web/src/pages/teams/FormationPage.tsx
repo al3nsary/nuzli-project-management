@@ -52,7 +52,7 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import { Menu } from '@mantine/core';
-import { ForemanBadge, SupervisorAvatars, supervisorsOf } from './shared';
+import { ForemanBadge, SupervisorAvatars, SupervisorNames, supervisorsOf } from './shared';
 import type { MemberDto, TeamDto, TeamSummaryDto } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { errorMessage } from '../../api/errors';
@@ -295,9 +295,7 @@ function BoardColumn({
           <div className="nz-col-sups">
             <SupervisorAvatars supervisors={supervisorsOf(column.team)} size={24} max={3} />
             <Text size="xs" c="inherit" opacity={0.92} truncate>
-              {supervisorsOf(column.team)
-                .map((s) => (s.isPrimary ? t('teams.sup.namePrimary', { name: s.fullName }) : s.fullName))
-                .join('، ') || t('teams.noSupervisor')}
+              <SupervisorNames supervisors={supervisorsOf(column.team)} />
             </Text>
           </div>
         ) : null}

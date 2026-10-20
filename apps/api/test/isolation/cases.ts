@@ -286,6 +286,8 @@ export const CASES: Record<string, Case> = {
   // A12 round 2 — participants and the cover image
   'GET /me/participations': {},
   'GET /projects/:id/participants': {},
+  // A12 round 3 — the participant picker: B's project → 404; B names in `q` find nothing
+  'GET /projects/:id/participant-candidates': { query: (f) => ({ q: `${f.t.tag}` }) },
   'POST /projects/:id/participants': { body: (f) => ({ userId: f.t.users.supervisor, title: 'منصب العزل', level: 'VIEWER' }) },
   'PATCH /projects/:id/participants/:userId': { body: () => ({ level: 'EDITOR' }) },
   'DELETE /projects/:id/participants/:userId': {},

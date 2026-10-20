@@ -109,6 +109,7 @@ import {
   type ColumnPref,
 } from './columns';
 import classes from './Gantt.module.css';
+import { DualRoleBadge } from '../workspaces/DualRole';
 import { TaskChatButton, type ChatCount } from '../tasks/TaskChatButton';
 
 export type GridMode = 'full' | 'compact' | 'narrow';
@@ -1425,7 +1426,10 @@ function HeaderRow({ row, collapsed, onToggle, focused, onFocusRow }: { row: Gan
 function Assignee({ a }: { a: NonNullable<TaskDto['assignee']> }) {
   return (
     <span className={`vest ${classes.assignee}`} style={{ '--team': a.teamColor ?? 'var(--muted)' } as CSSProperties} title={a.teamName ? `${a.fullName} — ${a.teamName}` : a.fullName}>
-      <span className={classes.assigneeName}>{a.fullName}</span>
+      <span className={classes.assigneeName}>
+        <span className={classes.assigneeText}>{a.fullName}</span>
+        <DualRoleBadge user={a} compact />
+      </span>
       <span className={classes.assigneeTeam}>{a.teamName ?? t('gantt.noTeam')}</span>
     </span>
   );
@@ -1444,7 +1448,7 @@ function HoverCard({ task, x, y, digits, rootWidth }: { task: TaskDto; x: number
       <div className={classes.hoverMeta}>
         <span>{t('bar.tooltipDates', { start: when(task.startDate, digits), end: when(task.endDate, digits) })}</span>
         <span>{t('bar.tooltipProgress', { value: formatNumber(Math.round(task.progress)) })}</span>
-        {task.assignee ? <span>{task.assignee.fullName}</span> : null}
+        {task.assignee ? <span>{task.assignee.dualRole ? t('dualRole.nameWithBadge', { name: task.assignee.fullName }) : task.assignee.fullName}</span> : null}
       </div>
     </div>
   );
@@ -1718,6 +1722,15 @@ const Bar = memo(function Bar(p: {
               </text>
             </>
           )}
+          {task.assignee.dualRole ? (
+            // A12 round 3: «صلاحية مزدوجة» — a small amber mark on the avatar's outer corner (the
+            // bar geometry is already laid out right-to-left, like the avatar itself).
+            <g className={classes.dualMark} role="img" aria-label={t('dualRole.nameWithBadge', { name: task.assignee.fullName })} data-testid="dual-role-badge">
+              <title>{t('dualRole.nameWithBadge', { name: task.assignee.fullName })}</title>
+              <circle cx={avX - avR + 1} cy={cy - avR + 2} r={5} />
+              <path d={`M${avX - avR - 2} ${cy - avR + 1} h6 M${avX - avR - 2} ${cy - avR + 3.5} h6`} />
+            </g>
+          ) : null}
         </g>
       ) : null}
       {late > 0 ? (

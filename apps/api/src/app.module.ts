@@ -1,6 +1,7 @@
 import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { BudgetInterceptor } from './access/budget.interceptor';
+import { DualRoleInterceptor } from './access/dual-role.interceptor';
 import { ProjectGrantGuard } from './access/project-grant.guard';
 import { AdminModule } from './admin/admin.module';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -132,6 +133,8 @@ export const LOG_REDACT_PATHS = [
     { provide: APP_GUARD, useClass: PermissionsGuard },
     // A12 round 2: money fields only for budget.read; money changes only with budget.manage.
     { provide: APP_INTERCEPTOR, useClass: BudgetInterceptor },
+    // A12 round 3: «صلاحية مزدوجة» on every embedded person ref (one grouped query per request).
+    { provide: APP_INTERCEPTOR, useClass: DualRoleInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })

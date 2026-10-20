@@ -64,7 +64,7 @@ import type {
   DemoViolationType,
 } from './db';
 import type { DemoInternals } from './phase2';
-import { teamInScope } from './access';
+import { violationTeamInScope } from './access';
 import { sniffImageType } from './phase2';
 import { verifyImportBytes } from '../../features/imports/files';
 import { drawIdCard, drawPlaceholder, drawPortrait } from './placeholderImage';
@@ -291,8 +291,9 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
   }
 
   function inScope(v: DemoViolation, w: World, viewer: DemoUser): boolean {
-    // A12 round 2: an assistant limited to some teams sees their violations (and unassigned ones).
-    if (can(viewer, 'violations.readAll')) return teamInScope(viewer, v.teamIdSnapshot);
+    // A12 round 2/3 (violationScopeWhere): an assistant limited to some teams sees those teams'
+    // violations only (`teamIdSnapshot IN scope` — an unassigned violation is outside it).
+    if (can(viewer, 'violations.readAll')) return violationTeamInScope(viewer, v.teamIdSnapshot);
     if (can(viewer, 'violations.readRecorded') && v.recordedById === viewer.id) return true;
     if (can(viewer, 'violations.readOwnTeams') && v.teamIdSnapshot) {
       const team = w.teams.get(v.teamIdSnapshot);
@@ -633,9 +634,10 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
 
   // ------------------------------------------------------------ violations
 
-  async function exportRows(filter: ViolationFilter, w: World): Promise<ExportRow[]> {
+  async function exportRows(filter: ViolationFilter, w: World, viewer: DemoUser): Promise<ExportRow[]> {
+    // A12 round 3 (exportXlsx: AND [scope, filter]): only what the exporter may read.
     const rows = (await db.violations.toArray())
-      .filter((v) => matchesFilter(fact(v, w), filter))
+      .filter((v) => inScope(v, w, viewer) && matchesFilter(fact(v, w), filter))
       .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
     return rows.map((v) => {
       const type = w.types.get(v.typeId);
@@ -953,16 +955,18 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
 
     stats: async (filter = {}) => {
       network();
-      await api.actor('violations.stats');
+      const viewer = await api.actor('violations.stats');
       const w = await world();
-      const facts = (await db.violations.toArray()).map((v) => fact(v, w));
+      // A12 round 3 (stats(f, now, teamLimit(viewer))): an assistant limited to some teams counts
+      // only those teams' violations; everyone else with the statistics sees the workspace.
+      const facts = (await db.violations.toArray()).filter((v) => violationTeamInScope(viewer, v.teamIdSnapshot)).map((v) => fact(v, w));
       return computeViolationStats(facts, filter, new Date(), lookups(w));
     },
 
     exportXlsx: async (filter = {}) => {
       const actor = await api.actor('violations.export');
       const w = await world();
-      const rows = await exportRows(filter, w);
+      const rows = await exportRows(filter, w, actor);
       const labels: Array<[string, string]> = [];
       if (filter.from) labels.push(['من تاريخ', filter.from]);
       if (filter.to) labels.push(['إلى تاريخ', filter.to]);

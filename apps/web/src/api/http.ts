@@ -80,6 +80,7 @@ import type {
   MyParticipationDto,
   OwnerDto,
   ParticipantDto,
+  ParticipantCandidateDto,
   PublicWorkspaceDto,
   SystemInfoDto,
   WorkspaceAdminDto,
@@ -337,6 +338,8 @@ export class HttpApi implements ApiClient {
 
   participants: ApiClient['participants'] = {
     list: (projectId) => this.request<ParticipantDto[]>('GET', `/projects/${enc(projectId)}/participants`),
+    candidates: (projectId, q) =>
+      this.request<ParticipantCandidateDto[]>('GET', `/projects/${enc(projectId)}/participant-candidates${toQueryString({ q: q || undefined })}`),
     add: (projectId, input) =>
       this.request<ParticipantDto>('POST', `/projects/${enc(projectId)}/participants`, { body: input }),
     update: (projectId, userId, input) =>

@@ -1,4 +1,4 @@
-import type { ParticipantLevel } from '@nuzli/shared';
+import { applyDualRole, personRefIds, type ParticipantLevel } from '@nuzli/shared';
 import type { DemoUser } from './db';
 
 /**
@@ -35,6 +35,17 @@ export function teamInScope(viewer: DemoUser, teamId: string | null | undefined)
   const limits = (viewer as Actor)._limits;
   if (!limits?.teamIds) return true;
   return !teamId || limits.teamIds.includes(teamId);
+}
+
+/**
+ * A12 round 3 — violations under an assistant's team scope (apps/api violationScopeWhere and the
+ * statistics SQL: `team_id_snapshot IN (scope)`): no scope = every violation; with a scope only
+ * those teams' violations — an unassigned one (no team) is outside it, unlike workers.
+ */
+export function violationTeamInScope(viewer: DemoUser, teamId: string | null | undefined): boolean {
+  const limits = (viewer as Actor)._limits;
+  if (!limits?.teamIds) return true;
+  return !!teamId && limits.teamIds.includes(teamId);
 }
 
 /** The participant level of the viewer on a project, if any. */
@@ -100,4 +111,52 @@ export interface ActorOptions {
   optionalWorkspace?: boolean;
   /** Bind a project participant's level to this request. */
   project?: ProjectCtx;
+}
+
+/**
+ * A12 round 3: every ApiClient namespace whose answers may name people — all of them, like the
+ * API's DualRoleInterceptor, which runs on every JSON answer inside a workspace.
+ */
+export const DUAL_ROLE_NAMESPACES = [
+  'auth', 'system', 'me', 'owners', 'workspaces', 'users', 'registrations', 'audit', 'notifications', 'settings',
+  'colors', 'teams', 'org', 'members', 'memberRequests', 'participants', 'reference', 'cards', 'files', 'photos',
+  'violationTypes', 'violations', 'logos', 'projects', 'tasks', 'dependencies', 'calendars', 'labels',
+  'customFields', 'timeEntries', 'viewPrefs', 'portfolios', 'imports', 'hub',
+] as const;
+
+/**
+ * A12 round 3 — the demo's DualRoleInterceptor: wraps each method of the namespaces so that every
+ * answer inside a workspace gets `dualRole: true` on its person refs (@nuzli/shared
+ * `personRefIds` / `applyDualRole`, the same walker as the API), with one lookup per answer.
+ * Synchronous methods stay synchronous; files (Blob) pass untouched.
+ */
+export function decorateDualRole(
+  api: Record<string, unknown>,
+  namespaces: readonly string[],
+  dualOf: (ids: string[]) => Set<string>,
+  activeWorkspace: () => string | null,
+): void {
+  const decorate = (out: unknown) => {
+    if (!activeWorkspace() || out === null || typeof out !== 'object' || (typeof Blob !== 'undefined' && out instanceof Blob)) return out;
+    const ids = personRefIds(out);
+    return ids.length ? applyDualRole(out, dualOf(ids)) : out;
+  };
+  const wrap = (target: Record<string, unknown>, depth: number) => {
+    for (const key of Object.keys(target)) {
+      const fn = target[key];
+      if (fn && typeof fn === 'object' && !Array.isArray(fn) && depth < 2) {
+        wrap(fn as Record<string, unknown>, depth + 1);
+        continue;
+      }
+      if (typeof fn !== 'function') continue;
+      target[key] = (...args: unknown[]) => {
+        const r = (fn as (...a: unknown[]) => unknown).apply(target, args);
+        return r && typeof (r as Promise<unknown>).then === 'function' ? (r as Promise<unknown>).then(decorate) : r;
+      };
+    }
+  };
+  for (const ns of namespaces) {
+    const target = api[ns];
+    if (target && typeof target === 'object') wrap(target as Record<string, unknown>, 0);
+  }
 }

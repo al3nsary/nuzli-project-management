@@ -142,12 +142,14 @@ export interface TeamSupervisorDto {
   hasPhoto: boolean;
   /** Start of this person's current leadership row. */
   since?: string;
+  /** A12 round 3: present (true) when the person holds more than one live role («صلاحية مزدوجة»). */
+  dualRole?: boolean;
 }
 
 export interface TeamDto extends TeamSummaryDto {
   status: TeamStatus;
   /** The primary supervisor (kept for compatibility; every supervisor is in `supervisors`). */
-  supervisor: { id: string; fullName: string } | null;
+  supervisor: { id: string; fullName: string; dualRole?: boolean } | null;
   /** A9 (ADR-100): every current supervisor, the primary first. Always sent by the API. */
   supervisors?: TeamSupervisorDto[];
   /** A9: the linked organisational unit. Always sent by the API (null when unlinked). */
@@ -171,7 +173,7 @@ export interface TeamSupervisorsDto {
 
 export interface SupervisorHistoryDto {
   id: string;
-  supervisor: { id: string; fullName: string };
+  supervisor: { id: string; fullName: string; dualRole?: boolean };
   /** A9: the row was the primary supervisor (a primary change closes and reopens both rows). */
   isPrimary?: boolean;
   validFrom: string;

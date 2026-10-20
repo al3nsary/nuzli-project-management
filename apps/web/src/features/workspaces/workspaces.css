@@ -59,6 +59,9 @@
 }
 .pill.dual.compact {
   padding: 2px 5px;
+  /* A12 round 3: beside a name inside a line of text (assignees, authors, supervisors). */
+  margin-inline-start: 4px;
+  vertical-align: middle;
 }
 
 /* «اختر القسم» */

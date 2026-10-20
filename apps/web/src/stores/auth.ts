@@ -5,10 +5,10 @@ import { setDisplayPrefs } from '../i18n/format';
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
 /**
- * A12: the signed-in user as `can()` must see them. The API sends `role` (the strongest role in
- * the active workspace, display only) and `workspaceRoles`; `can()` grants the union of `roles`,
- * so an assistant (role ASSISTANT, no matrix role) gets their `grants` and nothing else — never
- * the display fallback.
+ * A12: the signed-in user as `can()` must see them. The API sends `role` (the display role in the
+ * active workspace — OWNER / ADMIN / SUPERVISOR / MONITOR / ASSISTANT / MEMBER since A12 round 3,
+ * display only) and `workspaceRoles`; `can()` grants the union of `roles`, so an assistant gets
+ * their `grants` and nothing else.
  */
 export type SessionUser = UserDto & { roles?: readonly string[] };
 

@@ -24,5 +24,5 @@ export function uiRoleOf(user: Pick<UserDto, 'role' | 'accountRole' | 'workspace
   if (!user) return null;
   if (user.accountRole === 'OWNER') return 'ADMIN';
   if (user.workspaceRoles) return effectiveRole(user.workspaceRoles);
-  return user.role;
+  return effectiveRole(user.role ? [user.role] : []);
 }

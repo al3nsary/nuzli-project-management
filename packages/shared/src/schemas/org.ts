@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { optionalText, uuid } from './common';
-import type { OrgUnitKind, Role, TeamStatus } from '../enums';
+import type { DisplayRole, OrgUnitKind, TeamStatus } from '../enums';
 import type { TeamColorDto } from './teams';
 
 // A9 — organisational structure (ADR-102): a tree of units and positions held by a user, a
@@ -90,7 +90,7 @@ export interface OrgHolderDto {
   fullName: string;
   hasPhoto: boolean;
   /** USER holders: their role. */
-  role?: Role;
+  role?: DisplayRole | null;
   /** MEMBER holders: their current team, if any. */
   team?: { id: string; name: string; color: TeamColorDto } | null;
 }
@@ -110,7 +110,7 @@ export interface OrgTeamLinkDto {
   status: TeamStatus;
   color: TeamColorDto;
   memberCount: number;
-  supervisors: { id: string; fullName: string; isPrimary: boolean; hasPhoto: boolean }[];
+  supervisors: { id: string; fullName: string; dualRole?: boolean; isPrimary: boolean; hasPhoto: boolean }[];
 }
 
 export interface OrgUnitDto {

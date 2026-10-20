@@ -6,7 +6,10 @@ import {
   archiveMemberSchema,
   can,
   canAny,
+  displayRoleOf,
   maskNationalId,
+  PARTICIPANT_CANDIDATES_LIMIT,
+  participantCandidatesQuery,
   memberInputSchema,
   memberRequestListQuery,
   projectColor,
@@ -14,6 +17,7 @@ import {
   updateParticipantSchema,
   type MemberRequestAcceptedDto,
   type MemberRequestDto,
+  type ParticipantCandidateDto,
   type ParticipantDto,
   type Permission,
   type WorkspaceRole,
@@ -267,6 +271,41 @@ export function createA12Roles(api: DemoApi): A12RolesApi {
       const rows = await db.participants.where('projectId').equals(projectId).toArray();
       rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       return Promise.all(rows.map(participantDto));
+    },
+    // A12 round 3 — the picker (ParticipantsService.candidates): projects.manage + the project in
+    // scope (else 404); ACTIVE accounts with a live ACTIVE membership here, not yet participants.
+    candidates: async (projectId, q) => {
+      const viewer = await api.actor('projects.manage');
+      const p = await db.projects.get(projectId);
+      if (!p || !projectInScope(viewer, projectId)) fail('NOT_FOUND');
+      const data = validate(participantCandidatesQuery, q === undefined ? {} : { q });
+      const wid = viewer._wid!;
+      const taken = new Set((await db.participants.where('projectId').equals(projectId).toArray()).map((r) => r.userId));
+      const ids = [...new Set(api.workspaceMemberships(wid).filter((m) => m.status === 'ACTIVE').map((m) => m.userId))].filter((id) => !taken.has(id));
+      const term = data.q?.trim();
+      const out: ParticipantCandidateDto[] = [];
+      const rows = [];
+      for (const id of ids) {
+        const u = await api.rawUser(id);
+        if (!u || u.status !== 'ACTIVE') continue;
+        const username = u.username ?? '';
+        if (term && !u.fullName.toLowerCase().includes(term.toLowerCase()) && !username.includes(term.toLowerCase())) continue;
+        rows.push(u);
+      }
+      rows.sort((a, b) => a.fullName.localeCompare(b.fullName, 'ar') || a.id.localeCompare(b.id));
+      for (const u of rows.slice(0, PARTICIPANT_CANDIDATES_LIMIT)) {
+        const here = api.liveMemberships(u.id).filter((m) => m.workspaceId === wid);
+        const active = here.filter((m) => m.status === 'ACTIVE').map((m) => m.role);
+        out.push({
+          id: u.id,
+          fullName: u.fullName,
+          username: u.username ?? '',
+          hasPhoto: Boolean(u.photoFileId),
+          role: displayRoleOf({ accountRole: u.accountRole, roles: active.length ? active : here.map((m) => m.role) }) ?? 'MEMBER',
+          ...(api.liveMemberships(u.id).length > 1 ? { dualRole: true } : {}),
+        });
+      }
+      return out;
     },
     add: async (projectId, input) => {
       const { viewer } = await manageable(projectId);

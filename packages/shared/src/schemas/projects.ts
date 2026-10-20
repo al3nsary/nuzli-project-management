@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { hexColor, isoDate, optionalText, uuid } from './common';
-import type { DependencyType, Priority, ProjectStatus, TaskStatus, TaskType } from '../enums';
+import type { DependencyType, DisplayRole, Priority, ProjectStatus, TaskStatus, TaskType } from '../enums';
 import type { CustomFieldDto, LabelDto, TaskPreviousMap } from './projects-a9';
 
 /** A9: money in the project currency, rounded to 2 decimals, up to numeric(14,2). */
@@ -229,7 +229,7 @@ export interface TaskDto {
   progress: number;
   status: TaskStatus;
   priority: Priority;
-  assignee: { id: string; fullName: string; teamColor: string | null; teamName: string | null } | null;
+  assignee: { id: string; fullName: string; dualRole?: boolean; teamColor: string | null; teamName: string | null } | null;
   description: string | null;
   version: number;
   commentCount: number;
@@ -285,7 +285,7 @@ export interface CalendarDto {
 
 export interface TaskCommentDto {
   id: string;
-  author: { id: string; fullName: string };
+  author: { id: string; fullName: string; dualRole?: boolean };
   body: string;
   mentions: string[];
   createdAt: string;
@@ -318,7 +318,7 @@ export const updateCalendarSchema = calendarSchema.partial();
 export const taskAttachmentSchema = z.object({ fileId: uuid });
 
 export interface ProjectAccessDto {
-  user: { id: string; fullName: string; role: string };
+  user: { id: string; fullName: string; role: DisplayRole | null };
   level: 'VIEW';
   grantedAt: string;
 }

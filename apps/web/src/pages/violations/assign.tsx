@@ -64,7 +64,7 @@ export function UnassignedBadge({ size = 'sm' }: { size?: 'xs' | 'sm' | 'md' }) 
 }
 
 /** The people who assign: admins and the recorder (any time, per the API). */
-export function canAssign(user: { id: string; role: string; status?: string } | null, v: ViolationDto): boolean {
+export function canAssign(user: { id: string; role: string | null; status?: string } | null, v: ViolationDto): boolean {
   if (!user) return false;
   return can(user as never, 'violations.manage') || (can(user as never, 'violations.create') && v.recordedBy.id === user.id);
 }

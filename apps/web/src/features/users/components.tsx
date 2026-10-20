@@ -86,7 +86,7 @@ export function PersonName({
 
 /** Roles of a person in the active workspace (owners marked). */
 export function WorkspaceRolePills({ user }: { user: Pick<UserDto, 'role' | 'accountRole' | 'workspaceRoles'> }) {
-  const roles: WorkspaceRole[] = user.workspaceRoles ?? (user.role ? [user.role] : []);
+  const roles: WorkspaceRole[] = user.workspaceRoles ?? (user.role && user.role !== 'OWNER' ? [user.role] : []);
   return (
     <span className="nz-ua-roles">
       {user.accountRole === 'OWNER' ? <OwnerPill /> : null}

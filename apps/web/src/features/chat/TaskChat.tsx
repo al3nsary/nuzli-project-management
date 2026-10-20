@@ -12,6 +12,7 @@ import { ActionIcon, CloseButton, FileButton, Loader, Text, Textarea, Tooltip } 
 import { IconArrowBackUp, IconArrowDown, IconFileTypePdf, IconMessages, IconPhoto, IconPaperclip, IconSend } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ALLOWED_UPLOAD_TYPES, can, type TaskCommentDto } from '@nuzli/shared';
+import { DualRoleBadge } from '../workspaces/DualRole';
 import { useApi } from '../../api/context';
 import { ApiError, errorMessage } from '../../api/errors';
 import { qk4 } from '../../api/projectQueries';
@@ -358,7 +359,12 @@ function Message({
     >
       {!mine ? <span className={css.avatarSlot}>{head ? <UserAvatar name={authorName} size={32} ring={false} /> : null}</span> : null}
       <div className={css.stack}>
-        {head && !mine ? <span className={css.name}>{authorName}</span> : null}
+        {head && !mine ? (
+          <span className={css.name}>
+            {authorName}
+            {comment ? <DualRoleBadge user={comment.author} compact /> : null}
+          </span>
+        ) : null}
         <div className={css.line}>
           <div className={css.bubble}>
             <span className="sr-only">{mine ? t('a9s.chat.you') : authorName}</span>

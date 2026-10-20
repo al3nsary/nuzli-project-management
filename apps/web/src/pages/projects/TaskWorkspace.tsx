@@ -31,6 +31,7 @@ import { TaskAttachments } from '../../features/tasks/TaskAttachments';
 import { TaskLabelsFieldsView } from '../../features/tasks/TaskLabelsFields';
 import { taskWhen } from '../../features/tasks/when';
 import { TASK_STATUSES, TaskStatusBadge, taskStatusLabel } from './parts';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import { TaskActivity } from './TaskDrawer';
 import '../../features/tasks/tasks.css';
 
@@ -268,6 +269,7 @@ function TaskHeader({
             {task.assignee ? t('a12roles.mine.badgeTeamOf', { name: task.assignee.fullName }) : t('a12roles.mine.badgeTeam')}
           </span>
         ) : null}
+        {access.team ? <DualRoleBadge user={task.assignee} compact /> : null}
         <Text span size="sm" c="dimmed">
           {taskWhen(task)}
         </Text>

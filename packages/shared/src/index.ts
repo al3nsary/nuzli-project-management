@@ -16,3 +16,4 @@ export * from './schemas/imports';
 export * from './calc-rules';
 export * from './a12-access';
 export * from './schemas/a12-admin';
+export * from './dual-role';

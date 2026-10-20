@@ -1,4 +1,4 @@
-import type { AccountRole, Role } from './enums';
+import type { AccountRole, DisplayRole, Role } from './enums';
 
 /**
  * The single RBAC matrix (brief §4.1). The API guard and the web UI both read it.
@@ -119,8 +119,12 @@ export const BASE_WORKSPACE_ROLE_PERMISSIONS: Record<'ASSISTANT' | 'MEMBER', Rea
 };
 
 export interface PermissionSubject {
-  /** The matrix role in the active workspace (A12); null = no role there. */
-  role: Role | null;
+  /**
+   * The role in the active workspace (A12); null = no role there. A matrix role grants its column;
+   * since A12 round 3 a UserDto's display role (OWNER / ASSISTANT / MEMBER) may arrive here too —
+   * it grants nothing by itself (OWNER rights come from `accountRole`, an assistant's from `grants`).
+   */
+  role: DisplayRole | null;
   status?: string;
   /** A12: OWNER holds every permission in every workspace. */
   accountRole?: AccountRole;
@@ -153,7 +157,7 @@ export function can(user: PermissionSubject | null | undefined, permission: Perm
   if (user.roles?.length) {
     return user.roles.some((r) => roleGrants(r, permission));
   }
-  return (user.role && ROLE_PERMISSIONS[user.role]?.has(permission)) ?? false;
+  return user.role ? roleGrants(user.role, permission) : false;
 }
 
 export function canAny(user: PermissionSubject | null | undefined, permissions: Permission[]) {

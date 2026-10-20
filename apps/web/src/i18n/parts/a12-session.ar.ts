@@ -57,6 +57,8 @@ export const arA12Session = {
   'dualRole.badge': 'صلاحية مزدوجة',
   'dualRole.tooltip': 'لهذا الشخص أكثر من صفة: {roles}',
   'dualRole.tooltipHidden': 'لهذا الشخص صفة أخرى في قسم آخر.',
+  'dualRole.nameWithBadge': '{name} — صلاحية مزدوجة',
+  'dualRole.tooltipShort': 'لهذا الشخص أكثر من صفة في النظام، فصلاحياته تجمع الصفتين.',
   'dualRole.otherWorkspace': 'صفة في قسم آخر',
   'dualRole.dialogTitle': 'منح صلاحية ثانية لنفس الشخص',
   'dualRole.dialogBody': 'لهذا الشخص صفة أخرى في النظام. منحه هذه الصفة أيضًا يجعله صاحب «صلاحية مزدوجة»: يجمع صلاحيات الصفتين معًا، وتظهر بجانب اسمه علامة «صلاحية مزدوجة» في كل مكان.',

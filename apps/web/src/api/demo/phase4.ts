@@ -86,7 +86,7 @@ import { workbookToBlob } from '../../features/violations/excel';
 import type { DemoCalendar, DemoDependency, DemoFile, DemoProject, DemoTask, DemoUser } from './db';
 import type { DemoInternals } from './phase2';
 import { fail, newId, validate } from './util';
-import { participationOf, projectInScope } from './access';
+import { participationOf, projectInScope, stripMoney } from './access';
 import { openLeaderIds, teamsLedBy } from './leaders';
 import { projectColor } from '@nuzli/shared';
 import { drawPlaceholder, placeholderPdf } from './placeholderImage';
@@ -904,8 +904,11 @@ export function createPhase4(
     exportXlsx: (id) => projects.export(id, 'xlsx'),
 
     export: async (id, format) => {
-      const viewer = await api.actor();
-      const g = await projects.gantt(id);
+      const viewer = await api.actor(undefined, { project: { projectId: id } });
+      // A12 round 3 (projects.service exportProject): the budget is for budget.read only — every
+      // other exporter's Excel / CSV / GanttPRO / MSPDI file carries no money (zeros, no budget).
+      const full = await projects.gantt(id);
+      const g = can(viewer, 'budget.read') ? full : stripMoney(full);
       const generatedAt = new Date();
       const unit = unitOf(g.project);
       const labelName = new Map((g.labels ?? []).map((l) => [l.id, l.name]));

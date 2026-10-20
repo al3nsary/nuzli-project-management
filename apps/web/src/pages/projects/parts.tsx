@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { Badge, Group, Progress, Text } from '@mantine/core';
 import type { MyTaskDto, Priority, ProjectStatus, TaskDto, TaskStatus } from '@nuzli/shared';
 import { formatNumber, t, tKey } from '../../i18n';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 
 export const TASK_STATUSES: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'ON_HOLD', 'DONE'];
 export const PRIORITIES: Priority[] = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
@@ -78,9 +79,12 @@ export function AssigneeChip({ assignee, size = 'md' }: { assignee: TaskDto['ass
   } as CSSProperties;
   return (
     <span className="vest" style={style}>
-      <Text span size={size === 'sm' ? 'xs' : 'sm'} fw={500} truncate>
-        {assignee.fullName}
-      </Text>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+        <Text span size={size === 'sm' ? 'xs' : 'sm'} fw={500} truncate>
+          {assignee.fullName}
+        </Text>
+        <DualRoleBadge user={assignee} compact={size === 'sm'} />
+      </span>
       <Text span size="xs" c="dimmed" truncate>
         {assignee.teamName ?? t('gantt.noTeam')}
       </Text>

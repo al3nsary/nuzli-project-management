@@ -685,3 +685,55 @@ Errors: `FILE_TOO_LARGE`, `FILE_TYPE_NOT_ALLOWED`, `PROJECT_ARCHIVED`.
 5. Supervisors: «مهامي» shows `assignedToMe === false` tasks as the team's (badge); a 202 on adding /
    removing a worker shows «بانتظار اعتماد المدير»; an approvals list (`/member-requests`).
 6. Project cards: cover upload/remove and the generated cover from `color`.
+
+## A12 — round 3: truthful display role, participant picker, «صلاحية مزدوجة» on embedded people (ADR-157)
+
+Additive; nothing is removed. The demo (`DemoApi`) answers identically.
+
+### Display role (`UserDto.role`)
+`role` is now the person's role in the caller's **active** workspace, truthfully — type `DisplayRole | null`
+(`DisplayRole = 'OWNER' | 'ADMIN' | 'SUPERVISOR' | 'MONITOR' | 'ASSISTANT' | 'MEMBER'`):
+- `OWNER` for an owner account (was `ADMIN`);
+- else the strongest role held there, in `DISPLAY_ROLE_ORDER` = ADMIN, SUPERVISOR, MONITOR, ASSISTANT, MEMBER
+  (an assistant shows `ASSISTANT` and a member `MEMBER` — round 2 sent the `MONITOR` stand-in); suspended
+  memberships count when no role there is active (`status` says SUSPENDED);
+- a registration: the role it asked for; `null` = no role in this workspace (an account of another workspace in
+  an owner's `/users/all`, or a session before a workspace is chosen).
+`workspaceRoles` (every active role there) is unchanged and is what rights follow, with `grants`. Helper:
+`displayRoleOf({ accountRole, roles })` in `@nuzli/shared`. The same rule fills `ProjectAccessDto.user.role`,
+`OrgHolderDto.role` and `ViolationOcrDto.suggestedUsers[].role`. Audit snapshots of users and
+`user.role_changed` before/after now record this role too.
+
+### Participant picker
+| Method | Path | Permission | Query | Response |
+|---|---|---|---|---|
+| GET | `/projects/:id/participant-candidates` | `projects.manage` (admins, owners, assistants with projects:edit) + the project inside the caller's scope (else **404**) | `q?` (trimmed, ≤ 80; matches the full name, case-insensitive, or the username) | `ParticipantCandidateDto[]` — at most 20 (`PARTICIPANT_CANDIDATES_LIMIT`), by name: `{ id, fullName, username, hasPhoto, role: DisplayRole, dualRole? }` |
+
+Candidates = ACTIVE accounts with a live, ACTIVE membership of this workspace (any role) who are not
+participants of the project yet — the same rule as `POST /projects/:id/participants`. No e-mail, mobile,
+national ID or anything about other workspaces. No `users.read` needed: an assistant with projects:edit picks
+without the users module. Supervisors, monitors and participants (even editors) → 403.
+
+### «صلاحية مزدوجة» on embedded person refs
+Every JSON answer inside a workspace carries **`dualRole: true`** on each embedded user reference whose person
+holds more than one live role (two in one workspace, or roles in several) — absent means false. The refs are
+the values (or array items) under `assignee`, `author`, `supervisor`, `supervisors`, `user`, `addedBy`,
+`requestedBy`, `decidedBy` shaped `{ id, fullName, … }` (`PERSON_REF_KEYS`, `personRefIds`, `applyDualRole` in
+`@nuzli/shared`). So: task assignees (gantt, task, list, «مهامي», dashboard, calendar, budget/people reports),
+comment authors, hub rows (task assignee and last comment author), team `supervisor`/`supervisors`, violation
+supervisors, participants (`user`, `addedBy`), worker requests (`requestedBy`, `decidedBy`), workload `user`.
+Workers (`member`, `foreman`) are not users and never carry it. A full `UserDto` keeps its own `dualRole`.
+Cost: one grouped query per answer (`DualRoleInterceptor`), none when the answer names nobody. Only the
+boolean leaves the server — never which workspace.
+
+### Types (`@nuzli/shared`, additive)
+`DisplayRole`, `DISPLAY_ROLE_ORDER`, `displayRoleOf`; `UserDto.role: DisplayRole | null`;
+`PermissionSubject.role: DisplayRole | null` (OWNER/ASSISTANT/MEMBER grant nothing by themselves in `can()`);
+`participantCandidatesQuery`, `PARTICIPANT_CANDIDATES_LIMIT`, `ParticipantCandidateDto`; `dualRole?: boolean` on
+the person refs above; `PERSON_REF_KEYS`, `personRefIds`, `applyDualRole`.
+
+### Web
+`ApiClient.participants.candidates(projectId, q?)`; the participants tab's picker reads it (name, username, role,
+dual mark). The compact «صلاحية مزدوجة» mark (icon with tooltip) sits beside assignee names in the Gantt (grid
+and bar avatar), list, board, task drawer, «مهامي», chat authors, hub rows, team cards/detail and formation
+column headers.

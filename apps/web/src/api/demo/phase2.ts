@@ -117,6 +117,8 @@ export interface DemoInternals {
   uniqueUsername?(email: string): Promise<string>;
   grantRole?(userId: string, role: 'SUPERVISOR', actorId: string | null): Promise<unknown>;
   approversOf?(wid: string, permission?: Permission): string[];
+  /** A12 round 3: the live memberships of a workspace (workload, printing). */
+  workspaceMemberships?(wid: string): Array<{ userId: string; role: string; status: string }>;
   scope?: { current: { wid: string | null } };
 }
 
@@ -365,6 +367,16 @@ export function createPhase2(api: DemoInternals): Phase2Api & { phase2Hooks: Pha
   /** Supervisors see their own teams' members and unassigned people (apps/api memberScopeWhere). */
   const canSeeMember = (u: DemoUser, team: DemoTeam | null | undefined) =>
     !team || ((readsAll(u) || can(u, 'members.manage')) && teamInScope(u, team.id)) || leads(u, team);
+  /**
+   * A12 round 3 (printMemberScopeWhere): a card printer prints every worker — an assistant limited to
+   * some teams only those teams' workers and unassigned ones; anyone else, as on reads.
+   */
+  const canPrintMember = (u: DemoUser, team: DemoTeam | null | undefined) =>
+    can(u, 'cards.print') ? teamInScope(u, team?.id ?? null) : canSeeMember(u, team);
+  /** A12 round 3 (preview: teamLimitWhere): a live team inside the printer's team scope. */
+  function assertPrintableTeam(u: DemoUser, team: DemoTeam | undefined): asserts team is DemoTeam {
+    if (!team || team.status === 'ARCHIVED' || !teamInScope(u, team.id)) fail('NOT_FOUND', { field: 'teamIds' });
+  }
   const memberTeam = (w: World, memberId: string) => {
     const open = w.open.get(memberId);
     return open ? w.teams.get(open.teamId) ?? null : null;
@@ -1499,14 +1511,21 @@ export function createPhase2(api: DemoInternals): Phase2Api & { phase2Hooks: Pha
   }
 
   /** The stored member or supervisor behind a card (404 when missing), like the API's loadSubjects. */
-  async function printSubject(item: { memberId?: string | null; userId?: string | null }): Promise<PrintSubject> {
+  /** `scope` (a new batch): the printer's scope applies; without it (re-reading a recorded batch) none. */
+  async function printSubject(item: { memberId?: string | null; userId?: string | null }, scope?: { u: DemoUser; w: World }): Promise<PrintSubject> {
     if (item.memberId) {
       const m = await db.members.get(item.memberId);
-      if (!m) fail('NOT_FOUND', { field: 'items' });
+      // A12 round 3 (loadSubjects + printMemberScopeWhere): within the printer's team scope.
+      if (!m || (scope && !canPrintMember(scope.u, memberTeam(scope.w, m.id)))) fail('NOT_FOUND', { field: 'items' });
       return { id: m.id, nationalId: m.nationalId, photoFileId: m.photoFileId, isMember: true };
     }
     const user = item.userId ? await db.users.get(item.userId) : undefined;
-    if (!user) fail('NOT_FOUND', { field: 'items' });
+    // A12 round 3 (supervisorsOf): a supervisor card is for an ACTIVE supervisor of this workspace.
+    const wid = api.scope?.current.wid ?? null;
+    const isSupervisor =
+      !!user && user.status === 'ACTIVE' && !!wid &&
+      (api.workspaceMemberships?.(wid) ?? []).some((m) => m.userId === user.id && m.role === 'SUPERVISOR' && m.status === 'ACTIVE');
+    if (!user || (scope && !isSupervisor)) fail('NOT_FOUND', { field: 'items' });
     // Owner request A8: supervisor cards carry the user's own photo.
     return { id: user.id, nationalId: user.nationalId, photoFileId: user.photoFileId ?? null, isMember: false };
   }
@@ -1768,7 +1787,7 @@ export function createPhase2(api: DemoInternals): Phase2Api & { phase2Hooks: Pha
       const allMembers = new Map((await db.members.toArray()).map((m) => [m.id, m]));
       for (const teamId of data.teamIds) {
         const team = w.teams.get(teamId);
-        assertReadable(u, team);
+        assertPrintableTeam(u, team);
         const color = w.colors.get(team.colorId);
         // A9 (ADR-100): one card per current supervisor, the primary first.
         const sups = (w.leaders.get(team.id) ?? [])
@@ -1802,7 +1821,7 @@ export function createPhase2(api: DemoInternals): Phase2Api & { phase2Hooks: Pha
       }
       for (const memberId of data.memberIds) {
         const m = allMembers.get(memberId);
-        if (!m || !canSeeMember(u, memberTeam(w, memberId))) fail('NOT_FOUND');
+        if (!m || !canPrintMember(u, memberTeam(w, memberId))) fail('NOT_FOUND');
         memberSubject(m);
       }
       // Security review M3 (ADR-064): a preview that decrypts full IDs is audited (count only).
@@ -1849,7 +1868,7 @@ export function createPhase2(api: DemoInternals): Phase2Api & { phase2Hooks: Pha
         let savedBack = 0;
         const items: DemoBatch['items'] = [];
         for (const item of data.items) {
-          const subject = await printSubject(item);
+          const subject = await printSubject(item, { u, w });
           const doSave = Boolean(item.saveBack && item.memberId);
           if (doSave) {
             await saveBack(item.memberId!, item.data, u, w);

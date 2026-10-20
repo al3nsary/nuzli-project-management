@@ -134,3 +134,39 @@ describe('a viewer participant on the project page', () => {
     expect(within(panel).queryByTestId('participant-remove')).toBeNull();
   }, 40_000);
 });
+
+describe('A12 round 3 — the picker for assistants and the dual-role mark', () => {
+  it('an assistant with projects:edit (no users module) picks from participant-candidates and adds', async () => {
+    const api = freshApi();
+    await api.auth.login({ identifier: ADMIN, password: DEMO_PASSWORD });
+    const ws = (await api.auth.workspaces())[0]!.id;
+    const m = (await api.workspaces.members(ws)).find((x) => x.user.username === 'assistant1')!;
+    await api.workspaces.updateMember(ws, m.id, { permissions: { projects: 'edit' } });
+    await renderProject(api, 'assistant1', '?view=participants');
+    const panel = await screen.findByTestId('participants-panel', {}, { timeout: 10_000 });
+    fireEvent.click(await within(panel).findByTestId('participant-add', {}, { timeout: 8000 }));
+    const dialog = await screen.findByRole('dialog');
+    const person = within(dialog).getByRole('textbox', { name: /الشخص/ });
+    fireEvent.click(person);
+    fireEvent.change(person, { target: { value: 'فهد' } });
+    const option = await screen.findByRole('option', { name: /فهد بن خالد الدوسري/ }, { timeout: 8000 });
+    expect(option).toHaveTextContent('مشرف'); // the role in the workspace, from the candidates list
+    fireEvent.click(option);
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /المنصب/ }), { target: { value: 'منسّق الموقع' } });
+    fireEvent.click(within(dialog).getByTestId('participant-submit'));
+    await within(panel).findByText('فهد بن خالد الدوسري', {}, { timeout: 8000 });
+    expect((await api.participants.list(PARK)).some((p) => p.user.fullName === 'فهد بن خالد الدوسري')).toBe(true);
+  }, 40_000);
+
+  it('a dual-role assignee carries the compact «صلاحية مزدوجة» mark in the list', async () => {
+    const api = freshApi();
+    await api.auth.login({ identifier: ADMIN, password: DEMO_PASSWORD });
+    const ws = (await api.auth.workspaces())[0]!.id;
+    await api.workspaces.addMember(ws, { identifier: 'supervisor1', role: 'ASSISTANT', permissions: {}, confirmDualRole: true });
+    await renderProject(api, ADMIN, '?view=list');
+    await waitFor(() => expect(document.querySelectorAll('[data-list-row]').length).toBeGreaterThan(0), { timeout: 10_000 });
+    const marks = await screen.findAllByTestId('dual-role-badge', {}, { timeout: 8000 });
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks[0]).toHaveAttribute('aria-label', expect.stringContaining('صلاحية مزدوجة'));
+  }, 40_000);
+});

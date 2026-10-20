@@ -1,4 +1,4 @@
-import type { NotificationDto, Role } from '@nuzli/shared';
+import type { NotificationDto } from '@nuzli/shared';
 import { formatDate, t, tKey } from '../i18n';
 import { roleLabel } from '../components/ui';
 
@@ -38,7 +38,7 @@ export function notificationText(n: NotificationDto): string {
  * page in «مهامي» (A9: supervisors never open projects), an admin to the task in its project
  * (comments open on the chat tab).
  */
-export function notificationLink(n: NotificationDto, role?: Role): string | null {
+export function notificationLink(n: NotificationDto, role?: string | null): string | null {
   const taskId = typeof n.payload?.taskId === 'string' ? n.payload.taskId : null;
   const projectId = typeof n.payload?.projectId === 'string' ? n.payload.projectId : null;
   const isTask = n.type.startsWith('TASK_');

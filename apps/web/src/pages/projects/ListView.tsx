@@ -48,6 +48,7 @@ import { riyadhToday } from '../../features/projects/engine';
 import { PRIORITIES, TASK_STATUSES, priorityLabel, taskStatusLabel } from './parts';
 import { ConflictAlert } from './TaskDrawer';
 import { TaskChatButton, type ChatCount } from '../../features/tasks/TaskChatButton';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 
 type Writes = ReturnType<typeof useProjectWrites>;
 const ROW = 44;
@@ -494,6 +495,7 @@ export function ListView({
                         {task.assignee ? `${task.assignee.fullName}${task.assignee.teamName ? ` — ${task.assignee.teamName}` : ''}` : t('common.none')}
                       </Text>
                     )}
+                    <DualRoleBadge user={task.assignee} compact />
                   </>);
                   case 'deadline':
                     return admin && !isGroup ? (

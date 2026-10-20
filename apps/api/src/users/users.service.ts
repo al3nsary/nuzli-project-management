@@ -20,7 +20,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { activeWorkspaceId } from '../prisma/workspace-context';
 import { guardLastAdmin } from './last-admin';
-import { auditUser, displayRole, displayStatus, toUserDto, USER_DTO_SELECT, workspaceUsersWhere, type UserRow } from './user-dto';
+import { auditUser, displayRole, displayStatus, matrixRole, toUserDto, USER_DTO_SELECT, workspaceUsersWhere, type UserRow } from './user-dto';
 import { allocateUsername } from './usernames';
 
 export interface UserListQuery {
@@ -258,7 +258,7 @@ export class UsersService {
       );
       return after;
     });
-    await this.notifySafely([user.id], 'REGISTRATION_APPROVED', { role: displayRole(user, ws) });
+    await this.notifySafely([user.id], 'REGISTRATION_APPROVED', { role: matrixRole(user, ws) });
     return this.dto(user, viewer, true);
   }
 
@@ -303,7 +303,8 @@ export class UsersService {
     const user = await this.prisma.$transaction(async (tx) => {
       const before = await this.findInWorkspace(tx, id);
       this.assertMayManage(before, viewer);
-      const beforeRole = displayRole(before, ws);
+      const beforeRole = matrixRole(before, ws);
+      const beforeShown = displayRole(before, ws);
       if (before.status === 'PENDING' || before.status === 'REJECTED') {
         if (before.requestedRole === role) return before;
         await tx.user.update({ where: { id }, data: { requestedRole: role } });
@@ -329,7 +330,7 @@ export class UsersService {
           action: AuditAction.USER_ROLE_CHANGED,
           entityType: 'user',
           entityId: id,
-          before: { role: beforeRole },
+          before: { role: beforeShown },
           after: { role: displayRole(after, ws) },
         },
         tx,
@@ -352,7 +353,7 @@ export class UsersService {
       const beforeStatus = displayStatus(before, ws);
       if (beforeStatus === 'SUSPENDED') return before;
       if (beforeStatus !== 'ACTIVE') throw new AppError('INVALID_STATE');
-      const role = displayRole(before, ws);
+      const role = matrixRole(before, ws);
       await guardLastAdmin(tx, id, { role, status: 'ACTIVE' }, { role, status: 'SUSPENDED' }, ws);
       await tx.workspaceMembership.updateMany({ where: { workspaceId: ws, userId: id, archivedAt: null }, data: { status: 'SUSPENDED' } });
       const elsewhere = before.memberships.some((m) => m.workspaceId !== ws && m.status === 'ACTIVE');

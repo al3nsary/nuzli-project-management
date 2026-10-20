@@ -20,7 +20,7 @@ import { MailService } from '../notifications/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { activeWorkspaceIdOrNull, runInWorkspace } from '../prisma/workspace-context';
-import { USER_DTO_SELECT, auditUser, displayRole, rolesIn, toUserDto, type UserRow } from '../users/user-dto';
+import { USER_DTO_SELECT, auditUser, matrixRole, rolesIn, toUserDto, type UserRow } from '../users/user-dto';
 import { allocateUsername } from '../users/usernames';
 import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { AccessTokenService } from './access-token.service';
@@ -116,7 +116,7 @@ export class AuthService {
   /** A12: the permission subject of `user` inside `workspaceId`. */
   subjectIn(user: UserRow, workspaceId: string | null): PermissionSubject {
     return {
-      role: workspaceId ? displayRole(user, workspaceId) : null,
+      role: workspaceId ? matrixRole(user, workspaceId) : null,
       roles: rolesIn(user, workspaceId),
       accountRole: user.accountRole,
       status: user.status,

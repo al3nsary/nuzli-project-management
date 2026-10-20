@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { fullName, isoDate, isoDateTime, nationalId, optionalText, reason, uuid } from './common';
-import type { OcrStatus, Severity, ViolationFileKind, ViolationStatus } from '../enums';
+import type { DisplayRole, OcrStatus, Severity, ViolationFileKind, ViolationStatus } from '../enums';
 import type { MemberDto, TeamSummaryDto } from './teams';
 
 export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -206,11 +206,11 @@ export interface ViolationDto {
   member: { id: string; fullName: string; nationalIdMasked: string } | null;
   team: TeamSummaryDto | null;
   /** The primary supervisor of the team at `capturedAt`. */
-  supervisor: { id: string; fullName: string } | null;
+  supervisor: { id: string; fullName: string; dualRole?: boolean } | null;
   /** A9: false until a person is assigned. Always sent by the API. */
   assigned?: boolean;
   /** A9: every supervisor of the team at `capturedAt` (`supervisor_ids_snapshot`). Always sent by the API. */
-  supervisors?: { id: string; fullName: string }[];
+  supervisors?: { id: string; fullName: string; dualRole?: boolean }[];
   /** A9: when and by whom the person was assigned (null for violations recorded with a person). */
   assignedAt?: string | null;
   assignedBy?: { id: string; fullName: string } | null;
@@ -229,7 +229,7 @@ export interface ViolationDto {
   status: ViolationStatus;
   cancelReason: string | null;
   files: ViolationFileDto[];
-  responses: { id: string; supervisor: { id: string; fullName: string }; body: string; createdAt: string }[];
+  responses: { id: string; supervisor: { id: string; fullName: string; dualRole?: boolean }; body: string; createdAt: string }[];
   editableUntil: string | null;
   /** Photo counts announced by the client at create time (completeness check in the UI). A9 adds `person`. */
   expectedPhotos?: { idCard: number; evidence: number; person?: number };
@@ -287,7 +287,7 @@ export interface ViolationOcrDto {
   };
   suggestedMembers: ViolationSuggestionDto[];
   /** Users whose national ID matches exactly (a supervisor or monitor on the card), for information. */
-  suggestedUsers: { id: string; fullName: string; role: string }[];
+  suggestedUsers: { id: string; fullName: string; role: DisplayRole | null }[];
 }
 
 export interface ViolationSuggestionDto {

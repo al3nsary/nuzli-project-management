@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Alert, Badge, Box, Button, Group, Stack, Text, Title } from '@mantine/core';
 import { IconAlertTriangle, IconRefresh, type Icon } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { Role, UserStatus } from '@nuzli/shared';
+import type { DisplayRole, UserStatus } from '@nuzli/shared';
 import { formatSaudiMobileLocal } from '@nuzli/shared';
 import { t, tKey } from '../i18n';
 import { errorMessage } from '../api/errors';
@@ -315,7 +315,7 @@ export function StatusBadge({ status }: { status: UserStatus }) {
 }
 
 /** Roles are not a state, so they stay neutral (colour is for state and team identity). */
-export function RoleBadge({ role }: { role: Role }) {
+export function RoleBadge({ role }: { role: DisplayRole | null }) {
   return (
     <Badge color="slate" variant="outline">
       {tKey(`role.${role}`, 'common.none')}

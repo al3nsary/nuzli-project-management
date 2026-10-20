@@ -17,6 +17,7 @@ import {
   changeUsernameSchema,
   createAccountSchema,
   createWorkspaceSchema,
+  displayRoleOf,
   effectiveRole,
   forgotPasswordSchema,
   loginSchema,
@@ -38,6 +39,7 @@ import {
   type AssistantPermissions,
   type AuditEntryDto,
   type AuthSession,
+  type DisplayRole,
   type NotificationDto,
   type OwnerDto,
   type ParticipantLevel,
@@ -74,7 +76,7 @@ import { seedViolations } from './seedViolations';
 import { seedA9Teams } from './seedA9Teams';
 import demoVersion from '../../../../../seed/demo/version.json';
 import { ScopeHolder, scopingMiddleware, tagTransaction, type ScopeContext } from './scoping';
-import type { Actor, ActorOptions, ProjectCtx } from './access';
+import { DUAL_ROLE_NAMESPACES, decorateDualRole, type Actor, type ActorOptions, type ProjectCtx } from './access';
 import { A12_SEED, DEFAULT_WORKSPACE_ID, createA12Roles, seedA12Business, seedA12Identity, seedWorkspaceDefaults, type A12RolesApi } from './a12';
 
 /**
@@ -217,12 +219,14 @@ export class DemoApi implements ApiClient {
     this.org = createOrg(this);
     this.photoHooks = createPhotos(this);
     this.photos = this.photoHooks.photos;
+    // A12 round 3: «صلاحية مزدوجة» on embedded person refs, like the API's DualRoleInterceptor.
+    decorateDualRole(this as unknown as Record<string, unknown>, DUAL_ROLE_NAMESPACES, (ids) => this.dualRoleIds(ids), () => this.scope.current.wid ?? null);
     const seed = loadSeed();
     const first = (role: Role) => seed.users.find((u) => u.role === role && u.status === 'ACTIVE');
     const byId = (id: string) => A12_SEED.users.find((u) => u.id === id);
     const owner = byId(A12_SEED.owners[0]!);
     const accounts: DemoAccount[] = [
-      ...(owner ? [{ role: 'ADMIN' as Role, kind: 'OWNER' as const, identifier: owner.username, fullName: owner.fullName }] : []),
+      ...(owner ? [{ role: 'OWNER' as DisplayRole, kind: 'OWNER' as const, identifier: owner.username, fullName: owner.fullName }] : []),
       ...(['ADMIN', 'SUPERVISOR', 'MONITOR'] as Role[])
         .map((role) => first(role))
         .filter((u): u is NonNullable<typeof u> => Boolean(u))
@@ -233,7 +237,7 @@ export class DemoApi implements ApiClient {
           const u = byId(m.userId)!;
           const level = A12_SEED.participants.find((p) => p.userId === m.userId)?.level;
           const kind = m.role === 'ASSISTANT' ? ('ASSISTANT' as const) : level === 'EDITOR' ? ('EDITOR' as const) : ('VIEWER' as const);
-          return { role: 'MONITOR' as Role, kind, identifier: u.username, fullName: u.fullName };
+          return { role: m.role as DisplayRole, kind, identifier: u.username, fullName: u.fullName };
         }),
     ];
     this.demo = {
@@ -529,6 +533,11 @@ export class DemoApi implements ApiClient {
     ) as DemoWsMembership[];
   }
 
+  /** @internal A12 round 3: which of `ids` hold more than one live role (the API's dualRoleUserIds). */
+  dualRoleIds(ids: readonly string[]): Set<string> {
+    return new Set(ids.filter((id) => this.liveMemberships(id).length > 1));
+  }
+
   /** @internal Live memberships of a workspace. */
   workspaceMemberships(wid: string): DemoWsMembership[] {
     return [...this.scope.memberships.values()].filter(
@@ -722,9 +731,12 @@ export class DemoApi implements ApiClient {
     const activeHere = here.filter((m) => m.status === 'ACTIVE').map((m) => m.role);
     const isOwner = u.accountRole === 'OWNER';
     const registration = status === 'PENDING' || status === 'REJECTED';
-    const role: Role = isOwner
-      ? 'ADMIN'
-      : (effectiveRole(activeHere) ?? (registration ? (u.requestedRole ?? storedRole) : null) ?? 'MONITOR');
+    // A12 round 3 (user-dto.ts displayRole): truthful — OWNER, else the strongest role here (matrix
+    // roles first, then ASSISTANT, then MEMBER; suspended ones when nothing is active), else the
+    // registration's request; null = no role in this workspace.
+    const shown = activeHere.length ? activeHere : here.map((m) => m.role);
+    const role: DisplayRole | null =
+      displayRoleOf({ accountRole: u.accountRole, roles: shown }) ?? u.requestedRole ?? (registration ? storedRole : null);
     let shownStatus = status;
     if (status === 'ACTIVE' && here.length && here.every((m) => m.status === 'SUSPENDED')) shownStatus = 'SUSPENDED';
     const allRoles: UserRoleEntryDto[] = live.map((m) => {

@@ -1,11 +1,11 @@
 import { Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { addParticipantSchema, updateParticipantSchema, type MyParticipationDto, type ParticipantDto } from '@nuzli/shared';
+import { addParticipantSchema, participantCandidatesQuery, updateParticipantSchema, type MyParticipationDto, type ParticipantCandidateDto, type ParticipantDto } from '@nuzli/shared';
 import type { z } from 'zod';
 import { CurrentUser, ReqCtx, RequireAnyPermission, RequirePermission } from '../common/decorators';
 import type { AuthUser, RequestContext } from '../common/request';
 import { UuidPipe } from '../common/uuid.pipe';
-import { ZodBody } from '../common/zod-openapi';
+import { ZodBody, ZodQuery } from '../common/zod-openapi';
 import { ParticipantsService } from './participants.service';
 import { ProjectCoverService } from './project-cover.service';
 
@@ -24,6 +24,17 @@ export class ProjectParticipantsController {
   @ApiOperation({ summary: 'المشاركون في المشروع ومناصبهم ومستوياتهم' })
   list(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<ParticipantDto[]> {
     return this.participants.list(id, viewer);
+  }
+
+  @Get(':id/participant-candidates')
+  @RequirePermission('projects.manage')
+  @ApiOperation({ summary: 'من يمكن إضافته مشاركًا: أعضاء القسم النشطون غير المشاركين (اسم، اسم مستخدم، صفة) — لمن يدير المشاركين' })
+  candidates(
+    @Param('id', UuidPipe) id: string,
+    @ZodQuery(participantCandidatesQuery) q: z.output<typeof participantCandidatesQuery>,
+    @CurrentUser() viewer: AuthUser,
+  ): Promise<ParticipantCandidateDto[]> {
+    return this.participants.candidates(id, q.q, viewer);
   }
 
   @Post(':id/participants')

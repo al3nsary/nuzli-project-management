@@ -163,3 +163,18 @@ export function effectiveRole(roles: readonly string[]): Role | null {
   if (roles.includes('MONITOR')) return 'MONITOR';
   return null;
 }
+
+/**
+ * A12 round 3: the role SHOWN for a person — truthful, never a fallback. `OWNER` for an owner
+ * account; otherwise the strongest role in the active workspace: the matrix roles first (ADMIN,
+ * SUPERVISOR, MONITOR — so older clients keep their behaviour), then ASSISTANT, then MEMBER.
+ * Rights never come from it (the API and `can()` read `workspaceRoles` / `roles` and `grants`).
+ */
+export type DisplayRole = WorkspaceRole | 'OWNER';
+export const DISPLAY_ROLE_ORDER: readonly WorkspaceRole[] = ['ADMIN', 'SUPERVISOR', 'MONITOR', 'ASSISTANT', 'MEMBER'];
+
+/** A12 round 3: the display role of a set of workspace roles (null = no role there). */
+export function displayRoleOf(input: { accountRole?: AccountRole | null; roles: readonly string[] }): DisplayRole | null {
+  if (input.accountRole === 'OWNER') return 'OWNER';
+  return DISPLAY_ROLE_ORDER.find((r) => input.roles.includes(r)) ?? null;
+}

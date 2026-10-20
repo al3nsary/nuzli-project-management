@@ -90,6 +90,8 @@ import type {
 import type { DemoInternals } from './phase2';
 import { rowOf, type ProjectsCore, type TemplateHook } from './phase4';
 import { fail, newId, paginate, validate } from './util';
+import { projectInScope, type Actor } from './access';
+import type { Permission } from '@nuzli/shared';
 
 type A9Projects = Pick<ApiClient['projects'], 'budget' | 'people' | 'dashboard' | 'calendar' | 'saveAsTemplate' | 'templates' | 'report'>;
 type A9Tasks = Pick<
@@ -477,8 +479,15 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     return out;
   }
 
-  async function loadReport(projectId: string) {
-    const viewer = await api.actor('projects.readAll');
+  /**
+   * A12 round 3 (project-reports.service load): the route's permission, then the project in the
+   * viewer's scope — an assistant limited to other projects, or a participant of other projects,
+   * gets 404. `perms`: people / dashboard / calendar = PROJECT_READ; budget is checked by its wrapper.
+   */
+  async function loadReport(projectId: string, perms: Permission[] = ['projects.readAll', 'projects.readGranted']) {
+    const viewer = await api.actor(undefined, { project: { projectId } });
+    if (viewer.mustChangePassword) fail('PASSWORD_CHANGE_REQUIRED');
+    if (perms.length && !canAny(viewer, perms)) fail('FORBIDDEN');
     const p = await core.visibleProject(projectId, viewer);
     const tasks = await core.liveTasks(projectId);
     const calendar = (await db.calendars.get(p.calendarId)) ?? (await core.defaultCalendar());
@@ -568,7 +577,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
 
   const projectsA9: A9Projects = {
     budget: async (id) => {
-      const { p, tasks } = await loadReport(id);
+      const { p, tasks } = await loadReport(id, []);
       const [lbls, logged, byUser] = await Promise.all([db.labels.where('projectId').equals(id).toArray(), loggedByUser(id), users()]);
       return buildBudgetReport({
         projectId: id,
@@ -676,10 +685,17 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       return out;
     },
     report: async (q = {}) => {
-      await api.actor('projects.readAll');
+      // A12 round 3 (projectsReport + projectScopeWhere({ reports: true })): admins and assistants with
+      // projects or reports — within their project scope; participants — their live projects.
+      const viewer = (await api.actor()) as Actor;
+      if (viewer.mustChangePassword) fail('PASSWORD_CHANGE_REQUIRED');
+      if (!canAny(viewer, ['projects.readAll', 'projects.readGranted', 'reports.read'])) fail('FORBIDDEN');
+      const broad = can(viewer, 'projects.readAll') || can(viewer, 'reports.read');
+      const parts = viewer._parts ?? {};
       const status = q.status;
       const rows = (await db.projects.toArray())
         .filter((p) => !p.isTemplate)
+        .filter((p) => (broad ? projectInScope(viewer, p.id) : Boolean(parts[p.id]) && !p.archivedAt))
         .filter((p) =>
           status === 'ALL' ? true : status === 'ARCHIVED' ? Boolean(p.archivedAt) || p.status === 'ARCHIVED' : !p.archivedAt && (!status || p.status === status),
         )
@@ -1168,17 +1184,25 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     },
 
     workload: async (q) => {
-      await api.actor('projects.readAll');
+      // A12 round 3 (ProjectReportsService.workload): projects.readAll | reports.read; an assistant
+      // limited to some projects counts only those; people = this workspace's ACTIVE supervisors
+      // (or the asked users who belong to it).
+      const viewer = (await api.actor()) as Actor;
+      if (viewer.mustChangePassword) fail('PASSWORD_CHANGE_REQUIRED');
+      if (!canAny(viewer, ['projects.readAll', 'reports.read'])) fail('FORBIDDEN');
+      const wsRows = viewer._wid ? (api.workspaceMemberships?.(viewer._wid) ?? []) : [];
+      const supervisors = new Set(wsRows.filter((m) => m.role === 'SUPERVISOR' && m.status === 'ACTIVE').map((m) => m.userId));
+      const inWorkspace = new Set(wsRows.map((m) => m.userId));
       const iso = /^\d{4}-\d{2}-\d{2}$/;
       if (!iso.test(q.from) || !iso.test(q.to)) fail('VALIDATION_FAILED', { fieldErrors: { from: ['تاريخ غير صالح'] } });
       const problem = rangeProblem(q.from, q.to, 92);
       if (problem) fail('VALIDATION_FAILED', { fieldErrors: { to: [problem] } });
       const people = (await db.users.toArray())
-        .filter((u) => u.status === 'ACTIVE' && (q.userIds?.length ? q.userIds.includes(u.id) : u.role === 'SUPERVISOR'))
+        .filter((u) => u.status === 'ACTIVE' && (q.userIds?.length ? q.userIds.includes(u.id) && inWorkspace.has(u.id) : supervisors.has(u.id)))
         .sort((a, b) => a.fullName.localeCompare(b.fullName, 'ar'))
         .map((u) => ({ id: u.id, fullName: u.fullName }));
       const ids = new Set(people.map((u) => u.id));
-      const live = await core.liveProjects();
+      const live = new Map([...(await core.liveProjects())].filter(([id]) => projectInScope(viewer, id)));
       const cals = new Map((await db.calendars.toArray()).map((c) => [c.id, workCalendarOf(c)]));
       const fallback = workCalendarOf({ weekendDays: [5, 6], exceptions: [] });
       const rows = (await db.tasks.toArray()).filter(

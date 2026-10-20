@@ -24,7 +24,7 @@ import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
 import { VestBand } from '../../theme/VestBand';
 import { formatDate, formatNumber, t, tCount } from '../../i18n';
-import { SupervisorAvatars, TeamStatusBadge, supervisorsOf } from './shared';
+import { SupervisorAvatars, SupervisorNames, TeamStatusBadge, supervisorsOf } from './shared';
 import { CreateTeamDialog } from './CreateTeamDialog';
 import { useOverlayParam } from '../../lib/useUrlState';
 import { ForemanLine, useTeamForeman, type ForemanPerson } from '../../components/Foreman';
@@ -56,9 +56,7 @@ export function TeamCard({ team }: { team: TeamDto }) {
           <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
             <SupervisorAvatars supervisors={supervisorsOf(team)} size={24} max={3} />
             <Text size="sm" truncate>
-              {supervisorsOf(team)
-                .map((s) => (s.isPrimary && (team.supervisors?.length ?? 1) > 1 ? t('teams.sup.namePrimary', { name: s.fullName }) : s.fullName))
-                .join('، ') || t('teams.noSupervisor')}
+              <SupervisorNames supervisors={supervisorsOf(team)} primaryLabel={(team.supervisors?.length ?? 1) > 1} />
             </Text>
           </Group>
           <Group gap={4} wrap="nowrap" c="dimmed">

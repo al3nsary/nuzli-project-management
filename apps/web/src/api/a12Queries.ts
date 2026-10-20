@@ -22,6 +22,7 @@ export const a12k = {
   allUsers: (q?: object) => ['a12', 'all-users', q ?? {}] as const,
   memberRequests: (q?: object) => ['a12', 'member-requests', q ?? {}] as const,
   participants: (projectId: string) => ['a12', 'participants', projectId] as const,
+  participantCandidates: (projectId: string, q: string) => ['a12', 'participant-candidates', projectId, q] as const,
   cover: (projectId: string) => ['a12', 'cover', projectId] as const,
 };
 
@@ -78,6 +79,20 @@ export function useWorkspaceSummary(id: string | null) {
 export function useWorkspaceAdmins(id: string | null) {
   const api = useApi();
   return useQuery({ queryKey: a12k.workspaceAdmins(id ?? ''), queryFn: () => api.workspaces.admins(id!), enabled: useSignedIn() && Boolean(id) });
+}
+
+/**
+ * A12 round 3 — `GET /projects/:id/participant-candidates?q=`: the people who can be added to the
+ * project (whoever manages its participants, assistants included — no users module needed).
+ */
+export function useParticipantCandidates(projectId: string, q: string, enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: a12k.participantCandidates(projectId, q),
+    queryFn: () => api.participants.candidates(projectId, q || undefined),
+    placeholderData: keepPreviousData,
+    enabled: useSignedIn() && enabled,
+  });
 }
 
 /** Memberships of a workspace (owners: any; admins and assistants with users:view: their own). */

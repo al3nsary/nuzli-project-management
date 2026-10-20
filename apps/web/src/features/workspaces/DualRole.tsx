@@ -16,7 +16,10 @@ export function roleEntryText(r: Pick<UserRoleEntryDto, 'role' | 'workspaceName'
 
 /**
  * «صلاحية مزدوجة» (owner A12): a person with more than one live role. A distinct icon, colour
- * and text, used next to the person wherever users appear (lists, avatars, drawers).
+ * and text, used next to the person wherever users appear (lists, avatars, drawers) — and, since
+ * A12 round 3, next to every embedded person (assignees, authors, supervisors, participants) whose
+ * ref carries `dualRole: true`. `compact` = the icon only (dense rows: Gantt, board, chat), with
+ * the explanation in the tooltip and the accessible name.
  */
 export function DualRoleBadge({
   user,
@@ -27,13 +30,20 @@ export function DualRoleBadge({
 }) {
   if (!user?.dualRole) return null;
   const roles = user.allRoles ?? [];
-  const hidden = roles.some((r) => !r.workspaceId);
+  // An embedded ref says only "dual" (no roles list): a short, true explanation.
   const label = roles.length
     ? t('dualRole.tooltip', { roles: roles.map(roleEntryText).join('، ') })
-    : t('dualRole.tooltipHidden');
+    : user.allRoles
+      ? t('dualRole.tooltipHidden')
+      : t('dualRole.tooltipShort');
   return (
-    <Tooltip label={hidden && !roles.length ? t('dualRole.tooltipHidden') : label} multiline w={280} withArrow>
-      <span className={compact ? 'pill dual compact' : 'pill dual'} aria-label={label} data-testid="dual-role-badge">
+    <Tooltip label={label} multiline w={280} withArrow>
+      <span
+        className={compact ? 'pill dual compact' : 'pill dual'}
+        role={compact ? 'img' : undefined}
+        aria-label={compact ? `${t('dualRole.badge')}: ${label}` : label}
+        data-testid="dual-role-badge"
+      >
         <IconStack2 size={13} stroke={2} aria-hidden />
         {compact ? null : t('dualRole.badge')}
       </span>

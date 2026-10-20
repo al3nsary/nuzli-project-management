@@ -30,6 +30,7 @@ import { ChangePasswordForm } from '../components/ChangePasswordForm';
 import { PhotoUploader } from '../components/photos/PhotoUploader';
 import { effectiveScheme } from '../theme/colorScheme';
 import { formatDate, formatNumber, t, tKey } from '../i18n';
+import { uiRoleOf } from '../features/workspaces/roles';
 
 /** Which notification types can reach each role (brief §9). */
 const TYPES_BY_ROLE: Record<Role, NotificationType[]> = {
@@ -224,7 +225,8 @@ function DisplayCard() {
 function EmailCard() {
   const user = useAuthStore((s) => s.user)!;
   const save = useSaveProfile();
-  const types = TYPES_BY_ROLE[user.role].filter((x) => NOTIFICATION_TYPES.includes(x));
+  const uiRole = uiRoleOf(user);
+  const types = (uiRole ? TYPES_BY_ROLE[uiRole] : []).filter((x) => NOTIFICATION_TYPES.includes(x));
   const [values, setValues] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(types.map((ty) => [ty, user.preferences.emailNotifications[ty] ?? true])),
   );

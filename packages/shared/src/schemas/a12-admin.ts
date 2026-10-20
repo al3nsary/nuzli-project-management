@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { assistantPermissionsSchema, assistantScopeSchema, PARTICIPANT_LEVELS, type AssistantPermissions, type AssistantScope, type ParticipantLevel } from '../a12-access';
-import type { AccountRole, UserStatus, WorkspaceMembershipStatus, WorkspaceRole, WorkspaceStatus } from '../enums';
+import type { AccountRole, DisplayRole, UserStatus, WorkspaceMembershipStatus, WorkspaceRole, WorkspaceStatus } from '../enums';
 import { email, fullName, nationalId, optionalText, password, reason, saudiMobile, uuid } from './common';
 import { usernameSchema } from './auth-users';
 
@@ -229,11 +229,31 @@ export const updateParticipantSchema = z
 
 export interface ParticipantDto {
   projectId: string;
-  user: { id: string; username: string; fullName: string; hasPhoto: boolean };
+  user: { id: string; username: string; fullName: string; hasPhoto: boolean; dualRole?: boolean };
   title: string;
   level: ParticipantLevel;
-  addedBy: { id: string; fullName: string } | null;
+  addedBy: { id: string; fullName: string; dualRole?: boolean } | null;
   createdAt: string;
+}
+
+/**
+ * A12 round 3 — `GET /projects/:id/participant-candidates?q=`: who may be added to the project, for
+ * anyone who can manage its participants (admins, owners, assistants with projects:edit within
+ * their scope). Live, ACTIVE members of the workspace who are not participants yet — minimal
+ * data only: no e-mail, mobile, national ID or other workspaces.
+ */
+export const participantCandidatesQuery = z.object({ q: z.string().trim().max(80).optional() });
+export const PARTICIPANT_CANDIDATES_LIMIT = 20;
+
+export interface ParticipantCandidateDto {
+  id: string;
+  fullName: string;
+  username: string;
+  hasPhoto: boolean;
+  /** The person's role in this workspace (`DisplayRole`, matrix roles first; OWNER for owners). */
+  role: DisplayRole;
+  /** Present (true) for a «صلاحية مزدوجة». */
+  dualRole?: boolean;
 }
 
 /** `GET /me/participations` — the caller's own project grants. */
@@ -277,8 +297,8 @@ export interface MemberRequestDto {
   };
   reason: string | null;
   decisionReason: string | null;
-  requestedBy: { id: string; fullName: string } | null;
-  decidedBy: { id: string; fullName: string } | null;
+  requestedBy: { id: string; fullName: string; dualRole?: boolean } | null;
+  decidedBy: { id: string; fullName: string; dualRole?: boolean } | null;
   createdAt: string;
   decidedAt: string | null;
 }

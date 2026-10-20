@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import type { MyParticipationDto, ParticipantDto, ParticipantLevel, PermissionSubject } from '@nuzli/shared';
+import { PARTICIPANT_CANDIDATES_LIMIT, type MyParticipationDto, type ParticipantCandidateDto, type ParticipantDto, type ParticipantLevel, type PermissionSubject } from '@nuzli/shared';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import { withPrismaErrors } from '../common/prisma-errors';
@@ -8,6 +8,7 @@ import type { RequestContext } from '../common/request';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { activeWorkspaceId } from '../prisma/workspace-context';
+import { displayRole, isDualRole } from '../users/user-dto';
 import { ProjectStore } from './project-store';
 
 type Viewer = PermissionSubject & { id: string };
@@ -69,6 +70,52 @@ export class ParticipantsService {
     await this.store.visibleProject(projectId, viewer);
     const rows = await this.prisma.projectParticipant.findMany({ where: { projectId }, select: ROW, orderBy: { createdAt: 'asc' } });
     return rows.map(toDto);
+  }
+
+  /**
+   * A12 round 3 — `GET /projects/:id/participant-candidates?q=`: the people who can be added to this
+   * project, for whoever may manage its participants (`projects.manage` + the project in scope —
+   * an assistant limited to other projects gets 404). The same rule as `add`: an ACTIVE account
+   * with a live, ACTIVE membership of THIS workspace, not yet a participant. Minimal data only
+   * (id, name, username, photo flag, role here, the dual-role flag) — never e-mail, mobile,
+   * national ID or anything about other workspaces.
+   */
+  async candidates(projectId: string, q: string | undefined, viewer: Viewer): Promise<ParticipantCandidateDto[]> {
+    await this.store.visibleProject(projectId, viewer);
+    const ws = activeWorkspaceId();
+    const taken = await this.prisma.projectParticipant.findMany({ where: { projectId }, select: { userId: true } });
+    const term = q?.trim();
+    const rows = await this.prisma.user.findMany({
+      where: {
+        status: 'ACTIVE',
+        archivedAt: null,
+        memberships: { some: { workspaceId: ws, archivedAt: null, status: 'ACTIVE' } },
+        ...(taken.length ? { id: { notIn: taken.map((t) => t.userId) } } : {}),
+        ...(term
+          ? { OR: [{ fullName: { contains: term, mode: 'insensitive' as const } }, { username: { contains: term.toLowerCase() } }] }
+          : {}),
+      },
+      select: {
+        id: true,
+        fullName: true,
+        username: true,
+        photoFileId: true,
+        accountRole: true,
+        requestedRole: true,
+        // Every live membership: the role shown is THIS workspace's; the others only count for the badge.
+        memberships: { where: { archivedAt: null }, select: { workspaceId: true, role: true, status: true } },
+      },
+      orderBy: [{ fullName: 'asc' }, { id: 'asc' }],
+      take: PARTICIPANT_CANDIDATES_LIMIT,
+    });
+    return rows.map((u) => ({
+      id: u.id,
+      fullName: u.fullName,
+      username: u.username,
+      hasPhoto: !!u.photoFileId,
+      role: displayRole(u, ws) ?? 'MEMBER',
+      ...(isDualRole(u) ? { dualRole: true } : {}),
+    }));
   }
 
   private async assertMember(userId: string): Promise<{ id: string; fullName: string }> {

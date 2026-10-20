@@ -17,6 +17,7 @@ import { useTabParam } from '../../lib/useUrlState';
 import { useUnreadByTask } from '../../features/tasks/useUnreadByTask';
 import { taskWhen } from '../../features/tasks/when';
 import { TASK_STATUSES, TaskStatusBadge, bucketOf, taskStatusLabel, type Bucket } from './parts';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import '../../features/tasks/tasks.css';
 
 const STATUS_FILTERS = ['all', ...TASK_STATUSES] as const;
@@ -215,6 +216,7 @@ function TaskCard({ task, bucket, unread }: { task: MyTaskDto; bucket: Bucket; u
           <span className={team ? 'pill blue' : 'pill brand'} data-testid={team ? 'mytask-badge-team' : 'mytask-badge-mine'}>
             {owner}
           </span>
+          {team ? <DualRoleBadge user={task.assignee} compact /> : null}
         </span>
       ) : null}
       <Text className="nz-task-card-name" fw={600}>

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { email, fullName, nationalId, optionalText, paginationQuery, password, reason, saudiMobile } from './common';
-import type { AccountRole, Role, UserStatus, WorkspaceRole } from '../enums';
+import type { AccountRole, DisplayRole, Role, UserStatus, WorkspaceRole } from '../enums';
 import type { UserRoleEntryDto } from './a12-admin';
 
 export const roleSchema = z.enum(['ADMIN', 'SUPERVISOR', 'MONITOR']);
@@ -101,7 +101,15 @@ export interface UserDto {
   nationalIdMasked: string;
   /** Only for admins and flows that need the full value. */
   nationalId?: string;
-  role: Role;
+  /**
+   * A12 round 3: the person's role in the caller's ACTIVE workspace, truthfully — `OWNER` for an
+   * owner; else ADMIN | SUPERVISOR | MONITOR | ASSISTANT | MEMBER (the strongest, matrix roles first,
+   * `DISPLAY_ROLE_ORDER`); a registration shows the role it asked for; null = no role there (an
+   * account of another workspace in an owner's list, or a session before a workspace is chosen).
+   * Display only — rights come from `workspaceRoles` and `grants`. (Before round 3: ADMIN for owners
+   * and a MONITOR fallback for assistants and members.)
+   */
+  role: DisplayRole | null;
   /** Role requested at registration (for pending requests). */
   requestedRole?: Role | null;
   requestedTeamName?: string | null;

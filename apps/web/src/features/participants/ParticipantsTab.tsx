@@ -6,17 +6,17 @@
  */
 import { useMemo, useState } from 'react';
 import { ActionIcon, Button, Group, Modal, Radio, Select, Stack, Text, TextInput, Tooltip } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
+import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { IconPencil, IconTrash, IconUserPlus, IconUsersGroup } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { PARTICIPANT_LEVELS, addParticipantSchema, type ParticipantDto, type ParticipantLevel } from '@nuzli/shared';
+import { PARTICIPANT_LEVELS, addParticipantSchema, type ParticipantCandidateDto, type ParticipantDto, type ParticipantLevel } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { errorMessage } from '../../api/errors';
-import { a12k, useParticipants, useWorkspaceMembers } from '../../api/a12Queries';
-import { useAuthStore } from '../../stores/auth';
-import { EmptyState, ErrorBlock, FormError, LoadingBlock } from '../../components/ui';
+import { a12k, useParticipantCandidates, useParticipants } from '../../api/a12Queries';
+import { EmptyState, ErrorBlock, FormError, LoadingBlock, roleLabel } from '../../components/ui';
+import { DualRoleBadge } from '../workspaces/DualRole';
 import { UserPhotoAvatar } from '../../components/UserAvatar';
 import { formatDate, formatNumber, t } from '../../i18n';
 import './participants.css';
@@ -108,9 +108,12 @@ export function ParticipantsTab({ projectId, projectName, canManage }: { project
               <li key={p.user.id} className="nz-part-row" data-testid="participant-row" data-user={p.user.id}>
                 <UserPhotoAvatar user={p.user} size={40} />
                 <div className="nz-part-who">
-                  <Text fw={600} truncate>
-                    {p.user.fullName}
-                  </Text>
+                  <Group gap={6} wrap="nowrap">
+                    <Text fw={600} truncate>
+                      {p.user.fullName}
+                    </Text>
+                    <DualRoleBadge user={p.user} compact />
+                  </Group>
                   <Text size="sm" c="dimmed" truncate>
                     {p.title}
                   </Text>
@@ -165,6 +168,28 @@ export function ParticipantsTab({ projectId, projectName, canManage }: { project
   );
 }
 
+const pickedLabel = (c: Pick<ParticipantCandidateDto, 'fullName' | 'username'>) => `${c.fullName} — ${c.username}`;
+
+/** One person in the picker: name, username, role in the workspace and the dual-role mark. */
+function CandidateOption({ c }: { c: ParticipantCandidateDto }) {
+  return (
+    <Group gap="sm" wrap="nowrap" data-testid="participant-candidate" data-user={c.id}>
+      <UserPhotoAvatar user={c} size={28} />
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <Group gap={6} wrap="nowrap">
+          <Text size="sm" fw={600} truncate>
+            {c.fullName}
+          </Text>
+          <DualRoleBadge user={c} compact />
+        </Group>
+        <Text size="xs" c="dimmed" truncate>
+          <span className="ltr">{c.username}</span> · {roleLabel(c.role)}
+        </Text>
+      </div>
+    </Group>
+  );
+}
+
 /** Add (pick a person) or edit (منصب and level) one participant. */
 function ParticipantDialog({
   opened,
@@ -185,28 +210,31 @@ function ParticipantDialog({
 }) {
   const api = useApi();
   const phone = useMediaQuery('(max-width: 600px)') ?? false;
-  const workspace = useAuthStore((s) => s.activeWorkspace);
-  const members = useWorkspaceMembers(opened && !editing ? (workspace?.id ?? null) : null);
+  // A12 round 3: the picker reads `participant-candidates` (the API's minimal list for whoever
+  // manages participants) — an assistant with projects:edit needs no users module.
+  const [search, setSearch] = useState('');
+  const [debounced] = useDebouncedValue(search.trim(), 250);
   const [userId, setUserId] = useState<string | null>(null);
+  const [picked, setPicked] = useState<ParticipantCandidateDto | null>(null);
+  const members = useParticipantCandidates(projectId, picked && search === pickedLabel(picked) ? '' : debounced, opened && !editing);
   const [title, setTitle] = useState(editing?.title ?? '');
   const [level, setLevel] = useState<ParticipantLevel>(editing?.level ?? 'CONTRIBUTOR');
   const [errors, setErrors] = useState<{ userId?: string; title?: string }>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
-  const options = useMemo(() => {
-    const seen = new Set(taken);
-    const out: { value: string; label: string }[] = [];
-    for (const m of members.data ?? []) {
-      if (m.status !== 'ACTIVE' || m.user.status !== 'ACTIVE' || seen.has(m.user.id)) continue;
-      seen.add(m.user.id);
-      out.push({ value: m.user.id, label: `${m.user.fullName} — ${m.user.username}` });
-    }
-    return out.sort((a, b) => a.label.localeCompare(b.label, 'ar'));
-  }, [members.data, taken]);
+  const byId = useMemo(() => {
+    const out = new Map<string, ParticipantCandidateDto>();
+    if (picked) out.set(picked.id, picked);
+    for (const c of members.data ?? []) if (!taken.includes(c.id)) out.set(c.id, c);
+    return out;
+  }, [members.data, taken, picked]);
+  const options = useMemo(() => [...byId.values()].map((c) => ({ value: c.id, label: pickedLabel(c) })), [byId]);
 
   const reset = () => {
     setUserId(null);
+    setPicked(null);
+    setSearch('');
     setTitle(editing?.title ?? '');
     setLevel(editing?.level ?? 'CONTRIBUTOR');
     setErrors({});
@@ -268,11 +296,22 @@ function ParticipantDialog({
             placeholder={t('a12roles.part.personPlaceholder')}
             data={options}
             value={userId}
-            onChange={setUserId}
+            onChange={(v) => {
+              setUserId(v);
+              setPicked(v ? (byId.get(v) ?? null) : null);
+            }}
             searchable
+            searchValue={search}
+            onSearchChange={setSearch}
+            // The API already searched (name or username): show its answer as is.
+            filter={({ options: all }) => all}
+            renderOption={({ option }) => {
+              const c = byId.get(option.value);
+              return c ? <CandidateOption c={c} /> : option.label;
+            }}
             clearable
             withAsterisk
-            nothingFoundMessage={members.isLoading ? t('app.loading') : t('a12roles.part.noPeople')}
+            nothingFoundMessage={members.isFetching ? t('app.loading') : t('a12roles.part.noPeople')}
             error={errors.userId}
             comboboxProps={{ withinPortal: true }}
             data-testid="participant-person"

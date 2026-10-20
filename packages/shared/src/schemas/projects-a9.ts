@@ -318,7 +318,7 @@ export const timeRangeQuerySchema = z.object({ from: isoDate.optional(), to: iso
 export interface TimeEntryDto {
   id: string;
   task: { id: string; name: string; projectId: string; projectName: string };
-  user: { id: string; fullName: string };
+  user: { id: string; fullName: string; dualRole?: boolean };
   date: string;
   minutes: number;
   note: string | null;
@@ -343,7 +343,7 @@ export interface BudgetReportDto extends CostLine {
   /** Logged time (time entries) on the project's tasks — reported apart from money. */
   loggedMinutes: number;
   byGroup: Array<CostLine & { taskId: string; wbs: string; name: string; type: TaskType }>;
-  byAssignee: Array<CostLine & { assignee: { id: string; fullName: string } | null; taskCount: number; loggedMinutes: number }>;
+  byAssignee: Array<CostLine & { assignee: { id: string; fullName: string; dualRole?: boolean } | null; taskCount: number; loggedMinutes: number }>;
   /** A task with two labels counts under both; `label: null` = tasks without a label. */
   byLabel: Array<CostLine & { label: LabelDto | null; taskCount: number }>;
   /**
@@ -357,7 +357,7 @@ export interface BudgetReportDto extends CostLine {
 }
 
 export interface ProjectPersonDto extends CostLine {
-  assignee: { id: string; fullName: string; teamColor: string | null; teamName: string | null } | null;
+  assignee: { id: string; fullName: string; dualRole?: boolean; teamColor: string | null; teamName: string | null } | null;
   taskCount: number;
   doneCount: number;
   overdueCount: number;
@@ -399,7 +399,7 @@ export interface ProjectDashboardDto {
   };
   statusDistribution: Record<TaskStatus, number>;
   priorityDistribution: Record<Priority, number>;
-  overdue: Array<{ taskId: string; wbs: string; name: string; endDate: string; daysOverdue: number; assignee: { id: string; fullName: string } | null }>;
+  overdue: Array<{ taskId: string; wbs: string; name: string; endDate: string; daysOverdue: number; assignee: { id: string; fullName: string; dualRole?: boolean } | null }>;
   budgetBurn: {
     budget: number | null;
     plannedCost: number;
@@ -408,7 +408,7 @@ export interface ProjectDashboardDto {
     /** Planned cost spread evenly over each leaf's working days, by week (Sunday start). */
     plannedByWeek: Array<{ weekStart: string; planned: number; cumulative: number }>;
   };
-  upcoming: Array<{ taskId: string; wbs: string; name: string; date: string; kind: 'DEADLINE' | 'MILESTONE' | 'END'; assignee: { id: string; fullName: string } | null }>;
+  upcoming: Array<{ taskId: string; wbs: string; name: string; date: string; kind: 'DEADLINE' | 'MILESTONE' | 'END'; assignee: { id: string; fullName: string; dualRole?: boolean } | null }>;
 }
 
 export const workloadQuerySchema = z.object({
@@ -429,7 +429,7 @@ export interface WorkloadDto {
   /** Working minutes of a normal day on the default calendar (480 with 09–13 / 14–18). */
   capacityMinutesPerDay: number;
   people: Array<{
-    user: { id: string; fullName: string };
+    user: { id: string; fullName: string; dualRole?: boolean };
     /** A9 hours: assignedMinutes = real working minutes of each task on that day (its project calendar); capacityMinutes = the default calendar's working minutes that day (0 on a weekend or holiday). */
     days: Array<{ date: string; assignedMinutes: number; loggedMinutes: number; taskCount: number; capacityMinutes?: number }>;
     totalAssignedMinutes: number;
@@ -459,7 +459,7 @@ export interface ProjectCalendarDto {
     status: TaskStatus;
     progress: number;
     barColor: string | null;
-    assignee: { id: string; fullName: string; teamColor: string | null } | null;
+    assignee: { id: string; fullName: string; dualRole?: boolean; teamColor: string | null } | null;
   }>;
 }
 
@@ -477,7 +477,7 @@ export const hubQuerySchema = z.object({
 });
 
 export interface HubItemDto {
-  task: { id: string; name: string; wbs: string; type: TaskType; status: TaskStatus; assignee: { id: string; fullName: string } | null };
+  task: { id: string; name: string; wbs: string; type: TaskType; status: TaskStatus; assignee: { id: string; fullName: string; dualRole?: boolean } | null };
   project: { id: string; name: string };
   /** Ancestor names, root first (empty for a root task). */
   path: string[];
@@ -485,7 +485,7 @@ export interface HubItemDto {
   /** Comments by others after the viewer's last read. */
   unreadCount: number;
   lastReadAt: string | null;
-  lastComment: { id: string; author: { id: string; fullName: string }; bodyPreview: string; createdAt: string } | null;
+  lastComment: { id: string; author: { id: string; fullName: string; dualRole?: boolean }; bodyPreview: string; createdAt: string } | null;
 }
 
 export interface HubPageDto {

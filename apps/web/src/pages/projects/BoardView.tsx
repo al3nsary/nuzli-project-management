@@ -19,6 +19,7 @@ import { IconDots, IconFolder } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { can, type GanttDto, type TaskDto, type TaskStatus } from '@nuzli/shared';
 import { errorMessage } from '../../api/errors';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import type { useProjectWrites } from '../../api/projectWrites';
 import { useAuthStore } from '../../stores/auth';
 import { useProjectAccess } from '../../features/participants/access';
@@ -217,7 +218,9 @@ function Card({
           <span className="nz-bcard-who vest" style={{ '--team': task.assignee.teamColor ?? 'var(--dim2)' } as CSSProperties}>
             <UserAvatar name={task.assignee.fullName} size={26} ring={false} />
             <span>
-              <b>{task.assignee.fullName}</b>
+              <b>
+                {task.assignee.fullName} <DualRoleBadge user={task.assignee} compact />
+              </b>
               <i>{task.assignee.teamName ?? t('gantt.noTeam')}</i>
             </span>
           </span>

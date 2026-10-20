@@ -149,8 +149,20 @@
 .assigneeName {
   font-size: var(--fs-xs);
   font-weight: 500;
+  /* A12 round 3: the name truncates, the «صلاحية مزدوجة» mark stays visible beside it. */
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.assigneeText {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.assigneeName :global(.pill.dual.compact) {
+  flex: none;
+  padding: 1px 3px;
 }
 .assigneeTeam {
   font-size: 0.6875rem;
@@ -720,4 +732,17 @@
 .chatCell {
   justify-content: center;
   overflow: visible;
+}
+
+/* A12 round 3: «صلاحية مزدوجة» on a bar's avatar — the badge's amber, an outline for contrast. */
+.dualMark circle {
+  fill: var(--p-wait-b);
+  stroke: var(--p-wait-t);
+  stroke-width: 1.2;
+}
+.dualMark path {
+  stroke: var(--p-wait-t);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  fill: none;
 }

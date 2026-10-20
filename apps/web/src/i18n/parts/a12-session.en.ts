@@ -44,6 +44,8 @@ export const enA12Session: Record<keyof typeof arA12Session, string> = {
   'dualRole.badge': '',
   'dualRole.tooltip': '',
   'dualRole.tooltipHidden': '',
+  'dualRole.nameWithBadge': '',
+  'dualRole.tooltipShort': '',
   'dualRole.otherWorkspace': '',
   'dualRole.dialogTitle': '',
   'dualRole.dialogBody': '',

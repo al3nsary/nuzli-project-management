@@ -16,6 +16,7 @@ import {
   IconUserEdit,
 } from '@tabler/icons-react';
 import { can, HUB_FILTERS, type HubFilter, type HubItemDto } from '@nuzli/shared';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import { useApi } from '../../api/context';
 import { useProjects } from '../../api/projectQueries';
 import { useAuthStore } from '../../stores/auth';
@@ -104,7 +105,11 @@ function HubRow({ item, selected, onOpen }: { item: HubItemDto; selected: boolea
           ) : null}
           {item.lastComment ? (
             <span className="hb-preview">
-              <b>{item.lastComment.author.fullName}:</b> {item.lastComment.bodyPreview}
+              <b>
+                {item.lastComment.author.fullName}
+                <DualRoleBadge user={item.lastComment.author} compact />:
+              </b>{' '}
+              {item.lastComment.bodyPreview}
             </span>
           ) : null}
         </span>
