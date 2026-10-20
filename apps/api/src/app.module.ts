@@ -1,5 +1,8 @@
 import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { BudgetInterceptor } from './access/budget.interceptor';
+import { ProjectGrantGuard } from './access/project-grant.guard';
+import { AdminModule } from './admin/admin.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
@@ -116,13 +119,19 @@ export const LOG_REDACT_PATHS = [
     OrgModule,
     // A9 imports (ADR-110..112) — was not registered, so its routes answered 404 (found by the A12 route inventory).
     ImportsModule,
+    // A12 round 2: owners, workspaces, memberships, user management, participants, member requests.
+    AdminModule,
   ],
   controllers: [HealthController],
   providers: [
     // Order matters: rate limit → authenticate → authorise.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // A12 round 2: a participant's rights depend on the project the request is about.
+    { provide: APP_GUARD, useClass: ProjectGrantGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // A12 round 2: money fields only for budget.read; money changes only with budget.manage.
+    { provide: APP_INTERCEPTOR, useClass: BudgetInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })

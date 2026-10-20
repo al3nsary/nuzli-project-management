@@ -18,8 +18,10 @@ describe('A12 permissions per workspace', () => {
     expect(can(s, 'users.read')).toBe(false);
   });
 
-  it('ASSISTANT / MEMBER carry no permission in round 1', () => {
-    expect(can({ role: null, roles: ['ASSISTANT', 'MEMBER'], status: 'ACTIVE' }, 'notifications.read')).toBe(false);
+  it('ASSISTANT / MEMBER hold only the personal basics by themselves (round 2)', () => {
+    expect(can({ role: null, roles: ['ASSISTANT', 'MEMBER'], status: 'ACTIVE' }, 'notifications.read')).toBe(true);
+    expect(can({ role: null, roles: ['ASSISTANT'], status: 'ACTIVE' }, 'projects.readAll')).toBe(false);
+    expect(can({ role: null, roles: ['MEMBER'], status: 'ACTIVE' }, 'projects.readGranted')).toBe(false);
     expect(effectiveRole(['ASSISTANT'])).toBeNull();
     expect(effectiveRole(['MONITOR', 'ADMIN'])).toBe('ADMIN');
   });

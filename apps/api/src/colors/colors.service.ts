@@ -64,7 +64,7 @@ export class ColorsService {
     let exclude = excludeTeamId;
     if (exclude && viewer) {
       // A supervisor may only "keep" the colour of a team they lead.
-      const team = await db.team.findUnique({ where: { id: exclude }, select: { supervisors: OPEN_LEADERS } });
+      const team = await db.team.findUnique({ where: { id: exclude }, select: { id: true, supervisors: OPEN_LEADERS } });
       if (!team || !canReadTeam(viewer, team)) exclude = undefined;
     }
     const [colors, reserving] = await Promise.all([this.palette(db), this.reservingTeams(db)]);

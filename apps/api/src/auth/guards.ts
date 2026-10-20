@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { can, type ErrorCode, type Permission } from '@nuzli/shared';
+import { assistantGrants, assistantScopeOf, can, type ErrorCode, type Permission } from '@nuzli/shared';
+import { unboundGrants } from '../access/access-context';
 import { timingSafeEqual } from 'node:crypto';
 import { AppError } from '../common/app-error';
 import {
@@ -30,6 +31,11 @@ const STATUS_ERRORS: Record<string, ErrorCode> = {
  */
 export interface UserLoader {
   load(id: string, workspaceId: string | null): Promise<AuthUser | null>;
+  /**
+   * A12 round 2: completes the user once the request runs inside its workspace — assistant
+   * grants and scope, project participations, supervisor team peers (AccessExtras).
+   */
+  enrich?(user: AuthUser): Promise<void>;
 }
 
 @Injectable()
@@ -38,6 +44,9 @@ export class PrismaUserLoader implements UserLoader {
     private readonly prisma: PrismaService,
     private readonly access: WorkspaceAccessService,
   ) {}
+
+  /** The assistant membership seen by `load`, kept for `enrich` (same request). */
+  private readonly assistants = new WeakMap<AuthUser, { permissions: unknown; scope: unknown }>();
 
   async load(id: string, workspaceId: string | null): Promise<AuthUser | null> {
     const user = await this.prisma.user.findUnique({
@@ -51,7 +60,37 @@ export class PrismaUserLoader implements UserLoader {
     const target = workspaceId ?? (await this.access.pick(user.id, user.accountRole, null)).active?.id ?? null;
     if (!target) return { ...user, role: null, roles: [], workspaceId: null };
     const access = await this.access.resolve(user.id, user.accountRole, target);
-    return { ...user, role: access.role, roles: access.roles, workspaceId: access.workspace.id };
+    const out: AuthUser = { ...user, role: access.role, roles: access.roles, workspaceId: access.workspace.id };
+    if (access.assistant) this.assistants.set(out, access.assistant);
+    return out;
+  }
+
+  /**
+   * Runs inside the request's workspace context (the participations and team tables are
+   * workspace-scoped). Admins and owners hold the whole workspace: no limit, no extra grant.
+   */
+  async enrich(user: AuthUser): Promise<void> {
+    if (!user.workspaceId) return;
+    const full = user.accountRole === 'OWNER' || user.roles.includes('ADMIN');
+    const assistant = this.assistants.get(user) ?? null;
+    user.baseGrants = full ? [] : assistantGrants(assistant?.permissions);
+    user.limits = !full && assistant ? assistantScopeOf(assistant.scope) : null;
+    if (!full) {
+      const rows = await this.prisma.projectParticipant.findMany({
+        where: { userId: user.id, project: { archivedAt: null, isTemplate: false } },
+        select: { projectId: true, level: true },
+      });
+      user.participations = Object.fromEntries(rows.map((r) => [r.projectId, r.level]));
+    }
+    if (user.roles.includes('SUPERVISOR')) {
+      // Owner rule (A12): a supervisor shares the tasks of every supervisor of the same team(s).
+      const peers = await this.prisma.teamSupervisor.findMany({
+        where: { validTo: null, team: { status: { not: 'ARCHIVED' }, supervisors: { some: { userId: user.id, validTo: null } } } },
+        select: { userId: true },
+      });
+      user.teamPeerIds = [...new Set([user.id, ...peers.map((p) => p.userId)])];
+    }
+    user.grants = unboundGrants(user);
   }
 }
 
@@ -99,6 +138,7 @@ export class JwtAuthGuard implements CanActivate {
     store.userId = user.id;
     store.accountRole = user.accountRole;
     store.bypass = false;
+    if (user.workspaceId) await this.users.enrich?.(user);
     req.user = user;
     return true;
   }

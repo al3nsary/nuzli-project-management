@@ -209,6 +209,10 @@ export interface ProjectDto {
   isTemplate?: boolean;
   /** A9 hours — always sent by the API. */
   durationUnit?: ProjectDurationUnit;
+  /** A12 round 2: a cover image is set (`GET /projects/:id/cover-url`). Always sent by the API. */
+  hasCover?: boolean;
+  /** A12 round 2: the stable colour of the generated default cover (`projectColor(id)`). Always sent by the API. */
+  color?: string;
 }
 
 export interface TaskDto {
@@ -374,6 +378,11 @@ export interface MyTaskDto extends TaskDto {
   overdue: boolean;
   /** Not overdue, not DONE, and ends within 2 working days (project calendar). */
   dueSoon: boolean;
+  /**
+   * A12 round 2 (owner rule): «مهامي» lists the supervisor's own tasks AND the tasks of the other
+   * supervisors of the same team(s). True for the caller's own. Always sent by the API.
+   */
+  assignedToMe?: boolean;
 }
 
 export interface TaskAttachmentDto {

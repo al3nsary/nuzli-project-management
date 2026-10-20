@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { can, type ViolationFilter } from '@nuzli/shared';
 import type { Viewer } from '../teams/team-dto';
+import { teamLimit } from '../access/access-context';
 
 /**
  * Asia/Riyadh has been UTC+03:00 all year since 1947 (no daylight saving), so a calendar day
@@ -114,7 +115,11 @@ export function violationScopeWhere(
   viewer: Viewer,
   supervisorsCanSee: boolean,
 ): Prisma.ViolationWhereInput {
-  if (can(viewer, 'violations.readAll')) return {};
+  if (can(viewer, 'violations.readAll')) {
+    // A12 round 2: an assistant limited to some teams sees those teams' violations.
+    const limit = teamLimit(viewer);
+    return limit ? { teamIdSnapshot: { in: limit } } : {};
+  }
   const grants: Prisma.ViolationWhereInput[] = [];
   if (can(viewer, 'violations.readRecorded')) grants.push({ recordedById: viewer.id });
   if (can(viewer, 'violations.readOwnTeams')) {

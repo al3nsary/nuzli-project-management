@@ -25,7 +25,7 @@ import { AppConfig } from '../config/app-config';
 import { CryptoService } from '../crypto/crypto.service';
 import { PhotosService } from '../photos/photos.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { MEMBER_SELECT, memberDepartment, memberJobTitle, type MemberRow, type Viewer } from '../teams/team-dto';
+import { MEMBER_SELECT, memberDepartment, memberJobTitle, printMemberScopeWhere, teamLimitWhere, type MemberRow, type Viewer } from '../teams/team-dto';
 import {
   cardNationalId,
   FOREMAN_ROLE_LABEL,
@@ -144,7 +144,8 @@ export class PrintService {
     viewer: Viewer,
     ctx?: RequestContext,
   ): Promise<CardPreviewDto> {
-    void viewer; // cards.print is checked by the guard; it is not data-scoped today
+    // cards.print is checked by the guard. A12 round 2: an assistant limited to some teams prints
+    // only those teams' people (team scope applied to teams and members below).
     const template = await this.template(input.templateId);
     const config = parseConfig(template.config);
     const subjects: CardPreviewSubjectDto[] = [];
@@ -154,7 +155,7 @@ export class PrintService {
     const teamIds = [...new Set(input.teamIds)];
     const teams = teamIds.length
       ? await this.prisma.team.findMany({
-          where: { id: { in: teamIds }, status: { not: 'ARCHIVED' } },
+          where: { id: { in: teamIds }, status: { not: 'ARCHIVED' }, ...teamLimitWhere(viewer) },
           select: {
             id: true,
             name: true,
@@ -196,7 +197,7 @@ export class PrintService {
     const extra = [...new Set(input.memberIds)].filter((id) => !seenMembers.has(id));
     if (extra.length) {
       const rows = await this.prisma.teamMember.findMany({
-        where: { id: { in: extra }, archivedAt: null },
+        where: { AND: [{ id: { in: extra }, archivedAt: null }, printMemberScopeWhere(viewer)] },
         select: MEMBER_SELECT,
       });
       if (rows.length !== extra.length) throw new AppError('NOT_FOUND', { field: 'memberIds' });
@@ -266,7 +267,7 @@ export class PrintService {
     try {
       const batch = await this.prisma.$transaction(
         async (tx) => {
-          const subjects = await this.loadSubjects(tx, input.items);
+          const subjects = await this.loadSubjects(tx, input.items, printMemberScopeWhere(viewer));
           cards = input.items.map((item) => ({
             memberId: item.memberId ?? null,
             userId: item.memberId ? null : (item.userId ?? null),
@@ -347,13 +348,14 @@ export class PrintService {
   private async loadSubjects(
     db: Prisma.TransactionClient | PrismaService,
     items: ReadonlyArray<{ memberId?: string | null; userId?: string | null }>,
+    memberScope: Prisma.TeamMemberWhereInput = {},
   ): Promise<Map<string, CardSubject>> {
     const memberIds = [...new Set(items.map((i) => i.memberId).filter((v): v is string => !!v))];
     const userIds = [...new Set(items.filter((i) => !i.memberId).map((i) => i.userId).filter((v): v is string => !!v))];
     const [members, users] = await Promise.all([
       memberIds.length
         ? db.teamMember.findMany({
-            where: { id: { in: memberIds } },
+            where: { AND: [{ id: { in: memberIds } }, memberScope] },
             select: {
               id: true,
               nationalIdEnc: true,

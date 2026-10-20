@@ -43,7 +43,7 @@ import { TasksService } from './tasks.service';
 
 const READ_ANY = ['projects.readAll', 'projects.readGranted'] as const;
 /** A9 (ADR-092): a task and its thread, attachments, checklist and time log — admins, and supervisors for their own tasks (the service applies the scope). */
-export const TASK_READ = ['projects.readAll', 'tasks.readAssigned'] as const;
+export const TASK_READ = ['projects.readAll', 'tasks.readAssigned', 'projects.readGranted'] as const;
 
 /**
  * Phase 4 (brief §6, docs/API.md "Phase 4"). Guards check the permission from the shared
@@ -363,28 +363,28 @@ export class CalendarsController {
   constructor(private readonly calendars: CalendarsService) {}
 
   @Get()
-  @RequirePermission('projects.manage')
+  @RequireAnyPermission('projects.manage', 'projects.create', 'calendars.read')
   @ApiOperation({ summary: 'التقاويم مع استثناءاتها' })
   list(): Promise<CalendarWithDefault[]> {
     return this.calendars.list();
   }
 
   @Get(':id')
-  @RequirePermission('projects.manage')
+  @RequireAnyPermission('projects.manage', 'projects.create', 'calendars.read')
   @ApiOperation({ summary: 'تقويم' })
   get(@Param('id', UuidPipe) id: string): Promise<CalendarWithDefault> {
     return this.calendars.get(id);
   }
 
   @Post()
-  @RequirePermission('projects.manage')
+  @RequirePermission('calendars.manage')
   @ApiOperation({ summary: 'إنشاء تقويم' })
   create(@ZodBody(calendarSchema) body: z.output<typeof calendarSchema>, @ReqCtx() ctx: RequestContext): Promise<CalendarWithDefault> {
     return this.calendars.create(body, ctx);
   }
 
   @Patch(':id')
-  @RequirePermission('projects.manage')
+  @RequirePermission('calendars.manage')
   @ApiOperation({ summary: 'تعديل تقويم (تغيير أيام العطلة يعيد جدولة مشاريعه)' })
   update(
     @Param('id', UuidPipe) id: string,
@@ -395,7 +395,7 @@ export class CalendarsController {
   }
 
   @Post(':id/exceptions')
-  @RequirePermission('projects.manage')
+  @RequirePermission('calendars.manage')
   @ApiOperation({ summary: 'إضافة عطلة أو يوم عمل استثنائي (يعيد جدولة مشاريع التقويم)' })
   addException(
     @Param('id', UuidPipe) id: string,
@@ -407,7 +407,7 @@ export class CalendarsController {
 
   @Delete(':id/exceptions/:exId')
   @HttpCode(204)
-  @RequirePermission('projects.manage')
+  @RequirePermission('calendars.manage')
   @ApiOperation({ summary: 'حذف استثناء' })
   async deleteException(
     @Param('id', UuidPipe) id: string,

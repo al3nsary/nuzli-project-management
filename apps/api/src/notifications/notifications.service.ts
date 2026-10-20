@@ -14,7 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { emails, type RenderedEmail } from './email-templates';
 import { MailService } from './mail.service';
 import { activeWorkspaceId } from '../prisma/workspace-context';
-import { adminsOf } from '../users/user-dto';
+import { adminsOf, approversOf } from '../users/user-dto';
 
 type Payload = Record<string, unknown>;
 
@@ -97,6 +97,12 @@ export class NotificationsService {
       type,
       payload,
     );
+  }
+
+  /** A12 round 2: the workspace's approvers (admins, owners, assistants with registrations:edit). */
+  async notifyApprovers(type: NotificationType, payload: Payload = {}): Promise<void> {
+    const rows = await this.prisma.user.findMany({ where: approversOf(activeWorkspaceId()), select: { id: true } });
+    await this.notify(rows.map((r) => r.id), type, payload);
   }
 
   private render(type: NotificationType, payload: Payload, to: Recipient): RenderedEmail | null {

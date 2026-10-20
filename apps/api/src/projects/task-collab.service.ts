@@ -22,6 +22,7 @@ import { StorageService } from '../storage/storage.service';
 import { ProjectStore } from './project-store';
 import { activeWorkspaceId } from '../prisma/workspace-context';
 import { adminsOf, supervisorsOf } from '../users/user-dto';
+import { mayActOnTask, mayWorkOnTask } from '../access/access-context';
 
 type Viewer = PermissionSubject & { id: string; fullName?: string };
 type CommentInput = z.output<typeof taskCommentSchema>;
@@ -105,16 +106,31 @@ export class TaskCollabService implements FileEntityHook, OnModuleInit {
 
   /**
    * Users who can open the task and so may be mentioned (A9, ADR-092): active admins and the
-   * task's assignee (an active supervisor). Other supervisors would get a link they cannot open.
+   * task's assignee (an active supervisor). A12 round 2: also the project's participants and the
+   * supervisors of the assignee's team(s) — everyone else would get a link they cannot open.
    */
-  async mentionable(task: { assigneeId: string | null }, ids: string[]): Promise<Set<string>> {
+  async mentionable(task: { assigneeId: string | null; projectId?: string }, ids: string[]): Promise<Set<string>> {
     if (!ids.length) return new Set();
+    const ws = activeWorkspaceId();
+    const peers = task.assigneeId
+      ? await this.prisma.teamSupervisor.findMany({
+          where: { validTo: null, team: { status: { not: 'ARCHIVED' }, supervisors: { some: { userId: task.assigneeId, validTo: null } } } },
+          select: { userId: true },
+        })
+      : [];
+    const participants = task.projectId
+      ? await this.prisma.projectParticipant.findMany({ where: { projectId: task.projectId }, select: { userId: true } })
+      : [];
     const rows = await this.prisma.user.findMany({
       where: {
         id: { in: ids },
         status: 'ACTIVE',
         // A12: the workspace's admins (and owners), and the assignee if a supervisor here.
-        OR: [adminsOf(activeWorkspaceId()), ...(task.assigneeId ? [{ id: task.assigneeId, ...supervisorsOf(activeWorkspaceId()) }] : [])],
+        OR: [
+          adminsOf(ws),
+          ...(task.assigneeId ? [{ id: { in: [task.assigneeId, ...peers.map((p) => p.userId)] }, ...supervisorsOf(ws) }] : []),
+          ...(participants.length ? [{ id: { in: participants.map((p) => p.userId) }, memberships: { some: { workspaceId: ws, archivedAt: null, status: 'ACTIVE' as const } } }] : []),
+        ],
       },
       select: { id: true },
     });
@@ -124,6 +140,8 @@ export class TaskCollabService implements FileEntityHook, OnModuleInit {
   async addComment(taskId: string, input: CommentInput, viewer: Viewer, ctx: RequestContext): Promise<TaskCommentDto> {
     const task = await this.store.visibleTask(taskId, viewer);
     if (task.project.archivedAt) throw new AppError('PROJECT_ARCHIVED');
+    // A12 round 2: a viewer participant (مطّلع) reads only; the team's supervisors may reply.
+    if (!mayActOnTask(viewer, task)) throw new AppError('FORBIDDEN');
     const mentions = [...new Set(input.mentions)];
     const allowed = await this.mentionable(task, mentions);
     const invalid = mentions.filter((m) => !allowed.has(m));
@@ -226,7 +244,8 @@ export class TaskCollabService implements FileEntityHook, OnModuleInit {
   private async uploadableTask(taskId: string, user: AuthUser) {
     const task = await this.store.visibleTask(taskId, user);
     if (task.project.archivedAt) throw new AppError('PROJECT_ARCHIVED');
-    if (!can(user, 'tasks.manage') && task.assigneeId !== user.id) throw new AppError('FORBIDDEN');
+    // A12 round 2: admins/editors, the assignee, or a contributor of the project.
+    if (!mayWorkOnTask(user, task)) throw new AppError('FORBIDDEN');
     return task;
   }
 

@@ -108,6 +108,22 @@ export async function insertMembers(
   return ids;
 }
 
+/**
+ * A12 round 2: the checks `insertMembers` makes (references, duplicates in the batch and in the
+ * workspace) without inserting — a supervisor's inline workers become requests after the commit.
+ */
+export async function assertNewMembersInsertable(tx: Tx, crypto: CryptoService, inputs: readonly MemberInputData[], prefix = 'members'): Promise<void> {
+  await assertReferencesExist(tx, inputs, prefix);
+  const hashes = inputs.map((m) => crypto.blindIndex(m.nationalId));
+  const fieldErrors: Record<string, string[]> = {};
+  hashes.forEach((h, i) => {
+    if (hashes.indexOf(h) !== i) fieldErrors[`${prefix}.${i}.nationalId`] = [`رقم الهوية مكرّر (السطر ${hashes.indexOf(h) + 1})`];
+  });
+  const existing = await tx.teamMember.findMany({ where: { nationalIdHash: { in: hashes } }, select: { nationalIdHash: true } });
+  for (const e of existing) fieldErrors[`${prefix}.${hashes.indexOf(e.nationalIdHash)}.nationalId`] = [ERRORS.NATIONAL_ID_TAKEN];
+  if (Object.keys(fieldErrors).length) throw new AppError('NATIONAL_ID_TAKEN', { fieldErrors });
+}
+
 export interface MoveRecord {
   memberId: string;
   fromTeamId: string | null;

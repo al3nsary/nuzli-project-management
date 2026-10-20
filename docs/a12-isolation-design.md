@@ -245,14 +245,17 @@ contrib bundle) — no Docker. PGlite runs as a superuser; the RLS runs switch t
 
 Nothing in the API serves or changes data across workspaces. Open items:
 
-1. **Deployment must set `APP_DATABASE_URL`** (role `nuzli_app`) for RLS to be effective in production;
-   `docker-compose*.yml` and `.env.example` are outside this round's scope — the entrypoint supports it
-   and the API warns until it is set. Plan: next deployment round adds the env + `DB_REQUIRE_RLS=true`.
-2. Owner screens (create/archive workspaces, assign admins, cross-workspace views) — round 2 (the
-   escape hatch exists and is tested).
-3. Assistants' per-module rights and project participants — round 2 (ASSISTANT/MEMBER grant nothing now).
-4. Adding an EXISTING user (registered elsewhere) to a workspace — round 2 user management
-   (`POST /users` still answers `EMAIL_TAKEN`, revealing only that the e-mail exists).
+1. ~~Deployment must set `APP_DATABASE_URL`~~ — **done in round 2** (ADR-152, `docs/deployment-rls.md`): env
+   examples carry both URLs, the seed gives `nuzli_app` its LOGIN password, `docker-compose.prod.yml` sets
+   `DB_REQUIRE_RLS=true`.
+2. ~~Owner screens~~ — **API done in round 2** (ADR-148): owners, workspaces, admins, summaries. Owners act
+   on another workspace inside that workspace's context (scoped + RLS + audited there), not through the
+   bypass; the escape hatch stays unused by HTTP.
+3. ~~Assistants and project participants~~ — **done in round 2** (ADR-150, ADR-151, `docs/a12-roles.md`);
+   two new scoped tables (`project_participants`, `member_requests`) → **47** workspace-scoped tables, all
+   with the three layers; the isolation suite now probes 235 routes with five identities (an assistant
+   with every module and a monitor who is a project participant added) — 1,221 probes per run.
+4. ~~Adding an EXISTING user~~ — **done in round 2** (`POST /workspaces/:id/members`, ADR-149).
 5. The web app (workspace picker/switcher, workspace name under the logo, username login) — a later round;
    the API is backward compatible (single-workspace mode looks exactly as before).
 6. `test/int` (Testcontainers) suites were adapted but not run here (no Docker on this machine).

@@ -10,7 +10,7 @@ import { WorkspaceScopeError, type WorkspaceStore } from './workspace-context';
  * Row Level Security (ADR-143) repeats the same rule in PostgreSQL as a second line of defence.
  */
 
-/** Every business model (45). Identity/session models stay global: User, RefreshToken, ActionToken, Workspace, WorkspaceMembership. */
+/** Every business model (47 since A12 round 2). Identity/session models stay global: User, RefreshToken, ActionToken, Workspace, WorkspaceMembership. */
 export const SCOPED_MODELS: ReadonlySet<string> = new Set([
   'TeamColor', 'Team', 'TeamSupervisor', 'TeamSupervisorHistory', 'TeamMember', 'TeamMembership',
   'Department', 'JobTitle', 'OrgUnit', 'OrgPosition', 'Calendar', 'CalendarException', 'Project',
@@ -19,6 +19,8 @@ export const SCOPED_MODELS: ReadonlySet<string> = new Set([
   'TaskCommentRead', 'Baseline', 'BaselineTask', 'ViolationType', 'Violation', 'ViolationOcr',
   'ViolationFile', 'ViolationResponse', 'ViolationVisibility', 'ImportPreview', 'File', 'Logo',
   'CardSize', 'CardTemplate', 'CardPrintBatch', 'CardPrintItem', 'Notification', 'Setting', 'AuditLog',
+  // A12 round 2
+  'ProjectParticipant', 'MemberRequest',
 ]);
 
 export const GLOBAL_MODELS: ReadonlySet<string> = new Set([

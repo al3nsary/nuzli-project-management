@@ -126,7 +126,8 @@ export class AuthService {
   dto(user: UserRow, viewer?: PermissionSubject, workspaceId?: string | null): UserDto {
     const ws = workspaceId !== undefined ? workspaceId : activeWorkspaceIdOrNull();
     const subject = viewer ?? this.subjectIn(user, ws);
-    return toUserDto(user, { fullNationalId: can(subject, 'nationalIds.readFull'), crypto: this.crypto, workspaceId: ws });
+    // The user's own roles are theirs to see (viewer undefined = the user themselves).
+    return toUserDto(user, { fullNationalId: can(subject, 'nationalIds.readFull'), crypto: this.crypto, workspaceId: ws, viewerIsOwner: !viewer || viewer.accountRole === 'OWNER', self: !viewer });
   }
 
   /**
@@ -338,7 +339,7 @@ export class AuthService {
       throw mapped ?? err;
     }
     await this.notifications
-      .notifyAdmins('REGISTRATION_REQUESTED', {
+      .notifyApprovers('REGISTRATION_REQUESTED', {
         applicantId: user.id,
         fullName: user.fullName,
         requestedRole: user.requestedRole,

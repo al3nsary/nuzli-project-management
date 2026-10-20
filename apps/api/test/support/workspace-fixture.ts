@@ -215,6 +215,20 @@ export async function insertWorkspaceRows(
   await add('notifications', { id: id('notification'), user_id: U.admin, type: 'TASK_ASSIGNED', payload: { taskName: `${T} مهمة` } });
   await add('settings', { key: `nz_fixture_${T}`, value: { tag: T }, updated_at: now });
   await add('audit_log', { id: id('audit'), actor_id: U.admin, action: 'team.created', entity_type: 'team', entity_id: ids.team, after: { name: `${T} فريق` } });
+  if (!opts.legacy) {
+    // A12 round 2 tables (they do not exist before the A12 migrations).
+    await add('project_participants', { project_id: ids.project, user_id: U.monitor, title: `${T} منصب المشارك`, level: 'CONTRIBUTOR', added_by: U.admin, updated_at: now });
+    await add('member_requests', {
+      id: id('memberRequest'),
+      team_id: ids.team,
+      kind: 'ADD',
+      payload: { fullName: `${T} عامل مطلوب`, nationalIdMasked: '1•••••••23' },
+      national_id_enc: opts.encrypt ? opts.encrypt(nid()) : Buffer.from([7, 7]),
+      requested_by: U.supervisor,
+      updated_at: now,
+    });
+    await add('member_requests', { id: id('memberRequestRemove'), team_id: ids.team, member_id: ids.member, kind: 'REMOVE', payload: { fullName: `${T} عامل` }, reason: `${T} سبب`, requested_by: U.supervisor, updated_at: now });
+  }
   return { workspaceId: ws, tag: T, users: U, ids, counts };
 }
 

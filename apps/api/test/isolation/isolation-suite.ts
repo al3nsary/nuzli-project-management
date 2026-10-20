@@ -2,13 +2,16 @@
  * A12 — the route-by-route isolation suite (the core deliverable of A12 round 1).
  *
  * Every route of the running API (read from Nest's metadata) is called by the users of workspace A
- * — admin, supervisor, monitor, and an owner working in A — with workspace B's ids in the path,
- * the query and the body. It runs twice:
+ * — admin, supervisor, monitor (also a project participant since A12 round 2), an assistant with
+ * every module at "edit", and an owner working in A — with workspace B's ids in the path, the
+ * query and the body. It runs twice:
  *   - `rls: true`  — as the application role: the scoping layer AND PostgreSQL RLS;
  *   - `rls: false` — as a superuser (RLS bypassed): the application scoping layer ALONE must hold.
  */
 import argon2 from 'argon2';
 import ExcelJS from 'exceljs';
+import { randomUUID } from 'node:crypto';
+import { ASSISTANT_MODULES, VIEW_ONLY_MODULES } from '@nuzli/shared';
 import { CryptoService } from '../../src/crypto/crypto.service';
 import { unitWorkspaceFallback } from '../unit/workspace-setup';
 import { bearer, login, ownerSession, startPgApp, type PgApp, type Session } from '../support/pglite-app';
@@ -42,7 +45,12 @@ const MUST_SHOW_A = [
   'GET /teams', 'GET /members', 'GET /projects', 'GET /users', 'GET /violations', 'GET /audit', 'GET /notifications',
   'GET /org', 'GET /calendars', 'GET /portfolios', 'GET /colors', 'GET /logos', 'GET /cards/templates', 'GET /cards/sizes',
   'GET /violation-types', 'GET /hub', 'GET /registrations',
+  // A12 round 2
+  'GET /member-requests',
 ];
+
+/** The identities of A that probe B (A12 round 2 adds the assistant). */
+const ROLES = ['admin', 'supervisor', 'monitor', 'assistant', 'owner'] as const;
 
 function idsOf(f: WorkspaceFixture): string[] {
   return [...Object.values(f.ids), ...Object.values(f.users)];
@@ -144,6 +152,20 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
         const ub = await insertUsers(ctx.db, { workspaceId: wsB, tag: 'WSB-SECRET', passwordHash: hash, encrypt });
         A = await insertWorkspaceRows(ctx.db, { workspaceId: wsA, tag: 'WSA-SECRET', users: ua, encrypt });
         B = await insertWorkspaceRows(ctx.db, { workspaceId: wsB, tag: 'WSB-SECRET', users: ub, encrypt });
+        // A12 round 2: the membership routes take a membership id (the supervisor's in each workspace).
+        for (const F of [A, B]) {
+          const m = await ctx.db.query<{ id: string }>(`SELECT id FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2`, [F.workspaceId, F.users.supervisor]);
+          F.ids.membership = m.rows[0]!.id;
+        }
+        // A12 round 2: an assistant of A with EVERY module at its highest level (no scope limit).
+        const assistantId = randomUUID();
+        await ctx.db.query(
+          `INSERT INTO users (id, full_name, email, mobile, national_id_enc, national_id_hash, national_id_last2, national_id_first, password_hash, status, username, updated_at)
+           VALUES ($1, 'WSA-SECRET assistant', 'assistant.wsa@nuzli.test', '+966588888801', decode('0102', 'hex'), 'hash-wsa-assistant', '23', '1', $2, 'ACTIVE', 'assistant.wsa', now())`,
+          [assistantId, hash],
+        );
+        const perms = Object.fromEntries(ASSISTANT_MODULES.map((m) => [m, VIEW_ONLY_MODULES.has(m) ? 'view' : 'edit']));
+        await ctx.db.query(`INSERT INTO workspace_memberships (workspace_id, user_id, role, permissions) VALUES ($1, $2, 'ASSISTANT', $3)`, [wsA, assistantId, JSON.stringify(perms)]);
       });
       const usernames = await asSuper(async () => {
         const r = await ctx.db.query<{ id: string; username: string }>(`SELECT id, username FROM users`);
@@ -153,6 +175,8 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
         sessions[role] = await login(ctx, usernames.get(A.users[role])!, PASSWORD);
         expect((sessions[role]!.body.activeWorkspace as { id: string }).id).toBe(A.workspaceId);
       }
+      sessions.assistant = await login(ctx, 'assistant.wsa', PASSWORD);
+      expect((sessions.assistant!.body.activeWorkspace as { id: string }).id).toBe(A.workspaceId);
       // The owner sees two workspaces (no automatic choice) and works in A.
       const owner = await ownerSession(ctx);
       expect(owner.body.activeWorkspace).toBeNull();
@@ -174,9 +198,9 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
       expect(routes.length).toBeGreaterThanOrEqual(199);
     });
 
-    it('the fixture put data of both workspaces in all 45 business tables', async () => {
-      expect(Object.keys(A.counts)).toHaveLength(45);
-      expect(Object.keys(B.counts)).toHaveLength(45);
+    it('the fixture put data of both workspaces in all 47 business tables', async () => {
+      expect(Object.keys(A.counts)).toHaveLength(47);
+      expect(Object.keys(B.counts)).toHaveLength(47);
     });
 
     it('positive controls: the admin of A sees A’s own data (the probes below are not vacuous)', async () => {
@@ -224,7 +248,9 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
             const query = b.query?.(fx);
             const sent = JSON.stringify({ body, query });
             const refsB = idsOf(B).some((id) => sent.includes(id));
-            for (const role of ['admin', 'supervisor', 'monitor', 'owner']) {
+            for (const role of ROLES) {
+              // Owners act on every workspace by design (round 2 admin routes): covered elsewhere.
+              if (role === 'owner' && c.ownerSkip) continue;
               probes.push({
                 role,
                 route: r.key,
@@ -235,7 +261,7 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
                 body,
                 // A list/search filtered by a foreign id may answer 200 (with nothing of B) — the
                 // leak check decides; ids in the path or in a write body must be refused.
-                targetsB: v.targetsB || (refsB && r.method !== 'GET'),
+                targetsB: v.targetsB || (refsB && r.method !== 'GET') || (!!c.ownerOnly && role !== 'owner'),
                 allow2xx: b.allow2xx ?? c.allow2xx,
               });
             }
@@ -264,10 +290,11 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
         stats.validation400.length ? `\n  admin probes stopped by body validation (${stats.validation400.length}):\n  ${stats.validation400.join('\n  ')}` : '',
       );
       expect(failures).toEqual([]);
-      expect(stats.probes).toBeGreaterThan(800);
+      expect(stats.probes).toBeGreaterThan(1000);
+      expect(Object.keys(stats.byRole).sort()).toEqual([...ROLES].sort());
     });
 
-    it('NOTHING CHANGED IN B: every B row (45 tables), B accounts and memberships are byte-for-byte identical after all probes', async () => {
+    it('NOTHING CHANGED IN B: every B row (47 tables), B accounts and memberships are byte-for-byte identical after all probes', async () => {
       expect(await snapshotB()).toEqual(snapshotBefore);
     });
   });

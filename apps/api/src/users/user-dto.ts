@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { effectiveRole, maskNationalIdParts, type Role, type UserDto, type UserStatus, type WorkspaceRole } from '@nuzli/shared';
+import { assistantGrants, effectiveRole, maskNationalIdParts, type Role, type UserDto, type UserRoleEntryDto, type UserStatus, type WorkspaceRole } from '@nuzli/shared';
 import type { CryptoService } from '../crypto/crypto.service';
 import { preferencesOf } from '../notifications/notifications.service';
 import { activeWorkspaceIdOrNull } from '../prisma/workspace-context';
@@ -26,13 +26,24 @@ export const USER_DTO_SELECT = {
   preferences: true,
   photoFileId: true,
   /** A12: live memberships in every workspace; the DTO shows those of the active one only. */
-  memberships: { where: { archivedAt: null }, select: { workspaceId: true, role: true, status: true } },
+  memberships: {
+    where: { archivedAt: null },
+    orderBy: { createdAt: 'asc' },
+    select: { workspaceId: true, role: true, status: true, title: true, permissions: true, workspace: { select: { name: true } } },
+  },
 } satisfies Prisma.UserSelect;
 
 export type UserRow = Prisma.UserGetPayload<{ select: typeof USER_DTO_SELECT }>;
 
+/** The membership columns the role helpers read. */
+export interface MembershipCore {
+  workspaceId: string;
+  role: WorkspaceRole;
+  status: 'ACTIVE' | 'SUSPENDED';
+}
+
 /** A12: the user's live roles in `workspaceId` (suspended memberships excluded). */
-export function rolesIn(u: Pick<UserRow, 'memberships'>, workspaceId: string | null): WorkspaceRole[] {
+export function rolesIn(u: { memberships: ReadonlyArray<MembershipCore> }, workspaceId: string | null): WorkspaceRole[] {
   if (!workspaceId) return [];
   return u.memberships.filter((m) => m.workspaceId === workspaceId && m.status === 'ACTIVE').map((m) => m.role);
 }
@@ -42,13 +53,13 @@ export function rolesIn(u: Pick<UserRow, 'memberships'>, workspaceId: string | n
  * ADMIN; a registration shows the role it asked for. Falls back to MONITOR (least privilege)
  * for a user with no role there (the field is display-only; rights come from the guard).
  */
-export function displayRole(u: Pick<UserRow, 'memberships' | 'accountRole' | 'requestedRole'>, workspaceId: string | null): Role {
+export function displayRole(u: Pick<UserRow, 'accountRole' | 'requestedRole'> & { memberships: ReadonlyArray<MembershipCore> }, workspaceId: string | null): Role {
   if (u.accountRole === 'OWNER') return 'ADMIN';
   return effectiveRole(rolesIn(u, workspaceId)) ?? u.requestedRole ?? 'MONITOR';
 }
 
 /** A12: SUSPENDED when the membership in this workspace is suspended, else the account status. */
-export function displayStatus(u: Pick<UserRow, 'memberships' | 'status'>, workspaceId: string | null): UserStatus {
+export function displayStatus(u: Pick<UserRow, 'status'> & { memberships: ReadonlyArray<MembershipCore> }, workspaceId: string | null): UserStatus {
   if (u.status === 'ACTIVE' && workspaceId) {
     const here = u.memberships.filter((m) => m.workspaceId === workspaceId);
     if (here.length && here.every((m) => m.status === 'SUSPENDED')) return 'SUSPENDED';
@@ -63,7 +74,7 @@ export function displayStatus(u: Pick<UserRow, 'memberships' | 'status'>, worksp
  */
 export function toUserDto(
   u: UserRow,
-  opts: { fullNationalId?: boolean; crypto?: CryptoService; workspaceId?: string | null } = {},
+  opts: { fullNationalId?: boolean; crypto?: CryptoService; workspaceId?: string | null; viewerIsOwner?: boolean; self?: boolean } = {},
 ): UserDto {
   const ws = opts.workspaceId !== undefined ? opts.workspaceId : activeWorkspaceIdOrNull();
   const dto: UserDto = {
@@ -86,11 +97,40 @@ export function toUserDto(
     preferences: preferencesOf(u.preferences),
     photoFileId: u.photoFileId,
     hasPhoto: !!u.photoFileId,
+    // A12 round 2: the «صلاحية مزدوجة» badge and every live role (other workspaces hidden from non-owners).
+    dualRole: isDualRole(u),
+    allRoles: roleEntries(u, ws, !!opts.viewerIsOwner),
   };
+  if (opts.self) {
+    // The assistant's modules in the active workspace (an ADMIN or an owner holds everything anyway).
+    const assistant = u.memberships.find((m) => m.workspaceId === ws && m.role === 'ASSISTANT' && m.status === 'ACTIVE');
+    dto.grants = assistant ? assistantGrants(assistant.permissions) : [];
+  }
   if (opts.fullNationalId && opts.crypto) {
     dto.nationalId = opts.crypto.decrypt(u.nationalIdEnc);
   }
   return dto;
+}
+
+type MembershipView = { workspaceId: string; role: WorkspaceRole; status: 'ACTIVE' | 'SUSPENDED'; title?: string | null; workspace?: { name: string } | null };
+
+/** A12 round 2: more than one live role — two in one workspace, or roles in several workspaces. */
+export function isDualRole(u: { memberships: ReadonlyArray<Pick<MembershipView, 'workspaceId' | 'role'>> }): boolean {
+  return u.memberships.length > 1;
+}
+
+/** A12 round 2: the roles list of a UserDto. Non-owner callers never learn other workspaces' names or ids. */
+export function roleEntries(u: { memberships: ReadonlyArray<MembershipView> }, workspaceId: string | null, viewerIsOwner: boolean): UserRoleEntryDto[] {
+  return u.memberships.map((m) => {
+    const visible = viewerIsOwner || m.workspaceId === workspaceId;
+    return {
+      workspaceId: visible ? m.workspaceId : null,
+      workspaceName: visible ? (m.workspace?.name ?? null) : null,
+      role: m.role,
+      title: visible ? (m.title ?? null) : null,
+      status: m.status,
+    };
+  });
 }
 
 /** Audit snapshot of a user: no secrets, masked national ID only. */
@@ -145,6 +185,25 @@ export function adminsOf(workspaceId: string): Prisma.UserWhereInput {
     OR: [
       { memberships: { some: { workspaceId, role: 'ADMIN', status: 'ACTIVE', archivedAt: null } } },
       { accountRole: 'OWNER' },
+    ],
+  };
+}
+
+/**
+ * A12 round 2: who decides a workspace's requests (registrations, workers' add/remove): its active
+ * admins, every owner, and its assistants given registrations:edit.
+ */
+export function approversOf(workspaceId: string): Prisma.UserWhereInput {
+  return {
+    status: 'ACTIVE',
+    OR: [
+      { memberships: { some: { workspaceId, role: 'ADMIN', status: 'ACTIVE', archivedAt: null } } },
+      { accountRole: 'OWNER' },
+      {
+        memberships: {
+          some: { workspaceId, role: 'ASSISTANT', status: 'ACTIVE', archivedAt: null, permissions: { path: ['registrations'], equals: 'edit' } },
+        },
+      },
     ],
   };
 }

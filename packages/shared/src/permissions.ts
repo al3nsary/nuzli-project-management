@@ -60,6 +60,22 @@ export const PERMISSIONS = [
   // self
   'notifications.read',
   'profile.update',
+  // A12 round 2 — finer rights so an assistant (مساعد) can be given one module at a time.
+  // ADMIN holds every permission, so these change nothing for admins and owners.
+  /** Budget and costs: read (project budget, task costs) and change them. */
+  'budget.read',
+  'budget.manage',
+  /** Card print history, sizes, templates and logos (read only). */
+  'cards.read',
+  /** Pending registrations and worker add/remove requests (read only); deciding needs registrations.review. */
+  'registrations.read',
+  /** Project reports and workload. */
+  'reports.read',
+  /** Work calendars: read / manage. */
+  'calendars.read',
+  'calendars.manage',
+  /** Edit another user's account data (username, e-mail, mobile, name, national ID, password). */
+  'users.edit',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -93,6 +109,15 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   ]),
 };
 
+/**
+ * A12 round 2: roles that grant nothing by themselves beyond the personal basics — an ASSISTANT
+ * (مساعد) gets the modules chosen by an admin (`grants`), a MEMBER (عضو) is a project participant.
+ */
+export const BASE_WORKSPACE_ROLE_PERMISSIONS: Record<'ASSISTANT' | 'MEMBER', ReadonlySet<Permission>> = {
+  ASSISTANT: new Set<Permission>(SELF),
+  MEMBER: new Set<Permission>(SELF),
+};
+
 export interface PermissionSubject {
   /** The matrix role in the active workspace (A12); null = no role there. */
   role: Role | null;
@@ -104,6 +129,19 @@ export interface PermissionSubject {
    * the permission is granted if ANY of them grants it; `role` stays the strongest one.
    */
   roles?: readonly string[];
+  /**
+   * A12 round 2: permissions granted on top of the roles — an assistant's modules
+   * (`assistantGrants`) and, for the request at hand, a project participant's level.
+   */
+  grants?: readonly string[];
+}
+
+function roleGrants(role: string, permission: Permission): boolean {
+  return (
+    ROLE_PERMISSIONS[role as Role]?.has(permission) ??
+    BASE_WORKSPACE_ROLE_PERMISSIONS[role as 'ASSISTANT' | 'MEMBER']?.has(permission) ??
+    false
+  );
 }
 
 /** True when the user holds the permission. Non-active users hold nothing. */
@@ -111,8 +149,9 @@ export function can(user: PermissionSubject | null | undefined, permission: Perm
   if (!user) return false;
   if (user.status && user.status !== 'ACTIVE') return false;
   if (user.accountRole === 'OWNER') return true;
+  if (user.grants?.includes(permission)) return true;
   if (user.roles?.length) {
-    return user.roles.some((r) => ROLE_PERMISSIONS[r as Role]?.has(permission) ?? false);
+    return user.roles.some((r) => roleGrants(r, permission));
   }
   return (user.role && ROLE_PERMISSIONS[user.role]?.has(permission)) ?? false;
 }

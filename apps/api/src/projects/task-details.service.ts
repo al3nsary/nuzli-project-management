@@ -28,6 +28,7 @@ import { PrismaService, type Db } from '../prisma/prisma.service';
 import { mapTaskDbError, ProjectStore, WRITE_TX_OPTIONS } from './project-store';
 import { sortOrderBetween } from './task-engine';
 import { scopeUpdateResult } from './tasks.service';
+import { mayWorkOnTask } from '../access/access-context';
 
 type Viewer = PermissionSubject & { id: string; fullName?: string };
 
@@ -327,11 +328,11 @@ export class TaskDetailsService {
     return item;
   }
 
-  /** Admins edit anything; the assignee (a supervisor) only ticks or unticks (ADR-093). */
+  /** Admins edit anything; the assignee (and, A12 round 2, a contributor of the project) only ticks or unticks (ADR-093). */
   async updateItem(taskId: string, itemId: string, input: z.output<typeof updateChecklistItemSchema>, viewer: Viewer, ctx: RequestContext): Promise<ChecklistItemDto> {
     const task = await this.writableTask(taskId, viewer);
     if (!can(viewer, 'tasks.manage')) {
-      if (task.assigneeId !== viewer.id || input.text !== undefined) throw new AppError('FORBIDDEN', input.text !== undefined ? { fields: ['text'] } : undefined);
+      if (!mayWorkOnTask(viewer, task) || input.text !== undefined) throw new AppError('FORBIDDEN', input.text !== undefined ? { fields: ['text'] } : undefined);
     }
     const cur = await this.item(taskId, itemId);
     const data: Prisma.TaskChecklistItemUncheckedUpdateInput = {};

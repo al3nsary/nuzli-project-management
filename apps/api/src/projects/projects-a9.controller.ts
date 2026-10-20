@@ -74,6 +74,8 @@ import { ViewPrefsService } from './view-prefs.service';
 
 /** Write a task's time, or tick its checklist: admins, and the assignee (scope in the service). */
 const TASK_WORK = ['tasks.manage', 'tasks.updateAssigned'] as const;
+/** A12 round 2: project pages open to participants too (the service scopes to their projects). */
+const PROJECT_READ = ['projects.readAll', 'projects.readGranted'] as const;
 
 /** A9 project routes (admin): budget, people, dashboard, calendar, labels, fields, bulk, templates. */
 @ApiTags('projects')
@@ -88,28 +90,28 @@ export class ProjectsA9Controller {
   ) {}
 
   @Get(':id/budget')
-  @RequirePermission('projects.readAll')
+  @RequirePermission('budget.read')
   @ApiOperation({ summary: 'تقرير الميزانية: حسب المجموعة والمسند إليه والوسم، والمخطط مقابل الفعلي، والمهام المتجاوزة' })
   budget(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<BudgetReportDto> {
     return this.reports.budget(id, viewer);
   }
 
   @Get(':id/people')
-  @RequirePermission('projects.readAll')
+  @RequireAnyPermission(...PROJECT_READ)
   @ApiOperation({ summary: 'المسند إليهم في المشروع: عدد المهام والإنجاز والتأخر وحصة الميزانية والوقت المسجّل' })
   people(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<ProjectPersonDto[]> {
     return this.reports.projectPeople(id, viewer);
   }
 
   @Get(':id/dashboard')
-  @RequirePermission('projects.readAll')
+  @RequireAnyPermission(...PROJECT_READ)
   @ApiOperation({ summary: 'لوحة المشروع: المؤشرات وتوزيع الحالات والمتأخرات واستهلاك الميزانية والمواعيد القريبة' })
   dashboard(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<ProjectDashboardDto> {
     return this.reports.dashboard(id, viewer);
   }
 
   @Get(':id/calendar')
-  @RequirePermission('projects.readAll')
+  @RequireAnyPermission(...PROJECT_READ)
   @ApiOperation({ summary: 'بيانات تبويب التقويم: المهام والمعالم والمواعيد النهائية في المدى' })
   calendar(
     @Param('id', UuidPipe) id: string,
@@ -120,7 +122,7 @@ export class ProjectsA9Controller {
   }
 
   @Get(':id/labels')
-  @RequirePermission('projects.readAll')
+  @RequireAnyPermission(...PROJECT_READ)
   @ApiOperation({ summary: 'وسوم المشروع' })
   labels(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<LabelDto[]> {
     return this.details.labels(id, viewer);
@@ -139,7 +141,7 @@ export class ProjectsA9Controller {
   }
 
   @Get(':id/custom-fields')
-  @RequirePermission('projects.readAll')
+  @RequireAnyPermission(...PROJECT_READ)
   @ApiOperation({ summary: 'الحقول المخصّصة للمشروع' })
   fields(@Param('id', UuidPipe) id: string, @CurrentUser() viewer: AuthUser): Promise<CustomFieldDto[]> {
     return this.details.fields(id, viewer);
@@ -513,17 +515,17 @@ export class ProjectsOverviewController {
   }
 
   @Get('reports/projects')
-  @RequirePermission('projects.readAll')
+  @RequireAnyPermission('projects.readAll', 'projects.readGranted', 'reports.read')
   @ApiOperation({ summary: 'تقرير المشاريع: الحالة والإنجاز والميزانية والمتأخرات' })
   projectsReport(@ZodQuery(projectReportQuerySchema) q: z.output<typeof projectReportQuerySchema>, @CurrentUser() viewer: AuthUser): Promise<ProjectReportRow[]> {
     return this.reports.projectsReport(q.status, viewer);
   }
 
   @Get('workload')
-  @RequirePermission('projects.readAll')
+  @RequireAnyPermission('projects.readAll', 'reports.read')
   @ApiOperation({ summary: 'عبء العمل لكل مشرف يومًا بيوم: الساعات المسندة والمسجّلة (حتى ٩٢ يومًا)' })
-  workload(@ZodQuery(workloadQuerySchema) q: z.output<typeof workloadQuerySchema>): Promise<WorkloadDto> {
-    return this.reports.workload(q);
+  workload(@ZodQuery(workloadQuerySchema) q: z.output<typeof workloadQuerySchema>, @CurrentUser() viewer: AuthUser): Promise<WorkloadDto> {
+    return this.reports.workload(q, viewer);
   }
 
   @Get('hub')

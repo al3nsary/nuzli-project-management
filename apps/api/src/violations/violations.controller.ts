@@ -30,6 +30,7 @@ import { ZodBody, ZodQuery } from '../common/zod-openapi';
 import { ViolationAssignService } from './violation-assign.service';
 import { ViolationTypesService } from './violation-types.service';
 import { ViolationsService } from './violations.service';
+import { teamLimit } from '../access/access-context';
 
 export const violationListQuery = paginationQuery.merge(violationFilterSchema);
 
@@ -100,8 +101,8 @@ export class ViolationsController {
   @Get('stats')
   @RequirePermission('violations.stats')
   @ApiOperation({ summary: 'إحصاءات لوحة المخالفات بالمرشّحات نفسها' })
-  stats(@ZodQuery(violationFilterSchema) f: z.output<typeof violationFilterSchema>): Promise<ViolationStats> {
-    return this.violations.stats(f);
+  stats(@ZodQuery(violationFilterSchema) f: z.output<typeof violationFilterSchema>, @CurrentUser() viewer: AuthUser): Promise<ViolationStats> {
+    return this.violations.stats(f, new Date(), teamLimit(viewer));
   }
 
   @Get('export.xlsx')
@@ -127,9 +128,10 @@ export class ViolationsController {
   dashboardPdf(
     @ZodQuery(violationFilterSchema) f: z.output<typeof violationFilterSchema>,
     @ReqCtx() ctx: RequestContext,
+    @CurrentUser() viewer: AuthUser,
     @Res() res: Response,
   ): Promise<void> {
-    return this.violations.streamDashboardPdf(f, res, ctx);
+    return this.violations.streamDashboardPdf(f, res, ctx, new Date(), teamLimit(viewer));
   }
 
   @Get(':id')

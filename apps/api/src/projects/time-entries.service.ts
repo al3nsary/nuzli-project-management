@@ -11,6 +11,7 @@ import { rangeProblem } from './reports';
 import { addCalendarDaysIso, dateOf, isoOf, riyadhToday } from './task-engine';
 import { activeWorkspaceId } from '../prisma/workspace-context';
 import { memberOf } from '../users/user-dto';
+import { mayWorkOnTask } from '../access/access-context';
 
 type Viewer = PermissionSubject & { id: string; fullName?: string };
 
@@ -75,7 +76,8 @@ export class TimeEntriesService {
     const task = await this.store.visibleTask(taskId, viewer);
     if (task.project.archivedAt) throw new AppError('PROJECT_ARCHIVED');
     const admin = can(viewer, 'tasks.manage');
-    if (!admin && task.assigneeId !== viewer.id) throw new AppError('TIME_ENTRY_NOT_ALLOWED');
+    // A12 round 2: the assignee, or a contributor/editor of the project.
+    if (!admin && !mayWorkOnTask(viewer, task)) throw new AppError('TIME_ENTRY_NOT_ALLOWED');
     let userId = viewer.id;
     if (input.userId && input.userId !== viewer.id) {
       if (!admin) throw new AppError('FORBIDDEN', { fields: ['userId'] });
@@ -104,7 +106,7 @@ export class TimeEntriesService {
     if (!can(viewer, 'tasks.manage')) {
       // Someone else's entry is not revealed to a supervisor (404). Security review A9 L3: nor is
       // their own entry once the task is no longer assigned to them or is archived (ADR-092).
-      if (e.userId !== viewer.id || e.task.assigneeId !== viewer.id || e.task.archivedAt) throw new AppError('NOT_FOUND');
+      if (e.userId !== viewer.id || !mayWorkOnTask(viewer, e.task) || e.task.archivedAt) throw new AppError('NOT_FOUND');
     }
     if (e.task.project.archivedAt) throw new AppError('PROJECT_ARCHIVED');
     return e;

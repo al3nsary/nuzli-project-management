@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { computeWbs } from '@nuzli/scheduling';
+import { can } from '@nuzli/shared';
 import type {
   createProjectSchema,
   GanttDto,
@@ -41,6 +42,7 @@ import { dateOf, DEFAULT_WORKING_HOURS, dueDayOf, isoOf, rootsForProgress } from
 import { buildTasksCsv, buildTasksWorkbook, compareWbs, type TaskExportRow } from './tasks-export';
 import { writeMspdi } from '../imports/mspdi';
 import { writeGanttpro } from '../imports/ganttpro';
+import { stripBudget } from '../access/budget.interceptor';
 
 type Viewer = PermissionSubject & { id: string };
 type CreateProject = z.output<typeof createProjectSchema>;
@@ -390,6 +392,8 @@ export class ProjectsService {
     ctx: RequestContext,
   ): Promise<{ filename: string; buffer: Buffer; contentType: string }> {
     const g = await this.gantt(id, viewer);
+    // A12 round 2: the budget is for budget.read only — exports of everyone else carry no money.
+    if (!can(viewer, 'budget.read')) stripBudget(g);
     const generatedAt = new Date();
     const unit = g.project.durationUnit ?? 'DAY';
     const labelName = new Map((g.labels ?? []).map((l) => [l.id, l.name]));

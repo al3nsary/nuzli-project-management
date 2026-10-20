@@ -1,6 +1,6 @@
 /**
  * A12 — PostgreSQL Row Level Security and the cross-workspace guards, on a real PostgreSQL (PGlite)
- * after the full migration chain. Two workspaces, A and B, each with a row in every one of the 45
+ * after the full migration chain. Two workspaces, A and B, each with a row in every one of the 47
  * business tables. RLS checks run as `nuzli_app` (the API's role: no superuser, no BYPASSRLS);
  * guard checks run as the superuser, so only the triggers stand in the way.
  */
@@ -59,8 +59,8 @@ afterAll(async () => {
 });
 
 describe('RLS is on every business table', () => {
-  it('45 workspace-scoped tables; the fixture filled every one of them in both workspaces', () => {
-    expect(tables).toHaveLength(45);
+  it('47 workspace-scoped tables (A12 round 2: + project_participants, member_requests); the fixture filled every one of them in both workspaces', () => {
+    expect(tables).toHaveLength(47);
     expect(Object.keys(A.counts).sort()).toEqual(tables);
     expect(Object.keys(B.counts).sort()).toEqual(tables);
   });
@@ -73,7 +73,7 @@ describe('RLS is on every business table', () => {
         WHERE n.nspname = 'public' AND c.relname = ANY($1)`,
       [tables],
     );
-    expect(r.rows).toHaveLength(45);
+    expect(r.rows).toHaveLength(47);
     for (const row of r.rows) expect([row.relname, row.rls, row.force, row.policies]).toEqual([row.relname, true, true, 1]);
   });
 
@@ -90,7 +90,7 @@ describe('RLS as nuzli_app', () => {
     });
   });
 
-  it('inside workspace A it sees exactly A’s rows — in all 45 tables — and nothing of B', async () => {
+  it('inside workspace A it sees exactly A’s rows — in all 47 tables — and nothing of B', async () => {
     await inWorkspace(A.workspaceId, async () => {
       for (const t of tables) {
         const r = await db.query<{ n: number; foreign: number }>(
@@ -239,5 +239,88 @@ describe('cross-workspace guards (constraint triggers) — even with RLS bypasse
     expect(
       await errorOf(`INSERT INTO project_access (project_id, user_id, workspace_id) VALUES ($1, $2, $3)`, [A.ids.project, B.users.monitor, A.workspaceId]),
     ).toMatch(/NZ_CROSS_WORKSPACE/);
+  });
+});
+
+describe('A12 round 2 tables — project_participants, member_requests, project covers', () => {
+  it('both new tables are workspace-scoped with RLS (FORCE) and the same-workspace guard', async () => {
+    const r = await db.query<{ relname: string; rls: boolean; force: boolean }>(
+      `SELECT relname, relrowsecurity AS rls, relforcerowsecurity AS force FROM pg_class WHERE relname IN ('project_participants', 'member_requests') ORDER BY relname`,
+    );
+    expect(r.rows).toEqual([
+      { relname: 'member_requests', rls: true, force: true },
+      { relname: 'project_participants', rls: true, force: true },
+    ]);
+  });
+
+  it('as nuzli_app inside A: only A’s participants and requests; writing into B is refused', async () => {
+    await inWorkspace(A.workspaceId, async () => {
+      const p = await db.query<{ ws: string }>(`SELECT DISTINCT workspace_id AS ws FROM project_participants`);
+      expect(p.rows).toEqual([{ ws: A.workspaceId }]);
+      const m = await db.query<{ ws: string }>(`SELECT DISTINCT workspace_id AS ws FROM member_requests`);
+      expect(m.rows).toEqual([{ ws: A.workspaceId }]);
+      const err = await errorOf(
+        `INSERT INTO member_requests (workspace_id, team_id, kind, payload, requested_by, reason, member_id, updated_at) VALUES ($1, $2, 'REMOVE', '{}', $3, 'x', $4, now())`,
+        [B.workspaceId, B.ids.team, B.users.supervisor, B.ids.member],
+      );
+      expect(err).toMatch(/row-level security/);
+    });
+  });
+
+  it('a participant and a requester must be members of the workspace; a cover must be a file of the same workspace', async () => {
+    expect(
+      await errorOf(`INSERT INTO project_participants (project_id, user_id, title, level, workspace_id, updated_at) VALUES ($1, $2, 'x', 'VIEWER', $3, now())`, [
+        A.ids.project,
+        B.users.monitor,
+        A.workspaceId,
+      ]),
+    ).toMatch(/NZ_CROSS_WORKSPACE/);
+    expect(
+      await errorOf(`INSERT INTO member_requests (team_id, kind, payload, national_id_enc, requested_by, workspace_id, updated_at) VALUES ($1, 'ADD', '{}', '\x01', $2, $3, now())`, [
+        A.ids.team,
+        B.users.supervisor,
+        A.workspaceId,
+      ]),
+    ).toMatch(/NZ_CROSS_WORKSPACE/);
+    expect(await errorOf(`UPDATE projects SET cover_file_id = $1 WHERE id = $2`, [B.ids.logoFile, A.ids.project])).toMatch(/NZ_CROSS_WORKSPACE/);
+    // files.entity_id of a project cover points to a project of the same workspace
+    expect(await errorOf(`UPDATE files SET entity_type = 'project_cover', entity_id = $1 WHERE id = $2`, [B.ids.project, A.ids.logoFile])).toMatch(/NZ_CROSS_WORKSPACE/);
+  });
+
+  it('a request payload never holds a full national ID; a pending ADD keeps it encrypted only', async () => {
+    expect(
+      await errorOf(`INSERT INTO member_requests (team_id, kind, payload, national_id_enc, requested_by, workspace_id, updated_at) VALUES ($1, 'ADD', $2, '\x01', $3, $4, now())`, [
+        A.ids.team,
+        JSON.stringify({ fullName: 'x', nationalId: '1000000023' }),
+        A.users.supervisor,
+        A.workspaceId,
+      ]),
+    ).toMatch(/member_requests_payload_no_nid_chk/);
+    expect(
+      await errorOf(`INSERT INTO member_requests (team_id, kind, payload, requested_by, workspace_id, updated_at) VALUES ($1, 'ADD', '{}', $2, $3, now())`, [
+        A.ids.team,
+        A.users.supervisor,
+        A.workspaceId,
+      ]),
+    ).toMatch(/member_requests_add_nid_chk/);
+  });
+});
+
+describe('A12 round 2 deployment — nuzli_app gets LOGIN from APP_DATABASE_URL (seed, as the migrator)', () => {
+  it('sets LOGIN + password from the URL; refuses a placeholder; ignores another role name', async () => {
+    const { prismaOn } = await import('../support/pglite');
+    const { ensureAppRoleLogin } = await import('../../src/seed/seed');
+    const prisma = prismaOn(db);
+    const logs: string[] = [];
+    try {
+      expect(await ensureAppRoleLogin(prisma, 'postgresql://nuzli:x@db:5432/nuzli', (l) => logs.push(l))).toBe(false);
+      await expect(ensureAppRoleLogin(prisma, 'postgresql://nuzli_app:CHANGE_ME_app@db:5432/nuzli', () => undefined)).rejects.toThrow(/CHANGE_ME/);
+      expect(await ensureAppRoleLogin(prisma, `postgresql://nuzli_app:${encodeURIComponent("Ap'p-Pass_1")}@db:5432/nuzli`, (l) => logs.push(l))).toBe(true);
+      const r = await db.query<{ rolcanlogin: boolean; rolsuper: boolean; rolbypassrls: boolean }>(`SELECT rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'nuzli_app'`);
+      expect(r.rows[0]).toEqual({ rolcanlogin: true, rolsuper: false, rolbypassrls: false });
+      expect(logs.join('\n')).not.toContain("Ap'p-Pass_1");
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 });

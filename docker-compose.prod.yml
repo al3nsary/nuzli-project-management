@@ -27,6 +27,9 @@ services:
     environment:
       NODE_ENV: production
       MAIL_TRANSPORT: smtp
+      # A12 (ADR-152): the API must run as nuzli_app (APP_DATABASE_URL in env/api.env) so that
+      # PostgreSQL Row Level Security applies; it refuses to start otherwise.
+      DB_REQUIRE_RLS: "true"
     deploy:
       resources:
         limits: { cpus: "1.50", memory: 1G }

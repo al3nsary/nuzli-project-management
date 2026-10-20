@@ -12,6 +12,9 @@ import {
   TasksA9Controller,
   TimeEntriesController,
 } from './projects-a9.controller';
+import { MeParticipationsController, ProjectParticipantsController } from './participants.controller';
+import { ParticipantsService } from './participants.service';
+import { ProjectCoverService } from './project-cover.service';
 import { ProjectReportsService } from './project-reports.service';
 import { ProjectStore } from './project-store';
 import { ProjectsService } from './projects.service';
@@ -42,6 +45,9 @@ import { ViewPrefsService } from './view-prefs.service';
     MeA9Controller,
     ProjectsOverviewController,
     PortfoliosController,
+    // A12 round 2
+    ProjectParticipantsController,
+    MeParticipationsController,
   ],
   providers: [
     ProjectStore,
@@ -56,6 +62,8 @@ import { ViewPrefsService } from './view-prefs.service';
     TimeEntriesService,
     ViewPrefsService,
     HubService,
+    ParticipantsService,
+    ProjectCoverService,
   ],
   exports: [ProjectStore],
 })

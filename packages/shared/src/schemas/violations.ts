@@ -97,7 +97,8 @@ export const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
 
 export const presignUploadSchema = z
   .object({
-    entityType: z.enum(['violation', 'task', 'logo', 'member_photo', 'user_photo', 'import']),
+    /** A12 round 2: 'project_cover' (entityId = project id; JPEG/PNG/WebP, at most 3 MB). */
+    entityType: z.enum(['violation', 'task', 'logo', 'member_photo', 'user_photo', 'import', 'project_cover']),
     entityId: uuid.optional(),
     kind: z.enum(['ID_CARD', 'EVIDENCE', 'PERSON', 'ATTACHMENT', 'LOGO', 'PHOTO']).optional(),
     contentType: z.enum([...ALLOWED_UPLOAD_TYPES, ...IMPORT_UPLOAD_TYPES]),

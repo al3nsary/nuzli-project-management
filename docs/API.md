@@ -519,3 +519,169 @@ without `wid` is accepted for a user with exactly one workspace.
 `POST /projects/import`, `/projects/import/jira`, `/projects/import/commit` (A9, ADR-110) were documented
 but their module was not registered in `AppModule`, so they answered 404. The A12 route inventory found
 it; the module is now registered (and covered by the isolation suite).
+
+## A12 — round 2: owners, workspaces, user management, assistants, participants, requests (ADR-148..152, `docs/a12-roles.md`)
+
+Everything below is additive; single-workspace mode still looks exactly as before for the web.
+Error shape unchanged: `{ code, message_ar, details }`. "Owner-only" routes answer **403 `FORBIDDEN`**
+to everyone else; they are `@WorkspaceOptional` (an owner may call them before choosing a workspace).
+
+### Owners (ملّاك) — owner-only
+| Method | Path | Body | Response / errors |
+|---|---|---|---|
+| GET | `/owners` | — | `OwnerDto[] { id, username, fullName, email, status, hasPhoto, createdAt, lastLoginAt }` |
+| POST | `/owners` | `addOwnerSchema` — one of `{ userId }`, `{ identifier }` (username / e-mail / mobile / national ID of an ACTIVE account), or a new account `{ username, fullName, email, mobile, nationalId, password, mustChangePassword = true }` | `201 OwnerDto`. Unknown → 404; not ACTIVE / already owner → 409 `INVALID_STATE`; duplicates → 409 `USERNAME_TAKEN` / `EMAIL_TAKEN` / `MOBILE_TAKEN` / `NATIONAL_ID_TAKEN`. Audited `owner.added` (workspace NULL). |
+| DELETE | `/owners/:userId` | — | `204`. The account becomes USER (memberships kept), its sessions end. The last ACTIVE owner → **409 `LAST_OWNER`** (row lock, like last-admin). Audited `owner.removed`. |
+
+Bootstrap (seed, empty system only): `BOOTSTRAP_OWNER_USERNAME=mmansary` creates the first owner,
+`mustChangePassword = true`, ADMIN of «إدارة المشاريع». Password = `BOOTSTRAP_OWNER_PASSWORD` (or the
+older `BOOTSTRAP_ADMIN_PASSWORD`); when both are empty a random temporary password is printed **once**
+in the API log of that first start (only its argon2id hash is stored). `BOOTSTRAP_ADMIN_EMAIL/MOBILE/
+NATIONAL_ID` are optional — missing ones get neutral placeholders (`<username>@owner.nuzli.invalid`, a
+random mobile, a random valid-format ID) to replace in user management.
+
+### Workspaces (أقسام) — owner-only except `members`
+| Method | Path | Body / query | Response / errors |
+|---|---|---|---|
+| GET | `/workspaces` | `?status=ACTIVE\|ARCHIVED\|ALL` (default ALL) | `WorkspaceAdminDto[] { id, name, code, status, createdAt, archivedAt, adminCount, memberCount }` |
+| POST | `/workspaces` | `{ name (2–80), code? (^[a-z][a-z0-9-]{1,39}$, generated when omitted) }` | `201 WorkspaceAdminDto`. A new **empty** workspace with neutral defaults only: settings, the 24-colour palette, the default calendar (Fri/Sat weekend), 6 card sizes, 3 built-in templates. Code taken → 409 `WORKSPACE_CODE_TAKEN`. Audited `workspace.created` inside it. |
+| PATCH | `/workspaces/:id` | `{ name }` | `WorkspaceAdminDto`; audited `workspace.renamed` |
+| POST | `/workspaces/:id/archive` | — | `200 WorkspaceAdminDto` — soft: nothing deleted; entering it answers `WORKSPACE_ARCHIVED`; its refresh sessions end. The last ACTIVE workspace → **409 `LAST_WORKSPACE`**. Audited. |
+| POST | `/workspaces/:id/restore` | — | `200 WorkspaceAdminDto`; audited |
+| GET | `/workspaces/:id/summary` | — | `WorkspaceCountsDto { workspace, users { total, byRole, pendingRegistrations }, projects, tasks, teams, members, violations, pendingMemberRequests }` — counts only |
+| GET | `/workspaces/:id/admins` | — | `WorkspaceMemberDto[]` (role ADMIN) |
+| POST | `/workspaces/:id/admins` | `{ userId \| identifier, title?, confirmDualRole? }` | `201 WorkspaceMemberDto`; a person who already holds a live role anywhere → **409 `DUAL_ROLE_CONFIRM_REQUIRED`** `details.roles: UserRoleEntryDto[]` until `confirmDualRole: true` |
+| DELETE | `/workspaces/:id/admins/:userId` | — | `204` (membership archived; the person's sessions there end when it was their last role there) |
+| GET | `/workspaces/:id/members` | — | `WorkspaceMemberDto[]` — permission `users.read`; **admins/assistants: only their session's workspace (another id → 403 `WORKSPACE_FORBIDDEN`)**; owners any |
+| POST | `/workspaces/:id/members` | `addWorkspaceMemberSchema { userId \| identifier, role: ADMIN\|ASSISTANT\|SUPERVISOR\|MONITOR\|MEMBER, title?, permissions? (ASSISTANT), scope? (ASSISTANT), confirmDualRole? }` | `201 WorkspaceMemberDto` — adds an **existing** account (fixes round 1's `EMAIL_TAKEN` gap). Permission `users.manageRoles`. Errors: 404 unknown account, 409 `INVALID_STATE` (not ACTIVE), 409 `MEMBERSHIP_EXISTS`, 409 `DUAL_ROLE_CONFIRM_REQUIRED`, 400 when `permissions/scope` are given for a non-assistant or the scope names projects/teams of another workspace. Audited `membership.added`. |
+| PATCH | `/workspaces/:id/members/:membershipId` | `updateMembershipSchema { title?, permissions?, scope? }` | `WorkspaceMemberDto`; `permissions/scope` only on ASSISTANT (else 400). Takes effect on the next request. Audited `membership.updated` (before/after). |
+| DELETE | `/workspaces/:id/members/:membershipId` | — | `204`; an admin cannot remove the workspace's last active admin (409 `LAST_ADMIN`); only owners touch an owner's membership. Audited `membership.removed`. |
+
+`WorkspaceMemberDto = { id (membership), workspaceId, role, title, permissions, scope, status, createdAt, user { id, username, fullName, email, status, accountRole, hasPhoto }, dualRole }`.
+
+### Users (إدارة المستخدمين)
+| Method | Path | Permission | Body | Response / errors |
+|---|---|---|---|---|
+| POST | `/users` | `users.create` | `createAccountSchema`: `{ username?, fullName, email, mobile, nationalId, role?` (as before) `\| memberships?: [{ workspaceId?, role, title?, permissions?, scope? }], password?, mustChangePassword? (default true with a password), confirmDualRole? }` | `201 UserDto`. With `password` the account can log in at once (must change by default) — no e-mail; without it, the one-time set-password e-mail as before. Admins: memberships in their workspace only (else 403 `WORKSPACE_FORBIDDEN`); owners: any workspace (`@WorkspaceOptional`). Two or more roles → 409 `DUAL_ROLE_CONFIRM_REQUIRED` until confirmed. |
+| GET | `/users/all` | owner-only | `?page&pageSize&q&status&accountRole` | `Paginated<UserDto>` of every account, with `allRoles` naming every workspace |
+| PATCH | `/users/:id` | `users.edit` | `updateUserSchema { username?, fullName?, email?, mobile?, nationalId? }` | `UserDto`. **Owners: any account. Admins: a user of their workspace who belongs to no other workspace** (else **403 `USER_IN_OTHER_WORKSPACES`**); never an owner (403). Duplicates → 409 `USERNAME_TAKEN` / `EMAIL_TAKEN` / `MOBILE_TAKEN` / `NATIONAL_ID_TAKEN`. Audited `user.updated` with before/after (national ID masked). |
+| POST | `/users/:id/username` | `users.edit` | `{ username }` (lower-cased, `^[a-z][a-z0-9._-]{2,31}$`) | `200 UserDto`; same rule; audited `user.username_changed` |
+| POST | `/users/:id/password` | `users.edit` | `{ password, mustChangePassword = true }` | `200 UserDto`. Nobody can read a password: this sets a new one, ends **every** session and pending reset link of the user, lifts a login lock. Audited `user.password_set` (never the value). |
+| POST | `/users/:id/suspend` | `users.suspend` | `{ reason?, scope?: 'workspace' (default) \| 'global' }` | `global` = owners only: the ACCOUNT is suspended everywhere, every session ends; never the last owner (`LAST_OWNER`) or a workspace's last admin (`LAST_ADMIN`). |
+| POST | `/users/:id/reactivate` | `users.suspend` | `{ scope?: 'workspace' \| 'global' }` | `global` = owners only |
+
+`UserDto` gains (always sent): `dualRole: boolean` (more than one live role — two in one workspace or
+roles in several), `allRoles: UserRoleEntryDto[] { workspaceId, workspaceName, role, title, status }` —
+**for a non-owner caller, roles in other workspaces come with `workspaceId/workspaceName/title = null`**
+(the badge without revealing where). Named `allRoles`, not `roles`, because a UserDto is passed to
+`can()` whose `roles` are role names. The caller's own session (`/auth/me`, login, refresh, switch) also
+carries `grants: string[]` — the assistant modules' permissions — so `can(user, p)` in the web answers
+like the API.
+
+### Assistants (مساعد)
+A membership with role `ASSISTANT`, `permissions` = `{ [module]: 'none'|'view'|'edit' }` over
+`ASSISTANT_MODULES` (shared): projects, tasks, budget, teams, members, formation, cards, cardTemplates,
+violations, violationStats, reference, calendars, org, users (view only), registrations, reports,
+audit (view only), settings (view only); `ASSISTANT_MODULE_GRANTS` maps each level to matrix
+permissions (`assistantGrants()`); `scope` = `{ projectIds?, teamIds? }` limits projects/tasks/hub/
+attachments/reports/workload and teams/members/violations/stats/card printing to those ids (absent =
+all). Never granted: full national IDs, the ID-card photo, user editing, roles. Matrix in `docs/a12-roles.md`.
+
+New permissions (ADMIN holds them all): `budget.read`, `budget.manage`, `cards.read`,
+`registrations.read`, `reports.read`, `calendars.read`, `calendars.manage`, `users.edit`. Route changes:
+`GET /projects/:id/budget` → `budget.read`; calendars: reads `projects.manage|projects.create|calendars.read`,
+writes `calendars.manage`; `GET /reports/projects` → `projects.readAll|projects.readGranted|reports.read`,
+`GET /workload` → `projects.readAll|reports.read`; card sizes/templates/logos/batches reads also
+`cards.read`; `GET /registrations` → `registrations.review|registrations.read` (decisions stay
+`registrations.review`); project people/dashboard/calendar/labels/custom-fields reads and task reads
+also accept `projects.readGranted` (participants; the service scopes).
+
+**Budget (owner rule):** money fields (`budget, plannedCost, actualCost, costVariance, budgetVariance,
+budgetUsedPct, overBudget, overBudgetTasks, budgetShare, budgetBurn`) are removed from every project /
+task / report / hub response for callers without `budget.read` (supervisors, monitors, participants,
+assistants without the budget module), and from their exports (zeros). A request that sets
+`budget / plannedCost / actualCost` without `budget.manage` → **403 `FORBIDDEN` `details.field = 'budget'`**.
+
+### Project participants (مشاركون: محرّر / مساهم / مطّلع)
+| Method | Path | Permission | Body | Response / errors |
+|---|---|---|---|---|
+| GET | `/projects/:id/participants` | `projects.readAll\|projects.readGranted` | — | `ParticipantDto[] { projectId, user { id, username, fullName, hasPhoto }, title, level, addedBy, createdAt }` |
+| POST | `/projects/:id/participants` | `projects.manage` (admins; assistants with projects:edit) | `{ userId, title (منصب, 1–120), level: EDITOR\|CONTRIBUTOR\|VIEWER }` | `201`. The user must hold a live membership of the workspace (any role) → else **409 `PARTICIPANT_NOT_MEMBER`**; already there → **409 `PARTICIPANT_EXISTS`**; archived project → 409 `PROJECT_ARCHIVED`. Notified `PROJECT_PARTICIPANT_ADDED`; audited. |
+| PATCH | `/projects/:id/participants/:userId` | `projects.manage` | `{ title?, level? }` | `ParticipantDto`; audited |
+| DELETE | `/projects/:id/participants/:userId` | `projects.manage` | — | `204`; audited |
+| GET | `/me/participations` | any member | — | `MyParticipationDto[] { projectId, projectName, title, level }` — what the web needs to show the right buttons |
+
+Levels, bound to THAT project per request: **VIEWER** reads the project (list, Gantt, attachments,
+reports) — no comment, no status, no hub; **CONTRIBUTOR** also changes status/progress, comments and
+replies, ticks the checklist, uploads attachments, logs time, sees the hub; **EDITOR** also
+creates/edits/moves/deletes the project's tasks, labels, custom values and dependencies — not the
+project settings, budget/costs or participants. A participant sees only their projects: `GET /projects`,
+`/projects/:id/*`, `/tasks/:id/*`, `/hub` (contributors and editors), `/attachments`,
+`/reports/projects`. Another project → 404.
+
+### Supervisors — the team's tasks (owner rule)
+A supervisor sees their own tasks AND the tasks assigned to any supervisor of the same team(s) (open
+`team_supervisors` rows, non-archived teams). On those: read, reply/comment and change status/progress
+(not the checklist, attachments or time log — those stay the assignee's). `GET /tasks/mine` returns both
+with `assignedToMe: boolean`; hub, attachments and comment mentions follow the same scope.
+
+### Workers: add / remove by request (طلبات العمّال)
+| Method | Path | Permission | Body | Response |
+|---|---|---|---|---|
+| POST | `/teams/:id/members` | `members.manage\|members.manageOwn` | `memberInputSchema` | admins (`members.manage`): `201 MemberDto` as before. **Supervisors: `202 MemberRequestAcceptedDto { status: 'PENDING_APPROVAL', request }`** — nothing is created until approved; a duplicate national ID → 400 `NATIONAL_ID_NOT_ACCEPTED` (never "taken"). |
+| POST | `/members/:id/archive` | `members.manage\|members.manageOwn` | `{ reason }` | admins: `200 { status: 'ARCHIVED' }` (open membership closed, record archived, nothing deleted); supervisors (their team): `202 MemberRequestAcceptedDto` (one pending REMOVE per worker — a repeat returns the same request) |
+| GET | `/member-requests` | `registrations.review\|registrations.read\|members.manage\|members.manageOwn` | `?status=PENDING\|APPROVED\|REJECTED\|ALL (PENDING)&teamId&page&pageSize` | `Paginated<MemberRequestDto>` — approvers: the workspace (assistant team scope applies); supervisors: their own requests and their teams' |
+| GET | `/member-requests/:id` | same | — | `MemberRequestDto { id, kind ADD\|REMOVE, status, team, member, payload { fullName, nationalIdMasked, jobTitle, department }, reason, decisionReason, requestedBy, decidedBy, createdAt, decidedAt }` |
+| POST | `/member-requests/:id/approve` | `registrations.review` | — | `200 MemberRequestDto` — ADD creates the worker in the team; REMOVE archives the worker. Not pending → **409 `MEMBER_REQUEST_NOT_PENDING`**. |
+| POST | `/member-requests/:id/reject` | `registrations.review` | `{ reason }` | `200 MemberRequestDto` |
+
+Approvers (admins, owners, assistants with registrations:edit) get `MEMBER_REQUEST_CREATED`; the
+supervisor gets `MEMBER_REQUEST_DECIDED`. The national ID of an ADD lives only encrypted
+(`member_requests.national_id_enc`, cleared on decision); the payload holds it masked. Editing a
+worker's data (`PATCH /members/:id`) stays direct for supervisors. Workers typed inline while a
+supervisor creates a NEW team still arrive with the team, which itself waits for an admin's approval.
+
+### Registration by workspace
+Unchanged contract from round 1 (`workspaceId` required when more than one active workspace exists).
+New: the workspace's assistants with registrations:edit are notified too and may approve.
+
+### Card printing
+Owners, admins and assistants with `cards:edit` (`cards.print`). Supervisors never. An assistant with a
+team scope prints only those teams' people.
+
+### Project cover image
+`POST /files/presign { entityType: 'project_cover', entityId: projectId, contentType: image/jpeg|png|webp, sizeBytes ≤ 3 MB }`
+(`projects.manage`) → PUT → `POST /files/:id/confirm` links it (the previous cover is removed).
+`GET /projects/:id/cover-url` → `{ url, expiresAt }` for anyone who sees the project (404 without a
+cover). `DELETE /projects/:id/cover` (`projects.manage`) → 204. `ProjectDto` gains `hasCover: boolean`
+and `color: string` (stable, `projectColor(id)` — draw the generated cover with it).
+Errors: `FILE_TOO_LARGE`, `FILE_TYPE_NOT_ALLOWED`, `PROJECT_ARCHIVED`.
+
+### New error codes
+`DUAL_ROLE_CONFIRM_REQUIRED` (409, `details.roles`), `LAST_WORKSPACE` (409), `WORKSPACE_CODE_TAKEN` (409),
+`MEMBERSHIP_EXISTS` (409), `USER_IN_OTHER_WORKSPACES` (403), `PARTICIPANT_NOT_MEMBER` (409),
+`PARTICIPANT_EXISTS` (409), `MEMBER_REQUEST_NOT_PENDING` (409); `LAST_OWNER` (409) is now used.
+
+### New notification types
+`MEMBER_REQUEST_CREATED`, `MEMBER_REQUEST_DECIDED`, `PROJECT_PARTICIPANT_ADDED` (in-app; no e-mail template yet).
+
+### Audit actions
+`owner.added`, `owner.removed` (workspace NULL); `workspace.created|renamed|archived|restored`;
+`membership.added|updated|removed`; `user.updated`, `user.username_changed`, `user.password_set`;
+`user.suspended` / `user.reactivated` with `scope: 'global'`; `project.participant_added|updated|removed`;
+`member_request.created|approved|rejected`, `member.archived`; `project.cover_updated|removed`.
+
+### What the web must do next
+1. Owners: owners screen (`/owners`), workspaces screen (list, create, rename, archive/restore, summary,
+   admins), every-account list (`/users/all`).
+2. User management: create with username + first password + "must change" + roles; edit username,
+   e-mail, mobile, name, national ID; "set new password"; per-workspace vs global suspension; add an
+   existing account (`/workspaces/:id/members`); show `dualRole` («صلاحية مزدوجة») everywhere and the
+   confirm dialog on `409 DUAL_ROLE_CONFIRM_REQUIRED` (resend with `confirmDualRole: true`).
+3. Assistants: the module × level grid (`ASSISTANT_MODULES`, `ASSISTANT_MODULE_LABELS`,
+   `VIEW_ONLY_MODULES`) and the project/team scope pickers; use `user.grants` with `can()`.
+4. Participants: a project «المشاركون» tab; the participant's buttons from `GET /me/participations`;
+   money fields may be absent (not sent to non-budget users) — render without them.
+5. Supervisors: «مهامي» shows `assignedToMe === false` tasks as the team's (badge); a 202 on adding /
+   removing a worker shows «بانتظار اعتماد المدير»; an approvals list (`/member-requests`).
+6. Project cards: cover upload/remove and the generated cover from `color`.

@@ -12,7 +12,7 @@ describe('A12 scoping layer — model inventory', () => {
     const models = Prisma.dmmf.datamodel.models.map((m) => m.name);
     const unclassified = models.filter((m) => !SCOPED_MODELS.has(m) && !GLOBAL_MODELS.has(m));
     expect(unclassified).toEqual([]);
-    expect(SCOPED_MODELS.size).toBe(45);
+    expect(SCOPED_MODELS.size).toBe(47);
     expect([...GLOBAL_MODELS].sort()).toEqual(['ActionToken', 'RefreshToken', 'User', 'Workspace', 'WorkspaceMembership']);
   });
 

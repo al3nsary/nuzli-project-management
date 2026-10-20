@@ -249,6 +249,11 @@ model User {
   // A12
   memberships        WorkspaceMembership[]   @relation("MembershipUser")
   requestedWorkspace Workspace?              @relation("RequestedWorkspace", fields: [requestedWorkspaceId], references: [id], onDelete: SetNull)
+  // A12 round 2
+  participations     ProjectParticipant[]    @relation("ParticipantUser")
+  addedParticipants  ProjectParticipant[]    @relation("ParticipantAddedBy")
+  memberRequests     MemberRequest[]         @relation("MemberRequestRequestedBy")
+  decidedRequests    MemberRequest[]         @relation("MemberRequestDecidedBy")
 
   @@index([role, status])
   @@index([requestedWorkspaceId, status])
@@ -359,6 +364,9 @@ model Workspace {
   notifications           Notification[]
   settings                Setting[]
   auditLogs               AuditLog[]
+  // A12 round 2
+  projectParticipants     ProjectParticipant[]
+  memberRequests          MemberRequest[]
 
   @@map("workspaces")
 }
@@ -440,6 +448,7 @@ model Team {
   violations        Violation[]             @relation("ViolationTeamSnapshot")
   visibility        ViolationVisibility?
   orgUnit           OrgUnit?                @relation(fields: [orgUnitId], references: [id], onDelete: SetNull)
+  memberRequests    MemberRequest[]
 
   @@index([colorId])
   @@index([supervisorId])
@@ -532,6 +541,8 @@ model TeamMember {
   printItems   CardPrintItem[]
   /// A9: organisational positions this member holds.
   orgPositions OrgPosition[]    @relation("OrgPositionMember")
+  /// A12 round 2: REMOVE requests about this member, and ADD requests that created it.
+  requests     MemberRequest[]
 
   @@unique([workspaceId, nationalIdHash])
   @@index([jobTitleId])
@@ -733,6 +744,8 @@ model Project {
   /// A9: budget cap in `currency` (null = none). CHECK >= 0 in raw SQL.
   budget       Decimal?      @db.Decimal(14, 2)
   currency     String        @default("SAR") @db.Char(3)
+  /// A12 round 2: the cover image (a READY file of the same workspace), null = generated cover.
+  coverFileId  String?       @map("cover_file_id") @db.Uuid
   createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdById  String?       @map("created_by") @db.Uuid
@@ -749,6 +762,10 @@ model Project {
   customFields CustomField[]
   portfolios   PortfolioProject[]
   viewPrefs    UserViewPref[]
+  /// A12 round 2: people granted this project (محرّر / مساهم / مطّلع).
+  participants ProjectParticipant[]
+  /// A12 round 2: optional cover image (entityType project_cover).
+  coverFile    File?              @relation("ProjectCover", fields: [coverFileId], references: [id], onDelete: SetNull)
 
   @@index([ownerId])
   @@index([calendarId])
@@ -1357,6 +1374,7 @@ model File {
   logo          Logo?
   memberPhotos  TeamMember[]   @relation("MemberPhoto")
   userPhotos    User[]         @relation("UserPhoto")
+  projectCovers Project[]      @relation("ProjectCover")
 
   @@index([entityType, entityId])
   @@index([status, createdAt])
@@ -1535,4 +1553,83 @@ model AuditLog {
   @@index([action])
   @@index([workspaceId])
   @@map("audit_log")
+}
+
+// ───────────────────────────────────────────────────────────── A12 round 2
+
+enum ParticipantLevel {
+  EDITOR
+  CONTRIBUTOR
+  VIEWER
+}
+
+enum MemberRequestKind {
+  ADD
+  REMOVE
+}
+
+enum MemberRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// A12 round 2: a person granted ONE project with a position (منصب) and a level
+/// (EDITOR محرّر / CONTRIBUTOR مساهم / VIEWER مطّلع). raw SQL: guard triggers (project in the same
+/// workspace; the user a live member of the workspace), RLS.
+model ProjectParticipant {
+  projectId   String           @map("project_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String           @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  userId      String           @map("user_id") @db.Uuid
+  title       String
+  level       ParticipantLevel
+  addedById   String?          @map("added_by") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation("ParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy User?   @relation("ParticipantAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@index([workspaceId])
+  @@map("project_participants")
+}
+
+/// A12 round 2: a supervisor's request to add (payload + encrypted national ID) or remove
+/// (member_id) a worker, decided by the workspace's admins / owners / assistants with
+/// registrations:edit. raw SQL: guard triggers (team, member), RLS, kind/payload CHECKs.
+model MemberRequest {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId    String              @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace      Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  teamId         String              @map("team_id") @db.Uuid
+  memberId       String?             @map("member_id") @db.Uuid
+  kind           MemberRequestKind
+  status         MemberRequestStatus @default(PENDING)
+  /// ADD: full name, job title / department (ids or text), masked national ID — never the full ID.
+  payload        Json                @default("{}")
+  /// ADD: the national ID, AES-256-GCM (like team_members.national_id_enc). Cleared after a decision.
+  nationalIdEnc  Bytes?              @map("national_id_enc")
+  reason         String?
+  decisionReason String?             @map("decision_reason")
+  requestedById  String              @map("requested_by") @db.Uuid
+  decidedById    String?             @map("decided_by") @db.Uuid
+  decidedAt      DateTime?           @map("decided_at") @db.Timestamptz(3)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  team        Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  member      TeamMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  requestedBy User        @relation("MemberRequestRequestedBy", fields: [requestedById], references: [id])
+  decidedBy   User?       @relation("MemberRequestDecidedBy", fields: [decidedById], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([teamId])
+  @@index([memberId])
+  @@map("member_requests")
 }

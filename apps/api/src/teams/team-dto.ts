@@ -12,6 +12,7 @@ import {
 } from '@nuzli/shared';
 import { AppError } from '../common/app-error';
 import type { CryptoService } from '../crypto/crypto.service';
+import { teamLimit } from '../access/access-context';
 
 export type Viewer = PermissionSubject & { id: string };
 
@@ -40,8 +41,12 @@ export const LEADERS_SELECT = {
   },
 } satisfies Prisma.Team$supervisorsArgs;
 
-/** A team as the scope checks need it: the user ids of its open leadership rows. */
+/**
+ * A team as the scope checks need it: the user ids of its open leadership rows, and (A12 round 2)
+ * its id — an assistant limited to some teams needs it; without it such an assistant is refused.
+ */
 export interface LedTeam {
+  id?: string;
   supervisors: ReadonlyArray<{ userId: string }>;
 }
 
@@ -184,6 +189,19 @@ export function canReadAllTeams(viewer: Viewer): boolean {
   return can(viewer, 'teams.readAll');
 }
 
+/** A12 round 2: true when an assistant's team scope lets them reach this team (no scope = all). */
+export function withinTeamLimit(viewer: Viewer, team: { id?: string } | null | undefined): boolean {
+  const limit = teamLimit(viewer);
+  if (!limit) return true;
+  return !!team?.id && limit.includes(team.id);
+}
+
+/** A12 round 2: where-clause of an assistant's team scope ({} when unlimited). */
+export function teamLimitWhere(viewer: Viewer): Prisma.TeamWhereInput {
+  const limit = teamLimit(viewer);
+  return limit ? { id: { in: limit } } : {};
+}
+
 export function canManageAllTeams(viewer: Viewer): boolean {
   return can(viewer, 'teams.manageAll');
 }
@@ -194,7 +212,7 @@ export function canManageAllTeams(viewer: Viewer): boolean {
  * viewer cannot see answers 404 (its existence is not revealed).
  */
 export function canReadTeam(viewer: Viewer, team: LedTeam): boolean {
-  return canReadAllTeams(viewer) || (can(viewer, 'teams.readOwn') && leads(viewer.id, team));
+  return (canReadAllTeams(viewer) && withinTeamLimit(viewer, team)) || (can(viewer, 'teams.readOwn') && leads(viewer.id, team));
 }
 
 export function assertTeamReadable(viewer: Viewer, team: LedTeam): void {
@@ -204,20 +222,42 @@ export function assertTeamReadable(viewer: Viewer, team: LedTeam): void {
 /** Manage scope: `teams.manageAll`, or `teams.manageOwn` on a team the viewer leads. */
 export function assertTeamManageable(viewer: Viewer, team: LedTeam): void {
   assertTeamReadable(viewer, team);
-  if (canManageAllTeams(viewer)) return;
+  if (canManageAllTeams(viewer) && withinTeamLimit(viewer, team)) return;
   if (can(viewer, 'teams.manageOwn') && leads(viewer.id, team)) return;
   throw new AppError('FORBIDDEN');
 }
 
 /** Members: `members.manage`, or `members.manageOwn` when the member sits in a team the viewer leads. */
 export function canManageMemberIn(viewer: Viewer, team: LedTeam | null): boolean {
-  if (can(viewer, 'members.manage')) return true;
+  // A12 round 2: an assistant limited to some teams manages only their members (and unassigned ones).
+  if (can(viewer, 'members.manage') && (!team || withinTeamLimit(viewer, team))) return true;
   return !!team && can(viewer, 'members.manageOwn') && leads(viewer.id, team);
+}
+
+/**
+ * A12 round 2: the members a card printer may print — everyone for admins and printers without a
+ * team scope; an assistant limited to some teams prints those teams' members (and unassigned ones).
+ */
+export function printMemberScopeWhere(viewer: Viewer): Prisma.TeamMemberWhereInput {
+  if (!can(viewer, 'cards.print')) return memberScopeWhere(viewer);
+  const limit = teamLimit(viewer);
+  if (!limit) return {};
+  return { OR: [{ memberships: { some: { validTo: null, teamId: { in: limit } } } }, { memberships: { none: { validTo: null } } }] };
 }
 
 /** Where-clause limiting members to what a supervisor may see: own teams' members, or unassigned. */
 export function memberScopeWhere(viewer: Viewer): Prisma.TeamMemberWhereInput {
-  if (canReadAllTeams(viewer) || can(viewer, 'members.manage')) return {};
+  if (canReadAllTeams(viewer) || can(viewer, 'members.manage')) {
+    // A12 round 2: an assistant limited to some teams sees those teams' members (and unassigned ones).
+    const limit = teamLimit(viewer);
+    if (!limit) return {};
+    return {
+      OR: [
+        { memberships: { some: { validTo: null, teamId: { in: limit } } } },
+        { memberships: { none: { validTo: null } } },
+      ],
+    };
+  }
   return {
     OR: [
       { memberships: { some: { validTo: null, team: ledByWhere(viewer.id) } } },

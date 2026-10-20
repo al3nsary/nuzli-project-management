@@ -49,6 +49,14 @@ export const envSchema = z
     SWAGGER_ENABLED: z.enum(['true', 'false', '1', '0', 'yes', 'no']).optional(),
 
     DATABASE_URL: z.string().url(),
+    /**
+     * A12 (ADR-143, round 2 deployment): the API's own role `nuzli_app` (no superuser, no
+     * BYPASSRLS). docker-entrypoint.sh runs the server with it; the seed (as the migrator) sets
+     * that role's LOGIN password from this URL at every start.
+     */
+    APP_DATABASE_URL: z.string().url().optional(),
+    /** A12: refuse to start when the API's database role bypasses Row Level Security. */
+    DB_REQUIRE_RLS: z.enum(['true', 'false']).optional(),
 
     /** Public origin of the web app, used in e-mail links. */
     PUBLIC_WEB_URL: z.string().url().default('https://localhost'),
@@ -132,6 +140,7 @@ export const envSchema = z
     if (isPlaceholder(env.S3_ACCESS_KEY)) fail('S3_ACCESS_KEY', 'is still the CHANGE_ME placeholder');
     if (isPlaceholder(env.SMTP_PASS)) fail('SMTP_PASS', 'is still the CHANGE_ME placeholder');
     if (isPlaceholder(env.DATABASE_URL)) fail('DATABASE_URL', 'contains the CHANGE_ME placeholder password');
+    if (env.APP_DATABASE_URL && isPlaceholder(env.APP_DATABASE_URL)) fail('APP_DATABASE_URL', 'contains the CHANGE_ME placeholder password');
     if (env.CONVERTER_URL) {
       const token = env.CONVERTER_TOKEN ? weakRandomSecretReason(env.CONVERTER_TOKEN) : 'is required when CONVERTER_URL is set';
       if (token) fail('CONVERTER_TOKEN', token);

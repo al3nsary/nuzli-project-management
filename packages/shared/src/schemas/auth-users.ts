@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { email, fullName, nationalId, optionalText, paginationQuery, password, reason, saudiMobile } from './common';
 import type { AccountRole, Role, UserStatus, WorkspaceRole } from '../enums';
+import type { UserRoleEntryDto } from './a12-admin';
 
 export const roleSchema = z.enum(['ADMIN', 'SUPERVISOR', 'MONITOR']);
 export const selfRegistrableRole = z.enum(['SUPERVISOR', 'MONITOR']);
@@ -59,7 +60,11 @@ export type CreateUserInput = z.input<typeof createUserSchema>;
 export const approveRegistrationSchema = z.object({ role: selfRegistrableRole.optional() });
 export const rejectRegistrationSchema = z.object({ reason });
 export const changeRoleSchema = z.object({ role: roleSchema });
-export const suspendUserSchema = z.object({ reason: optionalText(500) });
+/**
+ * A12 round 2: 'workspace' (default) suspends the memberships in the caller's workspace;
+ * 'global' (owners only) suspends the account everywhere.
+ */
+export const suspendUserSchema = z.object({ reason: optionalText(500), scope: z.enum(['workspace', 'global']).optional() });
 
 export const updateProfileSchema = z.object({
   fullName: fullName.optional(),
@@ -115,6 +120,23 @@ export interface UserDto {
   accountRole?: AccountRole;
   /** A12: every role the user holds in the caller's active workspace. `role` is the strongest one. */
   workspaceRoles?: WorkspaceRole[];
+  /**
+   * A12 round 2: true when the person holds more than one live role — two in one workspace, or
+   * roles in several workspaces (the UI shows the «صلاحية مزدوجة» badge). Always sent by the API.
+   */
+  dualRole?: boolean;
+  /**
+   * A12 round 2: every live role. For a non-owner caller, roles in OTHER workspaces are listed
+   * without the workspace (`workspaceId: null`). Always sent by the API. Named `allRoles` (not
+   * `roles`) because a UserDto is also passed to `can()`, whose `roles` are role names.
+   */
+  allRoles?: UserRoleEntryDto[];
+  /**
+   * A12 round 2 — the caller's OWN session only (`/auth/me`, login, refresh, switch): the
+   * permissions an assistant's modules grant in the active workspace, so `can(user, …)` in the web
+   * gives the same answers as the API. Project participants: `GET /me/participations`.
+   */
+  grants?: string[];
 }
 
 /** A12: a workspace (قسم) the user can enter. */

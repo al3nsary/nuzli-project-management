@@ -17,13 +17,18 @@ export const MAX_TREND_FILL_DAYS = 1100;
  */
 export function violationWhereSql(
   f: ViolationFilter,
-  opts: { ignoreDates?: boolean; workspaceId?: string | null } = {},
+  opts: { ignoreDates?: boolean; workspaceId?: string | null; teamIds?: string[] | null } = {},
 ): Prisma.Sql {
   // A12 (ADR-143): the statistics are raw SQL, so the workspace filter is part of it —
   // no workspace context, no rows.
   const workspaceId = opts.workspaceId !== undefined ? opts.workspaceId : activeWorkspaceIdOrNull();
   if (!workspaceId) return Prisma.sql`FALSE`;
   const parts: Prisma.Sql[] = [Prisma.sql`v.workspace_id = ${workspaceId}::uuid`];
+  // A12 round 2: an assistant limited to some teams counts only their violations.
+  if (opts.teamIds) {
+    if (!opts.teamIds.length) return Prisma.sql`FALSE`;
+    parts.push(Prisma.sql`v.team_id_snapshot IN (${Prisma.join(opts.teamIds.map((id) => Prisma.sql`${id}::uuid`))})`);
+  }
   if (!opts.ignoreDates && f.from) parts.push(Prisma.sql`v.captured_at >= ${riyadhDayStart(f.from)}::timestamptz`);
   if (!opts.ignoreDates && f.to) parts.push(Prisma.sql`v.captured_at < ${riyadhDayEnd(f.to)}::timestamptz`);
   if (f.teamId) parts.push(Prisma.sql`v.team_id_snapshot = ${f.teamId}::uuid`);
@@ -62,9 +67,9 @@ function workspaceIdOf(_f: ViolationFilter): string | null {
 }
 
 /** One SQL statement per chart; all share the same WHERE (brief §7.5: every chart, same filters). */
-export function statsQueries(f: ViolationFilter, now: Date) {
-  const where = violationWhereSql(f);
-  const whereNoDates = violationWhereSql(f, { ignoreDates: true });
+export function statsQueries(f: ViolationFilter, now: Date, teamIds: string[] | null = null) {
+  const where = violationWhereSql(f, { teamIds });
+  const whereNoDates = violationWhereSql(f, { ignoreDates: true, teamIds });
   const week = riyadhWeekBounds(now);
   // The same elapsed span of the previous week: previous Sunday 00:00 → now − 7 days.
   const prevToDateEnd = new Date(Math.min(now.getTime(), week.nextStart.getTime()) - 7 * 86_400_000);

@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import {
+  projectColor,
   can,
   type CalendarDto,
   type DependencyDto,
@@ -21,34 +22,54 @@ import {
   type StoredTask,
   type Unit,
 } from './task-engine';
+import { participantProjectIds, peerIds, projectLimit } from '../access/access-context';
 
 type Viewer = PermissionSubject & { id: string };
 
 /**
- * Project data scope. ADMIN (`projects.readAll`) sees every project. Since owner request A9
- * (ADR-092) nobody else sees a project: supervisors work only through the tasks assigned to
- * them (`taskScopeWhere`). The `project_access` table is kept but grants nothing (→ 404).
- * `projects.readGranted` still opens a granted, non-archived project for a role that holds it
- * (none does today) so the table keeps a meaning for later.
+ * Project data scope.
+ *  - `projects.readAll` (admins; assistants with projects/tasks): every project — an assistant
+ *    limited to some projects (`scope.projectIds`) only those;
+ *  - A12 round 2 — project participants (`project_participants`, any level): their non-archived,
+ *    non-template projects;
+ *  - `reports.read` (assistants with reports) reads projects for the reports routes only
+ *    (`{ reports: true }`), within the same project limit.
+ * Supervisors still see no project (ADR-092): they work through tasks (`taskScopeWhere`).
+ * The legacy `project_access` table grants nothing (→ 404).
  */
-export function projectScopeWhere(viewer: Viewer): Prisma.ProjectWhereInput {
-  if (can(viewer, 'projects.readAll')) return {};
-  if (can(viewer, 'projects.readGranted')) {
-    return { archivedAt: null, isTemplate: false, access: { some: { userId: viewer.id } } };
+export function projectScopeWhere(viewer: Viewer, opts: { reports?: boolean } = {}): Prisma.ProjectWhereInput {
+  if (can(viewer, 'projects.readAll') || (opts.reports && can(viewer, 'reports.read'))) {
+    const limit = projectLimit(viewer);
+    return limit ? { id: { in: limit } } : {};
   }
+  const part = participantProjectIds(viewer);
+  if (part.length) return { id: { in: part }, archivedAt: null, isTemplate: false };
   return { id: { in: [] } };
 }
 
 /**
- * Task data scope (A9, ADR-092): ADMIN every task; a SUPERVISOR (`tasks.readAssigned`) only the
- * live tasks assigned to them in non-archived, non-template projects. Anything else → 404.
+ * Task data scope (A9, ADR-092; A12 round 2):
+ *  - `projects.readAll`: every task (an assistant limited to some projects: their tasks);
+ *  - a SUPERVISOR (`tasks.readAssigned`): the live tasks assigned to them OR to any supervisor of
+ *    the same team(s) (owner rule — `teamPeerIds`), in non-archived, non-template projects;
+ *  - a project participant: every task of their projects.
+ * Grants are OR-ed; none → nothing (404).
  */
 export function taskScopeWhere(viewer: Viewer): Prisma.TaskWhereInput {
-  if (can(viewer, 'projects.readAll')) return {};
-  if (can(viewer, 'tasks.readAssigned')) {
-    return { assigneeId: viewer.id, project: { archivedAt: null, isTemplate: false } };
+  if (can(viewer, 'projects.readAll')) {
+    const limit = projectLimit(viewer);
+    return limit ? { projectId: { in: limit } } : {};
   }
-  return { id: { in: [] } };
+  const live = { archivedAt: null, isTemplate: false };
+  const grants: Prisma.TaskWhereInput[] = [];
+  if (can(viewer, 'tasks.readAssigned')) {
+    const peers = peerIds(viewer);
+    grants.push({ assigneeId: peers.length === 1 ? peers[0]! : { in: peers }, project: live });
+  }
+  const part = participantProjectIds(viewer);
+  if (part.length) grants.push({ projectId: { in: part }, project: live });
+  if (!grants.length) return { id: { in: [] } };
+  return grants.length === 1 ? grants[0]! : { OR: grants };
 }
 
 /** Columns needed to recompute a project (`StoredTask`). */
@@ -194,6 +215,7 @@ export const PROJECT_SELECT = {
   currency: true,
   isTemplate: true,
   durationUnit: true,
+  coverFileId: true,
   owner: { select: { id: true, fullName: true } },
 } satisfies Prisma.ProjectSelect;
 
@@ -248,6 +270,9 @@ export function toProjectDto(p: ProjectRow, stats: ProjectStats): ProjectDto {
     currency: p.currency,
     isTemplate: p.isTemplate,
     durationUnit: p.durationUnit,
+    // A12 round 2: cover image (or the generated cover in the project's stable colour).
+    hasCover: !!p.coverFileId,
+    color: projectColor(p.id),
     ...projectMoney(p.budget === null ? null : Number(p.budget), stats.roots),
   };
 }

@@ -286,6 +286,8 @@ export class FilesService {
           { entityType: 'logo', logo: { is: null } },
           { entityType: 'member_photo', memberPhotos: { none: {} } },
           { entityType: 'user_photo', userPhotos: { none: {} } },
+          // A12 round 2: a project cover that no project links to (replaced, or never confirmed).
+          { entityType: 'project_cover', projectCovers: { none: {} } },
           // A9 imports: a preview lives one hour; the upload is never needed after a day.
           { entityType: 'import' },
         ],

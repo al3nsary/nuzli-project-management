@@ -1,6 +1,6 @@
 import { can, canAny, type Permission, type PermissionSubject } from '@nuzli/shared';
 
-export type FileEntity = 'violation' | 'task' | 'logo' | 'member_photo' | 'user_photo' | 'import';
+export type FileEntity = 'violation' | 'task' | 'logo' | 'member_photo' | 'user_photo' | 'import' | 'project_cover';
 
 /** Object-key folder per entity: `{folder}/{yyyy}/{mm}/{uuid}.{ext}` (brief §3.2). */
 export const ENTITY_FOLDERS: Record<FileEntity, string> = {
@@ -10,13 +10,14 @@ export const ENTITY_FOLDERS: Record<FileEntity, string> = {
   member_photo: 'member-photos',
   user_photo: 'user-photos',
   import: 'imports',
+  project_cover: 'project-covers',
 };
 
 /**
  * Entities whose uploads are scoped by a hook (entity id, limits, linking at confirm). Without
  * its hook registered such an upload is refused instead of being accepted unchecked.
  */
-export const HOOKED_ENTITIES: ReadonlySet<FileEntity> = new Set<FileEntity>(['violation', 'task', 'member_photo', 'user_photo']);
+export const HOOKED_ENTITIES: ReadonlySet<FileEntity> = new Set<FileEntity>(['violation', 'task', 'member_photo', 'user_photo', 'project_cover']);
 
 /**
  * Who may upload a file for each entity type (the coarse gate; hooks add the data scope).
@@ -34,6 +35,8 @@ const UPLOAD_PERMISSIONS: Record<FileEntity, Permission[]> = {
   user_photo: ['profile.update', 'users.manageRoles'],
   // A9 (ADR-110): project imports are admin-only (projects.create).
   import: ['projects.create'],
+  // A12 round 2: the project cover (admins, assistants with projects:edit).
+  project_cover: ['projects.manage'],
 };
 
 /**
@@ -49,6 +52,8 @@ const READ_PERMISSIONS: Record<FileEntity, Permission[]> = {
   user_photo: ['users.read', 'cards.print'],
   // Only the uploader reads an import file (the importer reads it server-side).
   import: [],
+  // A12 round 2: read through GET /projects/:id/cover-url (scoped to the viewer's projects).
+  project_cover: ['projects.readAll'],
 };
 
 export function canUpload(user: PermissionSubject, entity: FileEntity, kind?: string, entityId?: string): boolean {

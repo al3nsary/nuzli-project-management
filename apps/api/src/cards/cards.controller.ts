@@ -39,7 +39,7 @@ export class CardsController {
   // ─────────────── sizes
 
   @Get('sizes')
-  @RequireAnyPermission('cards.print', 'cards.manageTemplates')
+  @RequireAnyPermission('cards.print', 'cards.manageTemplates', 'cards.read')
   @ApiOperation({ summary: 'مقاسات الكروت' })
   sizes(): Promise<CardSizeDto[]> {
     return this.cards.listSizes();
@@ -66,7 +66,7 @@ export class CardsController {
   // ─────────────── templates
 
   @Get('templates')
-  @RequireAnyPermission('cards.print', 'cards.manageTemplates')
+  @RequireAnyPermission('cards.print', 'cards.manageTemplates', 'cards.read')
   @ApiOperation({ summary: 'قوالب الكروت' })
   templates(): Promise<CardTemplateDto[]> {
     return this.cards.listTemplates();
@@ -135,14 +135,14 @@ export class CardsController {
   }
 
   @Get('batches')
-  @RequirePermission('cards.print')
+  @RequireAnyPermission('cards.print', 'cards.read')
   @ApiOperation({ summary: 'سجل الطباعة' })
   batches(@ZodQuery(paginationQuery) q: z.output<typeof paginationQuery>): Promise<Paginated<PrintBatchDto>> {
     return this.print.listBatches(q);
   }
 
   @Get('batches/:id')
-  @RequirePermission('cards.print')
+  @RequireAnyPermission('cards.print', 'cards.read')
   @ApiOperation({ summary: 'دفعة طباعة بكروتها' })
   batch(@Param('id', UuidPipe) id: string): Promise<PrintBatchDetailDto> {
     return this.print.getBatch(id);
@@ -163,7 +163,7 @@ export class LogosController {
   constructor(private readonly cards: CardsService) {}
 
   @Get()
-  @RequireAnyPermission('cards.print', 'logos.manage')
+  @RequireAnyPermission('cards.print', 'logos.manage', 'cards.read')
   @ApiOperation({ summary: 'الشعارات (مع رابط عرض مؤقت)' })
   list(): Promise<LogoDto[]> {
     return this.cards.listLogos();

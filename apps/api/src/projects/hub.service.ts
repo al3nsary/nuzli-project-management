@@ -19,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { activeWorkspaceId, activeWorkspaceIdOrNull } from '../prisma/workspace-context';
 import { preview } from './task-collab.service';
 import { addCalendarDaysIso } from './task-engine';
+import { participantProjectIds, peerIds, projectLimit } from '../access/access-context';
 
 type Viewer = PermissionSubject & { id: string };
 type HubQuery = z.output<typeof hubQuerySchema>;
@@ -97,16 +98,36 @@ export function likePattern(term: string): string {
 /**
  * The task scope of ADR-092 in SQL, over `tasks t JOIN projects p` (security review A9 L4: the
  * scope is a join, never a list of ids). ADMIN (`projects.readAll`): every live task of a
- * non-template project. SUPERVISOR (`tasks.readAssigned`): only the live tasks assigned to them in
- * non-archived projects. Anyone else: nothing.
+ * non-template project (A12 round 2: an assistant limited to some projects — those). SUPERVISOR
+ * (`tasks.readAssigned`): the live tasks assigned to them or to a supervisor of the same team(s),
+ * in non-archived projects; a project participant: every task of their projects. Anyone else: nothing.
  */
 export function taskScopeSql(viewer: Viewer, workspaceId: string | null = activeWorkspaceIdOrNull()): Prisma.Sql {
   // A12 (ADR-143): raw SQL carries the workspace filter itself — no workspace, no rows.
   if (!workspaceId) return Prisma.sql`FALSE`;
   const base = Prisma.sql`t.workspace_id = ${workspaceId}::uuid AND p.workspace_id = ${workspaceId}::uuid AND t.archived_at IS NULL AND p.is_template = false`;
-  if (can(viewer, 'projects.readAll')) return base;
-  if (can(viewer, 'tasks.readAssigned')) return Prisma.sql`${base} AND t.assignee_id = ${viewer.id}::uuid AND p.archived_at IS NULL`;
-  return Prisma.sql`FALSE`;
+  if (can(viewer, 'projects.readAll')) {
+    // A12 round 2: an assistant limited to some projects.
+    const limit = projectLimit(viewer);
+    if (!limit) return base;
+    if (!limit.length) return Prisma.sql`FALSE`;
+    return Prisma.sql`${base} AND t.project_id IN (${Prisma.join(limit.map((id) => Prisma.sql`${id}::uuid`))})`;
+  }
+  // A12 round 2: own tasks + the team's supervisors' tasks (owner rule) OR the participant's projects.
+  const grants: Prisma.Sql[] = [];
+  if (can(viewer, 'tasks.readAssigned')) {
+    const peers = peerIds(viewer);
+    grants.push(
+      peers.length === 1
+        ? Prisma.sql`t.assignee_id = ${peers[0]}::uuid`
+        : Prisma.sql`t.assignee_id IN (${Prisma.join(peers.map((id) => Prisma.sql`${id}::uuid`))})`,
+    );
+  }
+  const part = participantProjectIds(viewer);
+  if (part.length) grants.push(Prisma.sql`t.project_id IN (${Prisma.join(part.map((id) => Prisma.sql`${id}::uuid`))})`);
+  if (!grants.length) return Prisma.sql`FALSE`;
+  if (grants.length === 1) return Prisma.sql`${base} AND ${grants[0]!} AND p.archived_at IS NULL`;
+  return Prisma.sql`${base} AND (${Prisma.join(grants, ' OR ')}) AND p.archived_at IS NULL`;
 }
 
 /** One aggregated row per comment thread in the viewer's scope (hub; L4). */

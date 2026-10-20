@@ -55,6 +55,7 @@ import {
 } from './task-engine';
 import { activeWorkspaceId } from '../prisma/workspace-context';
 import { supervisorsOf } from '../users/user-dto';
+import { mayActOnTask, participationIn, peerIds } from '../access/access-context';
 
 type Viewer = PermissionSubject & { id: string; fullName?: string };
 type CreateTask = z.output<typeof createTaskSchema>;
@@ -87,6 +88,8 @@ function siblingsOf(tasks: readonly StoredTask[], parentId: string | null, excep
  */
 export function scopeUpdateResult(res: TaskUpdateResult, viewer: PermissionSubject): TaskUpdateResult {
   if (can(viewer, 'projects.readAll')) return res;
+  // A12 round 2: a participant sees the whole project, so the roll-up rows are theirs to see.
+  if (participationIn(viewer, res.task.projectId)) return res;
   const own = res.previous?.[res.task.id];
   return { task: res.task, affected: [], previous: own ? { [res.task.id]: own } : {} };
 }
@@ -219,8 +222,9 @@ export class TasksService {
   async update(id: string, input: UpdateTask, viewer: Viewer, ctx: RequestContext): Promise<TaskUpdateResult> {
     const visible = await this.store.visibleTask(id, viewer);
     if (!can(viewer, 'tasks.manage')) {
-      // ADR-007: a supervisor changes only progress/status, and only on tasks assigned to them.
-      if (!can(viewer, 'tasks.updateAssigned') || visible.assigneeId !== viewer.id) throw new AppError('FORBIDDEN');
+      // ADR-007: a supervisor changes only progress/status, on tasks assigned to them — A12 round 2:
+      // or to a supervisor of the same team (owner rule), or in a project where they contribute.
+      if (!can(viewer, 'tasks.updateAssigned') || !mayActOnTask(viewer, visible)) throw new AppError('FORBIDDEN');
       const extra = Object.entries(input)
         .filter(([k, v]) => v !== undefined && !SUPERVISOR_FIELDS.has(k))
         .map(([k]) => k);
@@ -828,9 +832,14 @@ export class TasksService {
   // ─────────────────────────────────────────── my tasks
 
   /** Supervisor's assigned tasks across non-archived projects, by end date, with due flags. */
+  /**
+   * «مهامي» — A12 round 2 (owner rule): the supervisor's own tasks AND the tasks assigned to the
+   * other supervisors of the same team(s); `assignedToMe` tells them apart.
+   */
   async mine(viewer: Viewer, now = new Date()): Promise<MyTaskDto[]> {
+    const peers = peerIds(viewer);
     const rows = await this.prisma.task.findMany({
-      where: { assigneeId: viewer.id, archivedAt: null, project: { archivedAt: null, isTemplate: false } },
+      where: { assigneeId: peers.length === 1 ? viewer.id : { in: peers }, archivedAt: null, project: { archivedAt: null, isTemplate: false } },
       select: { ...TASK_DTO_SELECT, project: { select: { id: true, name: true, calendarId: true } } },
       orderBy: [{ endDate: 'asc' }, { startDate: 'asc' }, { name: 'asc' }],
     });
@@ -851,7 +860,7 @@ export class TasksService {
     return rows.map((r) => {
       const dto = { ...toTaskDto(r, counts, undefined, extras), unreadCount: unread.get(r.id) ?? 0 };
       const cal = cals.get(r.project.calendarId) ?? workCalendarOf({ weekendDays: [5, 6], exceptions: [] });
-      return { ...dto, project: { id: r.project.id, name: r.project.name }, ...dueFlags(dto, today, cal) };
+      return { ...dto, project: { id: r.project.id, name: r.project.name }, ...dueFlags(dto, today, cal), assignedToMe: r.assigneeId === viewer.id };
     });
   }
 

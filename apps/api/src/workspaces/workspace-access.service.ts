@@ -9,6 +9,8 @@ export interface WorkspaceAccess {
   roles: WorkspaceRole[];
   /** The matrix role used by `can()`: ADMIN for owners, else the strongest membership role. */
   role: Role | null;
+  /** A12 round 2: the ASSISTANT membership here (modules + scope), if any. */
+  assistant: { permissions: unknown; scope: unknown } | null;
 }
 
 /**
@@ -58,16 +60,18 @@ export class WorkspaceAccessService {
         name: true,
         code: true,
         status: true,
-        memberships: { where: { userId, archivedAt: null, status: 'ACTIVE' }, select: { role: true } },
+        memberships: { where: { userId, archivedAt: null, status: 'ACTIVE' }, select: { role: true, permissions: true, scope: true } },
       },
     });
     const roles = (ws?.memberships ?? []).map((m) => m.role);
+    const assistant = ws?.memberships.find((m) => m.role === 'ASSISTANT');
     if (!ws || (accountRole !== 'OWNER' && roles.length === 0)) throw new AppError('WORKSPACE_FORBIDDEN');
     if (ws.status !== 'ACTIVE') throw new AppError('WORKSPACE_ARCHIVED');
     return {
       workspace: { id: ws.id, name: ws.name, code: ws.code },
       roles,
       role: accountRole === 'OWNER' ? 'ADMIN' : effectiveRole(roles),
+      assistant: assistant ? { permissions: assistant.permissions, scope: assistant.scope } : null,
     };
   }
 

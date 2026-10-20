@@ -149,6 +149,7 @@ describe('logo and member-photo uploads (security review L3)', () => {
       { entityType: 'logo', logo: { is: null } },
       { entityType: 'member_photo', memberPhotos: { none: {} } },
       { entityType: 'user_photo', userPhotos: { none: {} } },
+      { entityType: 'project_cover', projectCovers: { none: {} } },
       { entityType: 'import' },
     ]);
     expect(s.storage.delete).toHaveBeenCalledWith(FINAL);

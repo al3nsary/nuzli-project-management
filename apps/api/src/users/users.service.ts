@@ -67,6 +67,7 @@ export class UsersService {
     return toUserDto(row, {
       fullNationalId: full && can(viewer, 'nationalIds.readFull'),
       crypto: this.crypto,
+      viewerIsOwner: viewer.accountRole === 'OWNER',
     });
   }
 

@@ -106,6 +106,9 @@ export interface FakeData {
   importPreviews: Row[];
   /** A12: workspace memberships — derived from `users[].role` in the unit-test workspace. */
   memberships: Row[];
+  /** A12 round 2: project participants and team leadership rows (supervisor team peers). */
+  participants: Row[];
+  teamSupervisors: Row[];
 }
 
 type Table = keyof FakeData;
@@ -283,6 +286,8 @@ const MODELS: Record<string, ModelDef> = {
   },
   file: { table: 'files', defaults: (r) => ({ id: randomUUID(), status: 'READY', deletedAt: null, createdAt: now(), ...r }) },
   auditLog: { table: 'audit' },
+  projectParticipant: { table: 'participants', pk: ['projectId', 'userId'], defaults: (r) => ({ createdAt: now(), ...r }) },
+  teamSupervisor: { table: 'teamSupervisors' },
   importPreview: { table: 'importPreviews', defaults: (r) => ({ id: randomUUID(), fileId: null, createdAt: now(), ...r }) },
 };
 
@@ -342,6 +347,8 @@ export function createFakeDb(initial: Partial<FakeData>) {
     files: [],
     importPreviews: [],
     memberships: [],
+    participants: [],
+    teamSupervisors: [],
     ...initial,
   };
   // A12: every fake user holds its role as a membership of the unit-test workspace.

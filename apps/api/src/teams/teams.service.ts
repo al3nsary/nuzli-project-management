@@ -13,7 +13,8 @@ import { mapPrismaError } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { ColorsService } from '../colors/colors.service';
 import { CryptoService } from '../crypto/crypto.service';
-import { hideDuplicateNationalId, insertMembers, moveMembersInTx, type MemberInputData } from '../members/member-writes';
+import { assertNewMembersInsertable, hideDuplicateNationalId, insertMembers, moveMembersInTx, type MemberInputData } from '../members/member-writes';
+import { MemberRequestsService } from '../members/member-requests.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -27,6 +28,7 @@ import {
   LEADERS_SELECT,
   leaderIds,
   ledByWhere,
+  teamLimitWhere,
   MEMBER_SELECT,
   OPEN_LEADERS,
   RESERVING,
@@ -72,6 +74,7 @@ export class TeamsService {
     private readonly settings: SettingsService,
     private readonly users: UsersService,
     private readonly colors: ColorsService,
+    private readonly requests: MemberRequestsService,
   ) {}
 
   // ─────────────────────────────────────────── reads
@@ -79,7 +82,7 @@ export class TeamsService {
   async list(query: TeamListQuery, viewer: Viewer): Promise<TeamDto[]> {
     const where: Prisma.TeamWhereInput = {
       // A9 (ADR-100): a supervisor sees every team they lead, primary or not.
-      ...(canReadAllTeams(viewer) ? {} : ledByWhere(viewer.id)),
+      ...(canReadAllTeams(viewer) ? teamLimitWhere(viewer) : ledByWhere(viewer.id)),
       // Default: the teams that matter today (active + pending). ARCHIVED or ALL on request.
       ...(query.status === 'ALL' ? {} : { status: query.status ? query.status : { in: RESERVING } }),
       ...(query.q ? { name: { contains: query.q.trim(), mode: 'insensitive' as const } } : {}),
@@ -96,7 +99,7 @@ export class TeamsService {
   async get(id: string, viewer: Viewer): Promise<TeamDetailDto> {
     const team = await this.prisma.team.findUnique({ where: { id }, select: TEAM_SELECT });
     if (!team) throw new AppError('NOT_FOUND');
-    assertTeamReadable(viewer, { supervisors: team.supervisors });
+    assertTeamReadable(viewer, { id: team.id, supervisors: team.supervisors });
     return this.detail(this.prisma, team);
   }
 
@@ -119,7 +122,7 @@ export class TeamsService {
 
   /** Every leadership row of the team (all supervisors, primary or not), newest first. */
   async supervisorHistory(id: string, viewer: Viewer): Promise<SupervisorHistoryDto[]> {
-    const team = await this.prisma.team.findUnique({ where: { id }, select: { supervisors: OPEN_LEADERS } });
+    const team = await this.prisma.team.findUnique({ where: { id }, select: { id: true, supervisors: OPEN_LEADERS } });
     if (!team) throw new AppError('NOT_FOUND');
     assertTeamReadable(viewer, team);
     const rows = await this.prisma.teamSupervisor.findMany({
@@ -145,7 +148,7 @@ export class TeamsService {
 
   /** `GET /teams/:id/supervisors` — the current supervisors and the full history. */
   async supervisors(id: string, viewer: Viewer): Promise<TeamSupervisorsDto> {
-    const team = await this.prisma.team.findUnique({ where: { id }, select: { supervisors: LEADERS_SELECT } });
+    const team = await this.prisma.team.findUnique({ where: { id }, select: { id: true, supervisors: LEADERS_SELECT } });
     if (!team) throw new AppError('NOT_FOUND');
     assertTeamReadable(viewer, team);
     return { current: toSupervisorDtos(team.supervisors), history: await this.supervisorHistory(id, viewer) };
@@ -168,6 +171,9 @@ export class TeamsService {
         ? 'PENDING_APPROVAL'
         : 'ACTIVE';
     const allowMultiple = await this.settings.get('ALLOW_MULTIPLE_TEAMS_PER_SUPERVISOR');
+    // A12 round 2 (owner rule): a supervisor's new workers wait for an approver. In a team that
+    // itself waits for approval they arrive with it; in a team active at once they become requests.
+    const deferMembers = !can(viewer, 'members.manage') && status === 'ACTIVE' && input.members.length > 0;
 
     const result = await hideDuplicateNationalId(viewer, this.audit, ctx, { via: 'teams.create' }, () =>
       this.guard(() =>
@@ -197,6 +203,7 @@ export class TeamsService {
         if (input.existingMemberIds.length) {
           await this.assertExistingMembersUsable(tx, input.existingMemberIds, viewer);
         }
+        if (deferMembers) await assertNewMembersInsertable(tx, this.crypto, input.members);
 
         const team = await tx.team.create({
           data: {
@@ -219,7 +226,7 @@ export class TeamsService {
             addedById: viewer.id,
           })),
         });
-        const newIds = await insertMembers(tx, this.crypto, input.members, {
+        const newIds = await insertMembers(tx, this.crypto, deferMembers ? [] : input.members, {
           teamId: team.id,
           at: t,
           actorId: viewer.id,
@@ -256,6 +263,11 @@ export class TeamsService {
       ),
     );
 
+    if (deferMembers) {
+      for (const m of input.members) {
+        await this.requests.requestAdd(result.row.id, m, viewer, ctx).catch((err: Error) => this.logger.warn(`Member request failed: ${err.message}`));
+      }
+    }
     if (result.newSupervisor) {
       await this.users
         .sendSetPasswordEmail(result.newSupervisor.user, result.newSupervisor.token)

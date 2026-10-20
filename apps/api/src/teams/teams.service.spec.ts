@@ -234,6 +234,8 @@ function setup(
     settings as never,
     users as never,
     colors,
+    // A12 round 2: a supervisor's inline workers in a team active at once become requests.
+    { requestAdd: jest.fn().mockResolvedValue(undefined) } as never,
   );
   const actions = () => tx.auditLog.create.mock.calls.map((c) => (c[0] as { data: { action: string } }).data.action);
   return { svc, tx, prisma, notifications, users, leaders, teamState, actions, created: () => createdData };

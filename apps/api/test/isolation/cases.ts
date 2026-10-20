@@ -34,6 +34,14 @@ export interface Case {
   allow2xx?: string;
   /** The positive control (admin of A, A's own ids) for a GET route: false when not meaningful. */
   positive?: false | { reason: string };
+  /**
+   * A12 round 2: owners act on every workspace BY DESIGN (workspaces, owners, every account).
+   * Their probes are not run here — test/isolation/a12-round2.pg-spec.ts covers what an owner
+   * may do and that it is audited. Every other identity is probed as usual.
+   */
+  ownerSkip?: string;
+  /** A12 round 2: an owner-only route — every non-owner probe must be refused, ids or not. */
+  ownerOnly?: boolean;
 }
 
 const today = '2026-10-15';
@@ -76,11 +84,17 @@ export function paramId(route: string, param: string, f: WorkspaceFixture): stri
     [/^\/org\/units/, 'id', ids.unit!],
     [/^\/portfolios/, 'id', ids.portfolio!],
     [/^\/portfolios/, 'projectId', ids.project!],
+    [/^\/projects\/:id\/participants/, 'userId', u.monitor],
     [/^\/projects/, 'id', ids.project!],
     [/^\/projects/, 'userId', u.supervisor],
     [/^\/reference/, 'kind', 'departments'],
     [/^\/reference/, 'id', ids.department!],
     [/^\/registrations/, 'id', u.pending],
+    [/^\/member-requests/, 'id', ids.memberRequest!],
+    [/^\/owners/, 'userId', u.admin],
+    [/^\/workspaces/, 'id', f.workspaceId!],
+    [/^\/workspaces/, 'userId', u.admin],
+    [/^\/workspaces/, 'membershipId', ids.membership!],
     [/^\/tasks/, 'id', ids.task!],
     [/^\/tasks/, 'fileId', ids.taskFile!],
     [/^\/tasks/, 'itemId', ids.checklistItem!],
@@ -100,6 +114,7 @@ export function paramId(route: string, param: string, f: WorkspaceFixture): stri
 
 const SESSION = 'session/account route of the caller only — covered by test/isolation/workspace-session.pg-spec.ts';
 const PUBLIC = 'public route without workspace data';
+const OWNER_ADMIN = 'owners act on every workspace and every account by design — test/isolation/a12-round2.pg-spec.ts';
 
 export const CASES: Record<string, Case> = {
   // ─────────────────────────────── public, session, health
@@ -119,11 +134,38 @@ export const CASES: Record<string, Case> = {
   'POST /auth/switch-workspace': { skip: 'membership check of the target workspace (owners may enter any) — workspace-session suite' },
   'GET /system/info': { skip: SESSION },
 
+  // ─────────────────────────────── A12 round 2 — owners and workspaces (owners act on every workspace by design)
+  'GET /owners': { ownerOnly: true, ownerSkip: OWNER_ADMIN, positive: false },
+  'POST /owners': { ownerOnly: true, ownerSkip: OWNER_ADMIN, body: (f) => ({ userId: f.t.users.supervisor }) },
+  'DELETE /owners/:userId': { ownerOnly: true, ownerSkip: OWNER_ADMIN },
+  'GET /workspaces': { ownerOnly: true, ownerSkip: OWNER_ADMIN, positive: false },
+  'POST /workspaces': { ownerOnly: true, ownerSkip: OWNER_ADMIN, body: () => ({ name: 'قسم العزل' }) },
+  'PATCH /workspaces/:id': { ownerOnly: true, ownerSkip: OWNER_ADMIN, body: () => ({ name: 'اسم جديد' }) },
+  'POST /workspaces/:id/archive': { ownerOnly: true, ownerSkip: OWNER_ADMIN },
+  'POST /workspaces/:id/restore': { ownerOnly: true, ownerSkip: OWNER_ADMIN },
+  'GET /workspaces/:id/summary': { ownerOnly: true, ownerSkip: OWNER_ADMIN, positive: false },
+  'GET /workspaces/:id/admins': { ownerOnly: true, ownerSkip: OWNER_ADMIN, positive: false },
+  'POST /workspaces/:id/admins': { ownerOnly: true, ownerSkip: OWNER_ADMIN, body: (f) => ({ userId: f.t.users.supervisor, confirmDualRole: true }) },
+  'DELETE /workspaces/:id/admins/:userId': { ownerOnly: true, ownerSkip: OWNER_ADMIN },
+  'GET /workspaces/:id/members': { ownerSkip: OWNER_ADMIN },
+  'POST /workspaces/:id/members': {
+    ownerSkip: OWNER_ADMIN,
+    body: (f) => ({ userId: f.t.users.monitor, role: 'SUPERVISOR', confirmDualRole: true }),
+    extra: [{ label: 'by identifier', body: (f) => ({ identifier: f.t.users.admin, role: 'ASSISTANT', permissions: { projects: 'view' }, confirmDualRole: true }) }],
+  },
+  'PATCH /workspaces/:id/members/:membershipId': { ownerSkip: OWNER_ADMIN, body: () => ({ title: 'منصب جديد' }) },
+  'DELETE /workspaces/:id/members/:membershipId': { ownerSkip: OWNER_ADMIN },
+
   // ─────────────────────────────── users & registrations
   'GET /users': { query: (f) => ({ q: f.t.tag }) },
   'POST /users/search': { allow2xx: 'a search filter, nothing of B can match', body: (f) => ({ q: f.t.tag, page: 1, pageSize: 50 }) },
   'GET /users/supervisors': {},
   'GET /users/:id': {},
+  // A12 round 2 — account administration (owners may edit every account by design)
+  'GET /users/all': { ownerOnly: true, ownerSkip: OWNER_ADMIN, query: (f) => ({ q: f.t.tag }) },
+  'PATCH /users/:id': { ownerSkip: OWNER_ADMIN, body: () => ({ fullName: 'اسم جديد للعزل' }) },
+  'POST /users/:id/username': { ownerSkip: OWNER_ADMIN, body: () => ({ username: `iso${randomUUID().slice(0, 6)}` }) },
+  'POST /users/:id/password': { ownerSkip: OWNER_ADMIN, body: () => ({ password: 'Isolation-Pass-9', mustChangePassword: true }) },
   'POST /users': {
     body: () => ({ fullName: 'مستخدم اختبار', email: `iso-${randomUUID().slice(0, 8)}@nuzli.test`, mobile: `05${String(Date.now()).slice(-8)}`, nationalId: nid(), role: 'MONITOR' }),
     allow2xx: 'creates a user in the CALLER’s workspace only (no B id involved)',
@@ -175,6 +217,12 @@ export const CASES: Record<string, Case> = {
   'POST /members/move': { body: (f) => ({ memberIds: [f.t.ids.member], toTeamId: f.t.ids.team }), extra: [{ label: 'B members into A team', body: (f) => ({ memberIds: [f.t.ids.member], toTeamId: f.A.ids.team }) }] },
   'POST /members/import': { body: (f) => ({ teamId: f.t.ids.team, rows: [{ fullName: 'عامل', nationalId: nid() }], commit: true }) },
   'GET /members/:id/photo-url': {},
+  // A12 round 2 — removing a worker (admins directly; a supervisor's call becomes a request)
+  'POST /members/:id/archive': { body: () => ({ reason: 'اختبار العزل' }) },
+  'GET /member-requests': { query: (f) => ({ teamId: f.t.ids.team, status: 'ALL' }) },
+  'GET /member-requests/:id': {},
+  'POST /member-requests/:id/approve': {},
+  'POST /member-requests/:id/reject': { body: () => ({ reason: 'اختبار العزل' }) },
   'DELETE /members/:id/photo': {},
   'GET /colors': {},
   'GET /colors/available': { query: (f) => ({ teamId: f.t.ids.team }) },
@@ -235,6 +283,14 @@ export const CASES: Record<string, Case> = {
   'GET /projects/:id/people': {},
   'GET /projects/:id/calendar': { query: () => ({ from: '2026-10-01', to: '2026-10-31' }) },
   'GET /project-templates': {},
+  // A12 round 2 — participants and the cover image
+  'GET /me/participations': {},
+  'GET /projects/:id/participants': {},
+  'POST /projects/:id/participants': { body: (f) => ({ userId: f.t.users.supervisor, title: 'منصب العزل', level: 'VIEWER' }) },
+  'PATCH /projects/:id/participants/:userId': { body: () => ({ level: 'EDITOR' }) },
+  'DELETE /projects/:id/participants/:userId': {},
+  'GET /projects/:id/cover-url': { positive: { reason: 'the fixture projects have no cover (404 for A too)' } },
+  'DELETE /projects/:id/cover': {},
   'GET /tasks/mine': {},
   'GET /tasks/:id': {},
   'PATCH /tasks/:id': { body: (f) => ({ version: 0, name: 'اسم جديد', assigneeId: f.t.users.supervisor, parentId: f.t.ids.task2 }) },
@@ -363,6 +419,7 @@ export const CASES: Record<string, Case> = {
       { label: 'violation photo', body: (f) => ({ entityType: 'violation', entityId: f.t.ids.violation, kind: 'EVIDENCE', contentType: 'image/jpeg', sizeBytes: 100 }) },
       { label: 'member photo', body: (f) => ({ entityType: 'member_photo', entityId: f.t.ids.member, kind: 'PHOTO', contentType: 'image/png', sizeBytes: 100 }) },
       { label: 'user photo', body: (f) => ({ entityType: 'user_photo', entityId: f.t.users.supervisor, kind: 'PHOTO', contentType: 'image/png', sizeBytes: 100 }) },
+      { label: 'project cover', body: (f) => ({ entityType: 'project_cover', entityId: f.t.ids.project, contentType: 'image/png', sizeBytes: 100 }) },
     ],
   },
   'POST /files/:id/confirm': {},

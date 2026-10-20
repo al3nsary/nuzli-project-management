@@ -29,6 +29,7 @@ import { dateOf, deadlinePassed, dueFlags, isoOf, localOf, riyadhToday, workCale
 import { compareWbs } from './tasks-export';
 import { activeWorkspaceId } from '../prisma/workspace-context';
 import { memberOf, supervisorsOf } from '../users/user-dto';
+import { projectLimit } from '../access/access-context';
 
 type Viewer = PermissionSubject & { id: string };
 
@@ -130,7 +131,7 @@ export class ProjectReportsService {
           ? { OR: [{ archivedAt: { not: null } }, { status: 'ARCHIVED' }] }
           : { archivedAt: null, ...(status ? { status: status as Prisma.EnumProjectStatusFilter['equals'] } : {}) };
     const projects = await this.prisma.project.findMany({
-      where: { AND: [projectScopeWhere(viewer), { isTemplate: false }, statusWhere] },
+      where: { AND: [projectScopeWhere(viewer, { reports: true }), { isTemplate: false }, statusWhere] },
       select: PROJECT_SELECT,
       orderBy: { createdAt: 'desc' },
     });
@@ -183,7 +184,10 @@ export class ProjectReportsService {
   }
 
   /** `GET /workload` — supervisors (or `userIds`) per day, assigned vs logged minutes. */
-  async workload(q: { from: string; to: string; userIds?: string[] }): Promise<WorkloadDto> {
+  async workload(q: { from: string; to: string; userIds?: string[] }, viewer?: Viewer): Promise<WorkloadDto> {
+    // A12 round 2: an assistant limited to some projects counts only those projects.
+    const limit = viewer ? projectLimit(viewer) : null;
+    const projectWhere = { archivedAt: null, isTemplate: false, ...(limit ? { id: { in: limit } } : {}) };
     const problem = rangeProblem(q.from, q.to, 92);
     if (problem) throw new AppError('VALIDATION_FAILED', { fieldErrors: { to: [problem] } });
     const users = await this.prisma.user.findMany({
@@ -202,7 +206,7 @@ export class ProjectReportsService {
           type: 'TASK',
           startDate: { lte: dateOf(q.to) },
           endDate: { gte: dateOf(q.from) },
-          project: { archivedAt: null, isTemplate: false },
+          project: projectWhere,
         },
         select: { assigneeId: true, type: true, startDate: true, endDate: true, startAt: true, endAt: true, project: { select: { calendarId: true } } },
       }),
@@ -212,7 +216,7 @@ export class ProjectReportsService {
         where: {
           userId: { in: userIds },
           date: { gte: dateOf(q.from), lte: dateOf(q.to) },
-          task: { archivedAt: null, project: { archivedAt: null, isTemplate: false } },
+          task: { archivedAt: null, project: projectWhere },
         },
         select: { userId: true, date: true, minutes: true },
       }),

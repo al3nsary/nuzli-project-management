@@ -48,6 +48,9 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
       }),
     },
     setting: { findMany: jest.fn().mockResolvedValue([]) },
+    // A12 round 2: the guard loads project participations and the supervisor's team peers.
+    projectParticipant: { findMany: jest.fn().mockResolvedValue([]) },
+    teamSupervisor: { findMany: jest.fn().mockResolvedValue([]) },
   };
 
   beforeAll(async () => {

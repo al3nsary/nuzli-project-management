@@ -538,8 +538,9 @@ export class ViolationsService {
 
   // ─────────────────────────────────────────── statistics (ADMIN)
 
-  async stats(f: ViolationFilter, now = new Date()): Promise<ViolationStats> {
-    const q = statsQueries(f, now);
+  /** A12 round 2: `teamIds` = an assistant's team scope (null = every team). */
+  async stats(f: ViolationFilter, now = new Date(), teamIds: string[] | null = null): Promise<ViolationStats> {
+    const q = statsQueries(f, now, teamIds);
     const run = <T>(sql: Prisma.Sql) => this.prisma.$queryRaw<T>(sql);
     const [totals, byTeam, topMembers, byMonitor, byType, bySeverity, trend, heatmap, points, unassigned] = await Promise.all([
       run<StatsRows['totals']>(q.totals),
@@ -647,10 +648,10 @@ export class ViolationsService {
    * `PDF_SERVICE_URL` is set. Sends `{ kind, filters, stats, generatedAt }` to
    * `POST {PDF_SERVICE_URL}/render/violations-dashboard`; audited `violations.dashboard_exported`.
    */
-  async streamDashboardPdf(f: ViolationFilter, res: Response, ctx: RequestContext, now = new Date()): Promise<void> {
+  async streamDashboardPdf(f: ViolationFilter, res: Response, ctx: RequestContext, now = new Date(), teamIds: string[] | null = null): Promise<void> {
     const base = this.cfg.PDF_SERVICE_URL;
     if (!base) throw new AppError('PDF_NOT_CONFIGURED');
-    const stats = await this.stats(f, now);
+    const stats = await this.stats(f, now, teamIds);
     let upstream: globalThis.Response;
     try {
       upstream = await fetch(`${base.replace(/\/$/, '')}/render/violations-dashboard`, {

@@ -8,6 +8,10 @@ const UNIQUE_TARGETS: Array<[RegExp, ErrorCode]> = [
   // A9: one open leadership row per (team, user); a live org-unit code is unique.
   [/team_supervisors_one_open_uq|team_id,\s*user_id|teamId,\s*userId/, 'SUPERVISOR_ALREADY_IN_TEAM'],
   [/org_units_code_uq|lower\(code\)/, 'NAME_TAKEN'],
+  // A12 round 2
+  [/workspaces_code_key|^code$/, 'WORKSPACE_CODE_TAKEN'],
+  [/workspace_id,\s*user_id,\s*role|workspaceId,\s*userId,\s*role/, 'MEMBERSHIP_EXISTS'],
+  [/project_participants_pkey|project_id,\s*user_id|projectId,\s*userId/, 'PARTICIPANT_EXISTS'],
   [/national_id_hash|nationalIdHash/, 'NATIONAL_ID_TAKEN'],
   [/username/, 'USERNAME_TAKEN'],
   [/email/, 'EMAIL_TAKEN'],

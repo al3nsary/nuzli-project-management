@@ -116,6 +116,12 @@ export const NotificationType = {
   /** A9: the task deadline passed and the task is not DONE (once per deadline). */
   TASK_DEADLINE_PASSED: 'TASK_DEADLINE_PASSED',
   VIOLATION_OBJECTION: 'VIOLATION_OBJECTION',
+  /** A12 round 2: a supervisor asked to add or remove a worker (to the approvers). */
+  MEMBER_REQUEST_CREATED: 'MEMBER_REQUEST_CREATED',
+  /** A12 round 2: the request was approved or rejected (to the supervisor who asked). */
+  MEMBER_REQUEST_DECIDED: 'MEMBER_REQUEST_DECIDED',
+  /** A12 round 2: you were added to a project as a participant. */
+  PROJECT_PARTICIPANT_ADDED: 'PROJECT_PARTICIPANT_ADDED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 export const NOTIFICATION_TYPES = Object.values(NotificationType);
@@ -128,7 +134,8 @@ export type AccountRole = (typeof AccountRole)[keyof typeof AccountRole];
 
 /**
  * A12: the role of a user inside one workspace. ADMIN/SUPERVISOR/MONITOR keep today's rights,
- * scoped to that workspace. ASSISTANT and MEMBER carry no permission until A12 round 2 defines them.
+ * scoped to that workspace. ASSISTANT (مساعد): the modules an admin grants (a12-access.ts).
+ * MEMBER (عضو): no workspace right of its own — a person added to projects as a participant.
  */
 export const WorkspaceRole = {
   ADMIN: 'ADMIN',
@@ -148,7 +155,7 @@ export type WorkspaceMembershipStatus = (typeof WorkspaceMembershipStatus)[keyof
 
 /**
  * A12: the matrix role (today's Role) a set of workspace roles maps to, strongest first.
- * ASSISTANT / MEMBER map to nothing in round 1.
+ * ASSISTANT / MEMBER map to no matrix role: their rights are grants (assistant modules, project participation).
  */
 export function effectiveRole(roles: readonly string[]): Role | null {
   if (roles.includes('ADMIN')) return 'ADMIN';

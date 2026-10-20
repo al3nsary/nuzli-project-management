@@ -1,8 +1,11 @@
-import { Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   addTeamSupervisorSchema,
+  can,
+  type MemberRequestAcceptedDto,
   archiveTeamSchema,
   changeSupervisorSchema,
   createTeamSchema,
@@ -24,6 +27,7 @@ import { CurrentUser, ReqCtx, RequireAnyPermission, RequirePermission } from '..
 import type { AuthUser, RequestContext } from '../common/request';
 import { UuidPipe } from '../common/uuid.pipe';
 import { ZodBody, ZodQuery } from '../common/zod-openapi';
+import { MemberRequestsService } from '../members/member-requests.service';
 import { MembersService } from '../members/members.service';
 import { TeamsService } from './teams.service';
 
@@ -39,6 +43,7 @@ export class TeamsController {
   constructor(
     private readonly teams: TeamsService,
     private readonly members: MembersService,
+    private readonly requests: MemberRequestsService,
   ) {}
 
   @Get()
@@ -231,13 +236,20 @@ export class TeamsController {
   // Review L7: slows down probing for existing national IDs through member creation.
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @RequireAnyPermission('members.manage', 'members.manageOwn')
-  @ApiOperation({ summary: 'إضافة عضو جديد إلى الفريق' })
-  addMember(
+  @ApiOperation({ summary: 'إضافة عضو: مباشرة للمدير (201)، وطلبًا ينتظر الاعتماد للمشرف (202)' })
+  async addMember(
     @Param('id', UuidPipe) id: string,
     @ZodBody(memberInputSchema) body: z.output<typeof memberInputSchema>,
     @CurrentUser() viewer: AuthUser,
     @ReqCtx() ctx: RequestContext,
-  ): Promise<MemberDto> {
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<MemberDto | MemberRequestAcceptedDto> {
+    // A12 round 2 (owner rule): a supervisor's new worker waits for an approver.
+    if (!can(viewer, 'members.manage')) {
+      const out = await this.requests.requestAdd(id, body, viewer, ctx);
+      res.status(202);
+      return out;
+    }
     return this.members.createInTeam(id, body, viewer, ctx);
   }
 }

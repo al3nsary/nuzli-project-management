@@ -73,7 +73,7 @@ function setup(opts: { user?: Partial<typeof USER> | null; existing?: Array<{ id
   };
   const access = { sign: jest.fn(() => 'jwt'), ttlSeconds: 900 };
   const refreshTokens = { issue: jest.fn().mockResolvedValue({ token: 'rt' }), revokeAllForUser: jest.fn() };
-  const notifications = { notifyAdmins: jest.fn().mockResolvedValue(undefined) };
+  const notifications = { notifyAdmins: jest.fn().mockResolvedValue(undefined), notifyApprovers: jest.fn().mockResolvedValue(undefined) };
   const mail = { send: jest.fn().mockResolvedValue(undefined) };
   // A12: a single workspace the user belongs to.
   const ws = { id: 'ws-1', name: 'إدارة المشاريع', code: 'projects', roles: ['ADMIN'] };
@@ -115,7 +115,8 @@ describe('registration does not reveal existing accounts (security review M4)', 
     const s = setup();
     await expect(s.auth.register(registration, ctx())).resolves.toEqual({ status: 'PENDING' });
     expect(s.tx.user.create).toHaveBeenCalled();
-    expect(s.notifications.notifyAdmins).toHaveBeenCalledWith('REGISTRATION_REQUESTED', expect.anything());
+    // A12 round 2: the workspace's approvers (admins, owners, assistants with registrations:edit).
+    expect(s.notifications.notifyApprovers).toHaveBeenCalledWith('REGISTRATION_REQUESTED', expect.anything());
   });
 
   it('a duplicate e-mail / mobile / national ID answers the same PENDING, creates nothing and e-mails the owner', async () => {
@@ -124,7 +125,7 @@ describe('registration does not reveal existing accounts (security review M4)', 
     await expect(s.auth.register(registration, ctx())).resolves.toEqual({ status: 'PENDING' });
     await flush();
     expect(s.tx.user.create).not.toHaveBeenCalled();
-    expect(s.notifications.notifyAdmins).not.toHaveBeenCalled();
+    expect(s.notifications.notifyApprovers).not.toHaveBeenCalled();
     expect(s.mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: owner.email, subject: expect.stringContaining('محاولة تسجيل') }));
     const where = s.prisma.user.findMany.mock.calls[0]![0].where;
     expect(where.OR).toEqual([
