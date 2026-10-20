@@ -7,8 +7,11 @@ const AUDIENCE = 'nuzli-web';
 
 export interface AccessClaims {
   sub: string;
-  /** Informational only: guards always reload role and status from the database. */
-  role: string;
+  /**
+   * A12: the workspace the session is bound to (null = none chosen yet). The guard re-checks it
+   * against the user's live memberships on every request; roles are never taken from the token.
+   */
+  wid: string | null;
 }
 
 /** Short-lived HS256 access JWT kept in memory by the web app (ADR-010). */
@@ -20,8 +23,8 @@ export class AccessTokenService {
     return this.cfg.JWT_ACCESS_TTL_SECONDS;
   }
 
-  sign(user: { id: string; role: string }): string {
-    return jwt.sign({ role: user.role }, this.cfg.JWT_ACCESS_SECRET, {
+  sign(user: { id: string }, workspaceId: string | null): string {
+    return jwt.sign({ wid: workspaceId }, this.cfg.JWT_ACCESS_SECRET, {
       algorithm: 'HS256',
       subject: user.id,
       issuer: ISSUER,
@@ -39,7 +42,8 @@ export class AccessTokenService {
         audience: AUDIENCE,
       });
       if (typeof payload === 'string' || typeof payload.sub !== 'string') return null;
-      return { sub: payload.sub, role: String(payload.role ?? '') };
+      const wid = typeof payload.wid === 'string' && payload.wid.length > 0 ? payload.wid : null;
+      return { sub: payload.sub, wid };
     } catch {
       return null;
     }

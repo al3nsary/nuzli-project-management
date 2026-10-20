@@ -18,6 +18,8 @@ import type { RequestContext } from '../common/request';
 import { CryptoService } from '../crypto/crypto.service';
 import { assertReferencesExist, hideDuplicateNationalId } from '../members/member-writes';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { displayRole, memberOf, ROLE_VIEW_SELECT } from '../users/user-dto';
 import { SettingsService } from '../settings/settings.service';
 import { buildObjectKey } from '../storage/files.service';
 import { EXTENSIONS, type DetectedType } from '../storage/magic-bytes';
@@ -131,10 +133,11 @@ export class ViolationAssignService {
         if (can(viewer, 'violations.manage')) {
           suggestedUsers = (
             await this.prisma.user.findMany({
-              where: { nationalIdHash: job.idNumberHash, archivedAt: null },
-              select: { id: true, fullName: true, role: true },
+              // A12: users of this workspace only.
+              where: { nationalIdHash: job.idNumberHash, archivedAt: null, ...memberOf(activeWorkspaceId()) },
+              select: { id: true, fullName: true, ...ROLE_VIEW_SELECT },
             })
-          ).map((u) => ({ id: u.id, fullName: u.fullName, role: u.role }));
+          ).map((u) => ({ id: u.id, fullName: u.fullName, role: displayRole(u, activeWorkspaceId()) }));
         }
       }
       if (f?.name) {
@@ -231,7 +234,7 @@ export class ViolationAssignService {
     via: 'assign' | 'register',
   ): Promise<void> {
     const locked = await tx.$queryRaw<Array<{ member_id: string | null; captured_at: Date }>>`
-      SELECT member_id, captured_at FROM violations WHERE id = ${id}::uuid FOR UPDATE`;
+      SELECT member_id, captured_at FROM violations WHERE id = ${id}::uuid AND workspace_id = ${activeWorkspaceId()}::uuid FOR UPDATE`;
     const v = locked[0];
     if (!v) throw new AppError('NOT_FOUND');
     if (v.member_id) {
@@ -274,7 +277,7 @@ export class ViolationAssignService {
     const current = await this.violations.findScoped(id, viewer);
     if (!current.memberId) return this.violations.toDto(current, viewer);
     const row = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM violations WHERE id = ${id}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM violations WHERE id = ${id}::uuid AND workspace_id = ${activeWorkspaceId()}::uuid FOR UPDATE`;
       await tx.violation.update({
         where: { id },
         data: {
@@ -348,7 +351,7 @@ export class ViolationAssignService {
             }
             await assertReferencesExist(tx, [input]);
             const p = this.crypto.protectNationalId(input.nationalId);
-            const dup = await tx.teamMember.findUnique({ where: { nationalIdHash: p.hash }, select: { id: true } });
+            const dup = await tx.teamMember.findFirst({ where: { nationalIdHash: p.hash }, select: { id: true } });
             if (dup) {
               // Admins learn which member holds the ID (assign that one instead).
               throw new AppError('NATIONAL_ID_TAKEN', {

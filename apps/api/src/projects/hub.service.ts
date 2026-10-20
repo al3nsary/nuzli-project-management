@@ -16,6 +16,7 @@ import {
 import type { z } from 'zod';
 import { paginate } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeWorkspaceId, activeWorkspaceIdOrNull } from '../prisma/workspace-context';
 import { preview } from './task-collab.service';
 import { addCalendarDaysIso } from './task-engine';
 
@@ -99,8 +100,10 @@ export function likePattern(term: string): string {
  * non-template project. SUPERVISOR (`tasks.readAssigned`): only the live tasks assigned to them in
  * non-archived projects. Anyone else: nothing.
  */
-export function taskScopeSql(viewer: Viewer): Prisma.Sql {
-  const base = Prisma.sql`t.archived_at IS NULL AND p.is_template = false`;
+export function taskScopeSql(viewer: Viewer, workspaceId: string | null = activeWorkspaceIdOrNull()): Prisma.Sql {
+  // A12 (ADR-143): raw SQL carries the workspace filter itself — no workspace, no rows.
+  if (!workspaceId) return Prisma.sql`FALSE`;
+  const base = Prisma.sql`t.workspace_id = ${workspaceId}::uuid AND p.workspace_id = ${workspaceId}::uuid AND t.archived_at IS NULL AND p.is_template = false`;
   if (can(viewer, 'projects.readAll')) return base;
   if (can(viewer, 'tasks.readAssigned')) return Prisma.sql`${base} AND t.assignee_id = ${viewer.id}::uuid AND p.archived_at IS NULL`;
   return Prisma.sql`FALSE`;
@@ -128,7 +131,7 @@ export function hubStatsSql(viewer: Viewer, q: Pick<HubQuery, 'projectId' | 'q'>
   if (term) {
     const like = likePattern(term);
     parts.push(
-      Prisma.sql`(t.name ILIKE ${like} ESCAPE '\\' OR EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.body ILIKE ${like} ESCAPE '\\'))`,
+      Prisma.sql`(t.name ILIKE ${like} ESCAPE '\\' OR EXISTS (SELECT 1 FROM task_comments c2 WHERE c2.task_id = t.id AND c2.workspace_id = t.workspace_id AND c2.body ILIKE ${like} ESCAPE '\\'))`,
     );
   }
   return Prisma.sql`
@@ -139,8 +142,8 @@ export function hubStatsSql(viewer: Viewer, q: Pick<HubQuery, 'projectId' | 'q'>
            max(c.created_at) AS "lastAt"
       FROM tasks t
       JOIN projects p ON p.id = t.project_id
-      JOIN task_comments c ON c.task_id = t.id
-      LEFT JOIN task_comment_reads r ON r.task_id = t.id AND r.user_id = ${viewer.id}::uuid
+      JOIN task_comments c ON c.task_id = t.id AND c.workspace_id = t.workspace_id
+      LEFT JOIN task_comment_reads r ON r.task_id = t.id AND r.workspace_id = t.workspace_id AND r.user_id = ${viewer.id}::uuid
      WHERE ${Prisma.join(parts, ' AND ')}
      GROUP BY t.id, t.assignee_id, t.created_by, r.last_read_at`;
 }
@@ -166,7 +169,7 @@ export function attachmentWhereSql(viewer: Viewer, q: Omit<AttachmentQuery, 'pag
   return Prisma.join(parts, ' AND ');
 }
 
-const ATTACHMENT_FROM = Prisma.sql`files f JOIN tasks t ON t.id = f.entity_id JOIN projects p ON p.id = t.project_id`;
+const ATTACHMENT_FROM = Prisma.sql`files f JOIN tasks t ON t.id = f.entity_id AND t.workspace_id = f.workspace_id JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id`;
 
 /**
  * A9 communication hub (every comment thread the viewer can open, with unread counts and

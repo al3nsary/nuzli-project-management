@@ -17,6 +17,8 @@ import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import type { RequestContext } from '../common/request';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeWorkspaceId, activeWorkspaceIdOrNull } from '../prisma/workspace-context';
+import { displayRole, ROLE_VIEW_SELECT } from '../users/user-dto';
 import {
   CALENDAR_SELECT,
   DEPENDENCY_SELECT,
@@ -270,16 +272,25 @@ export class ProjectsService {
     await this.store.visibleProject(id, viewer);
     const rows = await this.prisma.projectAccess.findMany({
       where: { projectId: id },
-      select: { level: true, createdAt: true, user: { select: { id: true, fullName: true, role: true } } },
+      select: { level: true, createdAt: true, user: { select: { id: true, fullName: true, ...ROLE_VIEW_SELECT } } },
       orderBy: { createdAt: 'asc' },
     });
-    return rows.map((r) => ({ user: r.user, level: r.level, grantedAt: r.createdAt.toISOString() }));
+    const ws = activeWorkspaceIdOrNull();
+    return rows.map((r) => ({
+      user: { id: r.user.id, fullName: r.user.fullName, role: displayRole(r.user, ws) },
+      level: r.level,
+      grantedAt: r.createdAt.toISOString(),
+    }));
   }
 
   async grantAccess(id: string, input: GrantAccess, viewer: Viewer, ctx: RequestContext): Promise<ProjectAccessDto> {
     await this.store.visibleProject(id, viewer);
-    const user = await this.prisma.user.findUnique({ where: { id: input.userId }, select: { id: true, fullName: true, role: true, status: true } });
-    if (!user || user.role !== 'SUPERVISOR' || user.status !== 'ACTIVE') {
+    // A12: a SUPERVISOR of this workspace only.
+    const user = await this.prisma.user.findFirst({
+      where: { id: input.userId, status: 'ACTIVE', memberships: { some: { workspaceId: activeWorkspaceId(), role: 'SUPERVISOR', status: 'ACTIVE', archivedAt: null } } },
+      select: { id: true, fullName: true },
+    });
+    if (!user) {
       throw new AppError('VALIDATION_FAILED', { fieldErrors: { userId: ['تُمنح صلاحية عرض المشروع للمشرفين النشطين فقط'] } });
     }
     const row = await this.prisma.$transaction(async (tx) => {
@@ -295,7 +306,7 @@ export class ProjectsService {
       );
       return created;
     });
-    return { user: { id: user.id, fullName: user.fullName, role: user.role }, level: row.level, grantedAt: row.createdAt.toISOString() };
+    return { user: { id: user.id, fullName: user.fullName, role: 'SUPERVISOR' }, level: row.level, grantedAt: row.createdAt.toISOString() };
   }
 
   async revokeAccess(id: string, userId: string, viewer: Viewer, ctx: RequestContext): Promise<void> {

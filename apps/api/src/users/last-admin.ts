@@ -1,16 +1,21 @@
 import type { Prisma } from '@prisma/client';
 import { AppError } from '../common/app-error';
+import { activeWorkspaceId } from '../prisma/workspace-context';
 
 /**
- * Locks every ACTIVE admin row for the rest of the transaction (ADR-009) and returns their ids.
- * Two admins demoting each other at the same moment serialise on these locks.
+ * Locks every ACTIVE admin membership of the workspace for the rest of the transaction (ADR-009,
+ * A12: per workspace) and returns the user ids. Two admins demoting each other at the same moment
+ * serialise on these locks.
  */
-export async function lockActiveAdmins(tx: Prisma.TransactionClient): Promise<string[]> {
+export async function lockActiveAdmins(tx: Prisma.TransactionClient, workspaceId: string = activeWorkspaceId()): Promise<string[]> {
   const rows = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT id FROM users
-    WHERE role = 'ADMIN'::"Role" AND status = 'ACTIVE'::"UserStatus"
-    ORDER BY id
-    FOR UPDATE`;
+    SELECT m.user_id AS id FROM workspace_memberships m
+      JOIN users u ON u.id = m.user_id
+    WHERE m.workspace_id = ${workspaceId}::uuid
+      AND m.role = 'ADMIN'::"WorkspaceRole" AND m.status = 'ACTIVE'::"WorkspaceMembershipStatus"
+      AND m.archived_at IS NULL AND u.status = 'ACTIVE'::"UserStatus"
+    ORDER BY m.user_id
+    FOR UPDATE OF m`;
   return rows.map((r) => r.id);
 }
 
@@ -23,21 +28,22 @@ export function assertNotLastAdmin(activeAdminIds: readonly string[], targetId: 
 
 /** Would this change take the user out of the "active admin" set? */
 export function removesActiveAdmin(
-  before: { role: string; status: string },
-  after: { role: string; status: string },
+  before: { role: string | null; status: string },
+  after: { role: string | null; status: string },
 ): boolean {
   const wasActiveAdmin = before.role === 'ADMIN' && before.status === 'ACTIVE';
   const staysActiveAdmin = after.role === 'ADMIN' && after.status === 'ACTIVE';
   return wasActiveAdmin && !staysActiveAdmin;
 }
 
-/** Locks, counts, and blocks the change if it would remove the last active admin. */
+/** Locks, counts, and blocks the change if it would remove the workspace's last active admin. */
 export async function guardLastAdmin(
   tx: Prisma.TransactionClient,
   targetId: string,
-  before: { role: string; status: string },
-  after: { role: string; status: string },
+  before: { role: string | null; status: string },
+  after: { role: string | null; status: string },
+  workspaceId?: string,
 ): Promise<void> {
   if (!removesActiveAdmin(before, after)) return;
-  assertNotLastAdmin(await lockActiveAdmins(tx), targetId);
+  assertNotLastAdmin(await lockActiveAdmins(tx, workspaceId ?? activeWorkspaceId()), targetId);
 }

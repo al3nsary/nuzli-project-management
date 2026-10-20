@@ -12,6 +12,9 @@ const user = (id: string, role: AuthUser['role']): AuthUser => ({
   status: 'ACTIVE',
   fullName: 'x',
   mustChangePassword: false,
+  accountRole: 'USER',
+  workspaceId: 'ws-test',
+  roles: [],
 });
 const MONITOR = user('mon-1', 'MONITOR');
 const OTHER = user('mon-2', 'MONITOR');

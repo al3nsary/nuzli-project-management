@@ -6,7 +6,7 @@ import { FilesService } from '../storage/files.service';
 import { memberPhotoRead, memberPhotoWrite, userPhotoRead, userPhotoWrite } from './photo-policy';
 import { PhotosService } from './photos.service';
 
-const user = (id: string, role: AuthUser['role']): AuthUser => ({ id, role, status: 'ACTIVE', fullName: 'x', mustChangePassword: false });
+const user = (id: string, role: AuthUser['role']): AuthUser => ({ id, role, status: 'ACTIVE', fullName: 'x', mustChangePassword: false, accountRole: 'USER', workspaceId: 'ws-test', roles: [] });
 const ADMIN = user('aaaaaaaa-0000-4000-8000-000000000001', 'ADMIN');
 const SUP = user('aaaaaaaa-0000-4000-8000-000000000002', 'SUPERVISOR');
 const OTHER_SUP = user('aaaaaaaa-0000-4000-8000-000000000003', 'SUPERVISOR');
@@ -58,6 +58,8 @@ function setup(opts: { userPhoto?: string | null; memberPhoto?: string | null } 
           : null,
       ),
       update: jest.fn().mockResolvedValue({}),
+      // A12: user lookups are workspace-filtered (findFirst); the fixture users are all in it.
+      findFirst: jest.fn((args: { where: { id: string } }): Promise<unknown> => (prisma.user.findUnique as jest.Mock)(args) as Promise<unknown>),
     },
     teamMember: {
       findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>

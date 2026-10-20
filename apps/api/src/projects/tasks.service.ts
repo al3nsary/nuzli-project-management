@@ -53,6 +53,8 @@ import {
   workCalendarOf,
   type StoredTask,
 } from './task-engine';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { supervisorsOf } from '../users/user-dto';
 
 type Viewer = PermissionSubject & { id: string; fullName?: string };
 type CreateTask = z.output<typeof createTaskSchema>;
@@ -121,8 +123,9 @@ export class TasksService {
 
   /** Brief §1/§6.1: tasks go to ACTIVE supervisors only (the DB trigger checks the role too). */
   async assertAssignee(userId: string): Promise<void> {
-    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true, status: true } });
-    if (!u || u.role !== 'SUPERVISOR' || u.status !== 'ACTIVE') throw new AppError('ASSIGNEE_NOT_SUPERVISOR');
+    // A12: a SUPERVISOR of this workspace (the DB trigger checks the membership too).
+    const u = await this.prisma.user.findFirst({ where: { id: userId, ...supervisorsOf(activeWorkspaceId()) }, select: { id: true } });
+    if (!u) throw new AppError('ASSIGNEE_NOT_SUPERVISOR');
   }
 
   async get(id: string, viewer: Viewer): Promise<TaskDto> {

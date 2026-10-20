@@ -44,6 +44,8 @@ import {
 } from './violation-scope';
 import { assembleStats, statsQueries, type StatsRows } from './violation-stats';
 import { buildViolationsWorkbook, SEVERITY_LABELS, STATUS_LABELS, type ExportRow } from './violations-export';
+import { activeWorkspaceId, activeWorkspaceIdOrNull } from '../prisma/workspace-context';
+import { adminsOf, memberOf } from '../users/user-dto';
 
 /** A9: the person column of a violation not assigned yet. */
 export const UNASSIGNED_LABEL = '— لم تُسند إلى شخص بعد';
@@ -87,22 +89,24 @@ export const EMPTY_SNAPSHOT: Snapshot = { teamId: null, supervisorId: null, supe
  * history is half-open [valid_from, valid_to), so the row valid at `t` satisfies
  * `valid_from <= t AND (valid_to IS NULL OR valid_to > t)`. The first bound value is `t`.
  */
-export function snapshotSql(memberId: string, at: Date): Prisma.Sql {
+export function snapshotSql(memberId: string, at: Date, workspaceId: string | null = activeWorkspaceIdOrNull()): Prisma.Sql {
+  // A12 (ADR-143): raw SQL carries the workspace filter (no workspace → no row → empty snapshot).
+  const ws = workspaceId ? Prisma.sql`m.workspace_id = ${workspaceId}::uuid` : Prisma.sql`FALSE`;
   return Prisma.sql`
     SELECT m.team_id,
            (SELECT s.user_id FROM team_supervisors s
-             WHERE s.team_id = m.team_id AND s.is_primary
+             WHERE s.team_id = m.team_id AND s.workspace_id = m.workspace_id AND s.is_primary
                AND s.valid_from <= ${at}::timestamptz
                AND (s.valid_to IS NULL OR s.valid_to > ${at}::timestamptz)
              ORDER BY s.valid_from DESC LIMIT 1) AS supervisor_id,
            COALESCE((SELECT array_agg(s.user_id ORDER BY s.is_primary DESC, s.valid_from)
                        FROM team_supervisors s
-                      WHERE s.team_id = m.team_id
+                      WHERE s.team_id = m.team_id AND s.workspace_id = m.workspace_id
                         AND s.valid_from <= ${at}::timestamptz
                         AND (s.valid_to IS NULL OR s.valid_to > ${at}::timestamptz)),
                     ARRAY[]::uuid[]) AS supervisor_ids
       FROM team_memberships m
-     WHERE m.member_id = ${memberId}::uuid
+     WHERE ${ws} AND m.member_id = ${memberId}::uuid
        AND m.valid_from <= ${at}::timestamptz
        AND (m.valid_to IS NULL OR m.valid_to > ${at}::timestamptz)
      ORDER BY m.valid_from DESC
@@ -511,7 +515,7 @@ export class ViolationsService {
       return { row: fresh, responseId: response.id };
     });
     const admins = await this.prisma.user.findMany({
-      where: { role: 'ADMIN', status: 'ACTIVE', id: { not: viewer.id } },
+      where: { ...adminsOf(activeWorkspaceId()), id: { not: viewer.id } },
       select: { id: true },
     });
     const author = row.responses.find((r) => r.id === responseId)?.supervisor.fullName ?? '';
@@ -632,7 +636,7 @@ export class ViolationsService {
     const [team, member, recorder, type] = await Promise.all([
       f.teamId ? this.prisma.team.findUnique({ where: { id: f.teamId }, select: { name: true } }) : null,
       f.memberId ? this.prisma.teamMember.findUnique({ where: { id: f.memberId }, select: { fullName: true } }) : null,
-      f.recordedBy ? this.prisma.user.findUnique({ where: { id: f.recordedBy }, select: { fullName: true } }) : null,
+      f.recordedBy ? this.prisma.user.findFirst({ where: { id: f.recordedBy, ...memberOf(activeWorkspaceId()) }, select: { fullName: true } }) : null,
       f.typeId ? this.prisma.violationType.findUnique({ where: { id: f.typeId }, select: { name: true } }) : null,
     ]);
     return { team: team?.name, member: member?.fullName, recorder: recorder?.fullName, type: type?.name };

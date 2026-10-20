@@ -27,6 +27,8 @@ import { buildBudgetReport, buildDashboard, buildPeople, computeWorkload, leaves
 import { LABEL_SELECT, toLabelDto } from './task-details.service';
 import { dateOf, deadlinePassed, dueFlags, isoOf, localOf, riyadhToday, workCalendarOf } from './task-engine';
 import { compareWbs } from './tasks-export';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { memberOf, supervisorsOf } from '../users/user-dto';
 
 type Viewer = PermissionSubject & { id: string };
 
@@ -185,7 +187,8 @@ export class ProjectReportsService {
     const problem = rangeProblem(q.from, q.to, 92);
     if (problem) throw new AppError('VALIDATION_FAILED', { fieldErrors: { to: [problem] } });
     const users = await this.prisma.user.findMany({
-      where: q.userIds ? { id: { in: q.userIds }, status: 'ACTIVE' } : { role: 'SUPERVISOR', status: 'ACTIVE' },
+      // A12: users of this workspace only.
+      where: q.userIds ? { id: { in: q.userIds }, status: 'ACTIVE', ...memberOf(activeWorkspaceId()) } : supervisorsOf(activeWorkspaceId()),
       select: { id: true, fullName: true },
       orderBy: { fullName: 'asc' },
     });

@@ -7,9 +7,9 @@ import { notificationPreview, TaskCollabService } from './task-collab.service';
 
 const ctx: RequestContext = { actorId: 'admin', ip: null, requestId: 'r', userAgent: null };
 const supCtx: RequestContext = { ...ctx, actorId: 'sup1' };
-const ADMIN: AuthUser = { id: 'admin', role: 'ADMIN', status: 'ACTIVE', fullName: 'المدير', mustChangePassword: false };
-const SUP: AuthUser = { id: 'sup1', role: 'SUPERVISOR', status: 'ACTIVE', fullName: 'مشرف', mustChangePassword: false };
-const SUP2: AuthUser = { id: 'sup2', role: 'SUPERVISOR', status: 'ACTIVE', fullName: 'مشرف ٢', mustChangePassword: false };
+const ADMIN: AuthUser = { id: 'admin', role: 'ADMIN', status: 'ACTIVE', fullName: 'المدير', mustChangePassword: false, accountRole: 'USER', workspaceId: 'ws-test', roles: [] };
+const SUP: AuthUser = { id: 'sup1', role: 'SUPERVISOR', status: 'ACTIVE', fullName: 'مشرف', mustChangePassword: false, accountRole: 'USER', workspaceId: 'ws-test', roles: [] };
+const SUP2: AuthUser = { id: 'sup2', role: 'SUPERVISOR', status: 'ACTIVE', fullName: 'مشرف ٢', mustChangePassword: false, accountRole: 'USER', workspaceId: 'ws-test', roles: [] };
 const P = '00000000-0000-4000-8000-0000000000a1';
 const T = 'a0000000-0000-4000-8000-00000000000a';
 const U = 'b0000000-0000-4000-8000-00000000000b';

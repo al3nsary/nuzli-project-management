@@ -7,6 +7,8 @@ import { AppError } from '../common/app-error';
 import type { AuthUser, RequestContext } from '../common/request';
 import { sha256Hex } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { workspaceUsersWhere } from '../users/user-dto';
 import { SettingsService } from '../settings/settings.service';
 import type { File as FileRow } from '@prisma/client';
 import { canReadFile, canUpload, ENTITY_FOLDERS, HOOKED_ENTITIES, type FileEntity } from './file-policy';
@@ -203,6 +205,14 @@ export class FilesService {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.deletedAt || file.status !== 'READY') throw new AppError('NOT_FOUND');
     if (!canReadFile(user, file)) throw new AppError('FORBIDDEN');
+    // A12: a user photo is a global file; it is served only for a user of the active workspace.
+    if (file.entityType === 'user_photo' && file.entityId && file.entityId !== user.id) {
+      const owner = await this.prisma.user.findFirst({
+        where: { id: file.entityId, ...workspaceUsersWhere(activeWorkspaceId()) },
+        select: { id: true },
+      });
+      if (!owner) throw new AppError('NOT_FOUND');
+    }
     const ttl = await this.settings.get('PRESIGNED_URL_TTL_SECONDS');
     const url = await this.storage.presignGet(file.storageKey, ttl);
     if (file.kind === 'ID_CARD') {
@@ -216,8 +226,26 @@ export class FilesService {
     return { url, expiresAt: new Date(Date.now() + ttl * 1000).toISOString() };
   }
 
-  /** Unconfirmed uploads older than 24 h are removed from the bucket (ADR-012). */
+  /** A12: the hourly jobs run every workspace explicitly (ADR-143). */
   @Cron(CronExpression.EVERY_HOUR, { name: 'files-cleanup' })
+  async cleanupPendingAllWorkspaces(now = new Date()): Promise<number> {
+    let total = 0;
+    await this.prisma.forEachWorkspace('files-cleanup', async () => {
+      total += await this.cleanupPending(now);
+    });
+    return total;
+  }
+
+  @Cron(CronExpression.EVERY_HOUR, { name: 'files-orphans' })
+  async cleanupOrphansAllWorkspaces(now = new Date()): Promise<number> {
+    let total = 0;
+    await this.prisma.forEachWorkspace('files-orphans', async () => {
+      total += await this.cleanupOrphans(now);
+    });
+    return total;
+  }
+
+  /** Unconfirmed uploads (of the active workspace) older than 24 h are removed from the bucket (ADR-012). */
   async cleanupPending(now = new Date()): Promise<number> {
     const stale = await this.prisma.file.findMany({
       where: {
@@ -248,7 +276,6 @@ export class FilesService {
    * photos — a photo whose confirm was refused (scope changed) or that lost a replace race.
    * Violation and task files are linked by their hooks at confirm time.
    */
-  @Cron(CronExpression.EVERY_HOUR, { name: 'files-orphans' })
   async cleanupOrphans(now = new Date()): Promise<number> {
     const stale = await this.prisma.file.findMany({
       where: {

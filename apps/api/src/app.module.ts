@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -27,6 +27,8 @@ import { ViolationsModule } from './violations/violations.module';
 import { ProjectsModule } from './projects/projects.module';
 import { PhotosModule } from './photos/photos.module';
 import { OrgModule } from './org/org.module';
+import { ImportsModule } from './imports/imports.module';
+import { WorkspaceContextMiddleware, WorkspacesModule } from './workspaces/workspaces.module';
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
 
@@ -95,6 +97,7 @@ export const LOG_REDACT_PATHS = [
     }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    WorkspacesModule,
     CryptoModule,
     AuditModule,
     NotificationsModule,
@@ -111,6 +114,8 @@ export const LOG_REDACT_PATHS = [
     ProjectsModule,
     PhotosModule,
     OrgModule,
+    // A9 imports (ADR-110..112) — was not registered, so its routes answered 404 (found by the A12 route inventory).
+    ImportsModule,
   ],
   controllers: [HealthController],
   providers: [
@@ -121,4 +126,9 @@ export const LOG_REDACT_PATHS = [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /** A12 (ADR-143): every request gets its own workspace context before any guard runs. */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(WorkspaceContextMiddleware).forRoutes('*');
+  }
+}

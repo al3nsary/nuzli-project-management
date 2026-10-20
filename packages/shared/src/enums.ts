@@ -119,3 +119,40 @@ export const NotificationType = {
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 export const NOTIFICATION_TYPES = Object.values(NotificationType);
+
+// ───────────────────────────────────────────── A12 — workspaces (أقسام)
+
+/** A12: the account layer. OWNER (مالك) sees every workspace; USER rights come from memberships. */
+export const AccountRole = { OWNER: 'OWNER', USER: 'USER' } as const;
+export type AccountRole = (typeof AccountRole)[keyof typeof AccountRole];
+
+/**
+ * A12: the role of a user inside one workspace. ADMIN/SUPERVISOR/MONITOR keep today's rights,
+ * scoped to that workspace. ASSISTANT and MEMBER carry no permission until A12 round 2 defines them.
+ */
+export const WorkspaceRole = {
+  ADMIN: 'ADMIN',
+  ASSISTANT: 'ASSISTANT',
+  SUPERVISOR: 'SUPERVISOR',
+  MONITOR: 'MONITOR',
+  MEMBER: 'MEMBER',
+} as const;
+export type WorkspaceRole = (typeof WorkspaceRole)[keyof typeof WorkspaceRole];
+export const WORKSPACE_ROLES = Object.values(WorkspaceRole);
+
+export const WorkspaceStatus = { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' } as const;
+export type WorkspaceStatus = (typeof WorkspaceStatus)[keyof typeof WorkspaceStatus];
+
+export const WorkspaceMembershipStatus = { ACTIVE: 'ACTIVE', SUSPENDED: 'SUSPENDED' } as const;
+export type WorkspaceMembershipStatus = (typeof WorkspaceMembershipStatus)[keyof typeof WorkspaceMembershipStatus];
+
+/**
+ * A12: the matrix role (today's Role) a set of workspace roles maps to, strongest first.
+ * ASSISTANT / MEMBER map to nothing in round 1.
+ */
+export function effectiveRole(roles: readonly string[]): Role | null {
+  if (roles.includes('ADMIN')) return 'ADMIN';
+  if (roles.includes('SUPERVISOR')) return 'SUPERVISOR';
+  if (roles.includes('MONITOR')) return 'MONITOR';
+  return null;
+}

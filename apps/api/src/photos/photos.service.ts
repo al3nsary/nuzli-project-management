@@ -11,6 +11,8 @@ import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import type { AuthUser, RequestContext } from '../common/request';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { workspaceUsersWhere } from '../users/user-dto';
 import { SettingsService } from '../settings/settings.service';
 import { FilesService } from '../storage/files.service';
 import { StorageService } from '../storage/storage.service';
@@ -93,7 +95,11 @@ export class PhotosService implements OnModuleInit {
   /** Throws NOT_FOUND / FORBIDDEN unless `viewer` may change the photo; returns the current file id. */
   async assertCanWrite(type: PhotoEntityType, id: string, viewer: Viewer, db: Db = this.prisma): Promise<string | null> {
     if (type === 'user_photo') {
-      const u = await db.user.findUnique({ where: { id }, select: { archivedAt: true, photoFileId: true } });
+      // A12: yourself, or a user of the active workspace (other workspaces' users answer 404).
+      const u = await db.user.findFirst({
+        where: { id, ...(id === viewer.id ? {} : workspaceUsersWhere(activeWorkspaceId())) },
+        select: { archivedAt: true, photoFileId: true },
+      });
       if (!u || u.archivedAt) throw new AppError('NOT_FOUND');
       enforce(userPhotoWrite(viewer, id));
       return u.photoFileId;
@@ -183,8 +189,9 @@ export class PhotosService implements OnModuleInit {
     const fileSelect = { select: { storageKey: true, status: true, deletedAt: true } } as const;
     let photo: { storageKey: string; status: string; deletedAt: Date | null } | null;
     if (type === 'user_photo') {
-      const u = await this.prisma.user.findUnique({
-        where: { id },
+      const u = await this.prisma.user.findFirst({
+        // A12: yourself, or a user of the active workspace only.
+        where: { id, ...(id === viewer.id ? {} : workspaceUsersWhere(activeWorkspaceId())) },
         select: { id: true, status: true, archivedAt: true, photo: fileSelect },
       });
       if (!u || u.archivedAt || !userPhotoRead(viewer, u)) throw new AppError('NOT_FOUND');
@@ -269,7 +276,7 @@ export class PhotosService implements OnModuleInit {
   /** Serialises photo changes of one person (READ COMMITTED + row lock, like ADR-030). */
   private async lock(tx: Prisma.TransactionClient, type: PhotoEntityType, id: string): Promise<void> {
     if (type === 'user_photo') await tx.$queryRaw`SELECT id FROM users WHERE id = ${id}::uuid FOR UPDATE`;
-    else await tx.$queryRaw`SELECT id FROM team_members WHERE id = ${id}::uuid FOR UPDATE`;
+    else await tx.$queryRaw`SELECT id FROM team_members WHERE id = ${id}::uuid AND workspace_id = ${activeWorkspaceId()}::uuid FOR UPDATE`;
   }
 
   private async setPhoto(tx: Prisma.TransactionClient, type: PhotoEntityType, id: string, fileId: string | null) {

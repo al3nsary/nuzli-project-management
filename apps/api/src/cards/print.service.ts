@@ -41,6 +41,8 @@ import {
   type CardTeam,
   type SupervisorRow,
 } from './card-data';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { supervisorsOf } from '../users/user-dto';
 
 export const MAX_PREVIEW_SUBJECTS = 1000;
 
@@ -362,7 +364,8 @@ export class PrintService {
             },
           })
         : [],
-      userIds.length ? db.user.findMany({ where: { id: { in: userIds } }, select: SUPERVISOR_SELECT }) : [],
+      // A12: supervisor cards only for supervisors of this workspace.
+      userIds.length ? db.user.findMany({ where: { id: { in: userIds }, ...supervisorsOf(activeWorkspaceId()) }, select: SUPERVISOR_SELECT }) : [],
     ]);
     if (members.length !== memberIds.length || users.length !== userIds.length) {
       throw new AppError('NOT_FOUND', { field: 'items' });

@@ -74,6 +74,8 @@ function setup(opts: { bytes?: Uint8Array; engine?: Partial<OcrEngine>; enabled?
       ),
     },
     violationFile: { findFirst: jest.fn().mockResolvedValue({ fileId: F }) },
+    // A12: the background worker walks the active workspaces.
+    workspace: { findMany: jest.fn().mockResolvedValue([{ id: 'ws-test' }]) },
   };
   const storage = { readAll: jest.fn().mockResolvedValue(opts.bytes ?? jpegHeader(1600, 1000)) };
   const engine: OcrEngine = {

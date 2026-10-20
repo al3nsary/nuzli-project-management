@@ -5,6 +5,7 @@ import {
   Public,
   RequireAnyPermission,
   RequirePermission,
+  WorkspaceOptional,
 } from '../common/decorators';
 import type { AuthUser } from '../common/request';
 import { AccessTokenService } from './access-token.service';
@@ -18,6 +19,7 @@ class Fixture {
   @Get() @RequireAnyPermission('teams.readAll', 'teams.readOwn') teams() {}
   @Public() @Get() publicRoute() {}
   @AllowWhenPasswordChangeRequired() @Get() me() {}
+  @WorkspaceOptional() @Get() wsOptional() {}
 }
 
 @RequirePermission('audit.read')
@@ -41,6 +43,9 @@ const user = (role: AuthUser['role'], extra: Partial<AuthUser> = {}): AuthUser =
   status: 'ACTIVE',
   fullName: 'x',
   mustChangePassword: false,
+  accountRole: 'USER',
+  workspaceId: 'ws-1',
+  roles: role ? [role] : [],
   ...extra,
 });
 
@@ -93,7 +98,7 @@ describe('JwtAuthGuard', () => {
   } as never);
   const loaderFor = (u: AuthUser | null): UserLoader => ({ load: jest.fn().mockResolvedValue(u) });
   const guardFor = (u: AuthUser | null) => new JwtAuthGuard(new Reflector(), tokens, loaderFor(u) as never);
-  const bearer = (u: AuthUser) => ({ headers: { authorization: `Bearer ${tokens.sign(u)}` } });
+  const bearer = (u: AuthUser) => ({ headers: { authorization: `Bearer ${tokens.sign(u, u.workspaceId)}` } });
 
   it('lets @Public() routes through without a token', async () => {
     await expect(guardFor(null).canActivate(ctx('publicRoute', { headers: {} }))).resolves.toBe(true);
@@ -104,7 +109,7 @@ describe('JwtAuthGuard', () => {
       code: 'UNAUTHENTICATED',
     });
     const forged = new AccessTokenService({ JWT_ACCESS_SECRET: 'y'.repeat(40), JWT_ACCESS_TTL_SECONDS: 900 } as never);
-    const req = { headers: { authorization: `Bearer ${forged.sign(user('ADMIN'))}` } };
+    const req = { headers: { authorization: `Bearer ${forged.sign(user('ADMIN'), 'ws-1')}` } };
     await expect(guardFor(user('ADMIN')).canActivate(ctx('open', req))).rejects.toMatchObject({
       code: 'UNAUTHENTICATED',
     });
@@ -129,6 +134,20 @@ describe('JwtAuthGuard', () => {
       code: 'PASSWORD_CHANGE_REQUIRED',
     });
     await expect(guardFor(u).canActivate(ctx('me', bearer(u)))).resolves.toBe(true);
+  });
+
+  it('A12: the token workspace is handed to the loader and becomes the request workspace', async () => {
+    const u = user('SUPERVISOR');
+    const loader = loaderFor(u);
+    const guard = new JwtAuthGuard(new Reflector(), tokens, loader as never);
+    await expect(guard.canActivate(ctx('open', bearer(u)))).resolves.toBe(true);
+    expect(loader.load).toHaveBeenCalledWith('u1', 'ws-1');
+  });
+
+  it('A12: without a workspace only @WorkspaceOptional() routes pass (fail closed)', async () => {
+    const u = user(null, { workspaceId: null, roles: [] });
+    await expect(guardFor(u).canActivate(ctx('open', bearer(u)))).rejects.toMatchObject({ code: 'WORKSPACE_REQUIRED' });
+    await expect(guardFor(u).canActivate(ctx('wsOptional', bearer(u)))).resolves.toBe(true);
   });
 });
 

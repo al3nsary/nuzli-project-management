@@ -6,8 +6,9 @@
 // created_at / updated_at / created_by on every business table, archived_at for soft delete.
 
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -21,6 +22,31 @@ enum Role {
   ADMIN
   SUPERVISOR
   MONITOR
+}
+
+/// A12: the account layer (ADR-142).
+enum AccountRole {
+  OWNER
+  USER
+}
+
+/// A12: the role of a user inside one workspace.
+enum WorkspaceRole {
+  ADMIN
+  ASSISTANT
+  SUPERVISOR
+  MONITOR
+  MEMBER
+}
+
+enum WorkspaceStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum WorkspaceMembershipStatus {
+  ACTIVE
+  SUSPENDED
 }
 
 enum UserStatus {
@@ -153,37 +179,45 @@ enum CardLayoutKey {
 
 /// Registration requests are folded into users.status = PENDING (ADR-008).
 model User {
-  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  fullName           String     @map("full_name")
-  email              String     @unique
+  id                   String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName             String      @map("full_name")
+  email                String      @unique
   /// E.164, e.g. +966512345678
-  mobile             String     @unique
+  mobile               String      @unique
   /// AES-256-GCM ciphertext (iv|tag|data), see ADR-011.
-  nationalIdEnc      Bytes      @map("national_id_enc")
+  nationalIdEnc        Bytes       @map("national_id_enc")
   /// HMAC-SHA256 blind index for uniqueness and exact lookup.
-  nationalIdHash     String     @unique @map("national_id_hash")
+  nationalIdHash       String      @unique @map("national_id_hash")
   /// Last two digits, kept for masking without decrypting.
-  nationalIdLast2    String     @map("national_id_last2") @db.Char(2)
-  nationalIdFirst    String     @map("national_id_first") @db.Char(1)
-  passwordHash       String?    @map("password_hash")
-  role               Role
-  requestedRole      Role?      @map("requested_role")
-  requestedTeamName  String?    @map("requested_team_name")
-  status             UserStatus @default(PENDING)
-  rejectionReason    String?    @map("rejection_reason")
-  mustChangePassword Boolean    @default(false) @map("must_change_password")
-  failedLoginCount   Int        @default(0) @map("failed_login_count")
-  lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz(3)
-  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(3)
-  preferences        Json       @default("{}")
-  approvedAt         DateTime?  @map("approved_at") @db.Timestamptz(3)
-  approvedById       String?    @map("approved_by") @db.Uuid
-  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById        String?    @map("created_by") @db.Uuid
-  archivedAt         DateTime?  @map("archived_at") @db.Timestamptz(3)
+  nationalIdLast2      String      @map("national_id_last2") @db.Char(2)
+  nationalIdFirst      String      @map("national_id_first") @db.Char(1)
+  passwordHash         String?     @map("password_hash")
+  /// A12: unique login name, case-insensitive (stored lower case; CHECK in raw SQL).
+  username             String      @unique
+  /// A12: OWNER sees every workspace; USER rights come from workspace_memberships.
+  accountRole          AccountRole @default(USER) @map("account_role")
+  /// Legacy (pre-A12) global role, frozen at the A12 migration and never read by the API:
+  /// rights come from workspace_memberships (ADR-142). Dropped in a later release.
+  role                 Role?
+  /// A12: the workspace a registration applies to (PENDING users).
+  requestedWorkspaceId String?     @map("requested_workspace_id") @db.Uuid
+  requestedRole        Role?       @map("requested_role")
+  requestedTeamName    String?     @map("requested_team_name")
+  status               UserStatus  @default(PENDING)
+  rejectionReason      String?     @map("rejection_reason")
+  mustChangePassword   Boolean     @default(false) @map("must_change_password")
+  failedLoginCount     Int         @default(0) @map("failed_login_count")
+  lockedUntil          DateTime?   @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt          DateTime?   @map("last_login_at") @db.Timestamptz(3)
+  preferences          Json        @default("{}")
+  approvedAt           DateTime?   @map("approved_at") @db.Timestamptz(3)
+  approvedById         String?     @map("approved_by") @db.Uuid
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById          String?     @map("created_by") @db.Uuid
+  archivedAt           DateTime?   @map("archived_at") @db.Timestamptz(3)
   /// Profile photo (owner request A8). The old file is deleted on replacement.
-  photoFileId        String?    @map("photo_file_id") @db.Uuid
+  photoFileId          String?     @map("photo_file_id") @db.Uuid
 
   photo              File?                   @relation("UserPhoto", fields: [photoFileId], references: [id])
   refreshTokens      RefreshToken[]
@@ -212,8 +246,12 @@ model User {
   teamSupervisions   TeamSupervisor[]        @relation("TeamSupervisorUser")
   orgPositions       OrgPosition[]           @relation("OrgPositionUser")
   assignedViolations Violation[]             @relation("ViolationAssignedBy")
+  // A12
+  memberships        WorkspaceMembership[]   @relation("MembershipUser")
+  requestedWorkspace Workspace?              @relation("RequestedWorkspace", fields: [requestedWorkspaceId], references: [id], onDelete: SetNull)
 
   @@index([role, status])
+  @@index([requestedWorkspaceId, status])
   @@index([status])
   @@index([photoFileId])
   @@map("users")
@@ -230,9 +268,12 @@ model RefreshToken {
   replacedById String?   @map("replaced_by") @db.Uuid
   userAgent    String?   @map("user_agent")
   ip           String?
+  /// A12: the workspace the session is bound to (kept across refreshes; null = none chosen yet).
+  workspaceId  String?   @map("workspace_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation("SessionWorkspace", fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([familyId])
@@ -255,20 +296,118 @@ model ActionToken {
   @@map("action_tokens")
 }
 
+// ───────────────────────────────────────────────────────────── A12 — workspaces (ADR-142)
+
+/// A workspace (قسم): a complete, isolated copy of the business system. Never deleted, only
+/// archived (no cross-workspace cascades). Global table (no RLS).
+model Workspace {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  /// Stable machine code, e.g. "projects". Unique, lower case.
+  code        String          @unique
+  status      WorkspaceStatus @default(ACTIVE)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?         @map("created_by") @db.Uuid
+  archivedAt  DateTime?       @map("archived_at") @db.Timestamptz(3)
+
+  memberships             WorkspaceMembership[]
+  requestedBy             User[]                  @relation("RequestedWorkspace")
+  sessions                RefreshToken[]          @relation("SessionWorkspace")
+  teamColors              TeamColor[]
+  teams                   Team[]
+  teamSupervisors         TeamSupervisor[]
+  teamSupervisorHistories TeamSupervisorHistory[]
+  teamMembers             TeamMember[]
+  teamMemberships         TeamMembership[]
+  departments             Department[]
+  jobTitles               JobTitle[]
+  orgUnits                OrgUnit[]
+  orgPositions            OrgPosition[]
+  calendars               Calendar[]
+  calendarExceptions      CalendarException[]
+  projects                Project[]
+  projectAccess           ProjectAccess[]
+  tasks                   Task[]
+  taskDependencies        TaskDependency[]
+  taskComments            TaskComment[]
+  projectLabels           ProjectLabel[]
+  taskLabels              TaskLabel[]
+  customFields            CustomField[]
+  taskCustomValues        TaskCustomValue[]
+  taskChecklistItems      TaskChecklistItem[]
+  userViewPrefs           UserViewPref[]
+  portfolios              Portfolio[]
+  portfolioProjects       PortfolioProject[]
+  timeEntries             TimeEntry[]
+  taskCommentReads        TaskCommentRead[]
+  baselines               Baseline[]
+  baselineTasks           BaselineTask[]
+  violationTypes          ViolationType[]
+  violations              Violation[]
+  violationOcrs           ViolationOcr[]
+  violationFiles          ViolationFile[]
+  violationResponses      ViolationResponse[]
+  violationVisibilities   ViolationVisibility[]
+  importPreviews          ImportPreview[]
+  files                   File[]
+  logos                   Logo[]
+  cardSizes               CardSize[]
+  cardTemplates           CardTemplate[]
+  cardPrintBatchs         CardPrintBatch[]
+  cardPrintItems          CardPrintItem[]
+  notifications           Notification[]
+  settings                Setting[]
+  auditLogs               AuditLog[]
+
+  @@map("workspaces")
+}
+
+/// A user's role in one workspace. Identity layer: a global table (no RLS) that the API always
+/// filters explicitly by workspace and user.
+model WorkspaceMembership {
+  id          String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String                    @map("workspace_id") @db.Uuid
+  userId      String                    @map("user_id") @db.Uuid
+  role        WorkspaceRole
+  /// Free-text position (منصب), A12 round 2.
+  title       String?
+  /// A12 round 2 (assistants): per-module rights.
+  permissions Json                      @default("{}")
+  /// A12 round 2: limit to some projects / teams.
+  scope       Json                      @default("{}")
+  status      WorkspaceMembershipStatus @default(ACTIVE)
+  createdAt   DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById String?                   @map("created_by") @db.Uuid
+  archivedAt  DateTime?                 @map("archived_at") @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  user      User      @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, role])
+  @@index([userId])
+  @@map("workspace_memberships")
+}
+
 // ───────────────────────────────────────────────────────────── teams
 
 model TeamColor {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   name        String
-  hex         String   @unique @db.Char(7)
-  isActive    Boolean  @default(true) @map("is_active")
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById String?  @map("created_by") @db.Uuid
+  hex         String    @db.Char(7)
+  isActive    Boolean   @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?   @map("created_by") @db.Uuid
 
   teams Team[]
 
+  @@unique([workspaceId, hex])
+  @@index([workspaceId])
   @@map("team_colors")
 }
 
@@ -276,6 +415,9 @@ model TeamColor {
 ///          WHERE status IN ('ACTIVE','PENDING_APPROVAL');
 model Team {
   id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId  String     @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   name         String
   colorId      String     @map("color_id") @db.Uuid
   supervisorId String     @map("supervisor_id") @db.Uuid
@@ -303,6 +445,7 @@ model Team {
   @@index([supervisorId])
   @@index([status])
   @@index([orgUnitId])
+  @@index([workspaceId])
   @@map("teams")
 }
 
@@ -310,21 +453,25 @@ model Team {
 /// raw SQL: partial unique indexes — one open row per (team, user); one open primary per team;
 ///          CHECK (valid_to IS NULL OR valid_to > valid_from); trigger: user role SUPERVISOR.
 model TeamSupervisor {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  teamId    String    @map("team_id") @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  isPrimary Boolean   @default(false) @map("is_primary")
-  validFrom DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
-  validTo   DateTime? @map("valid_to") @db.Timestamptz(3)
-  addedById String?   @map("added_by") @db.Uuid
-  reason    String?
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  teamId      String    @map("team_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  isPrimary   Boolean   @default(false) @map("is_primary")
+  validFrom   DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
+  validTo     DateTime? @map("valid_to") @db.Timestamptz(3)
+  addedById   String?   @map("added_by") @db.Uuid
+  reason      String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user User @relation("TeamSupervisorUser", fields: [userId], references: [id])
 
   @@index([teamId, validTo])
   @@index([userId, validTo])
+  @@index([workspaceId])
   @@map("team_supervisors")
 }
 
@@ -333,6 +480,9 @@ model TeamSupervisor {
 /// raw SQL: partial unique index — one open row per team (valid_to IS NULL).
 model TeamSupervisorHistory {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId  String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   teamId       String    @map("team_id") @db.Uuid
   supervisorId String    @map("supervisor_id") @db.Uuid
   validFrom    DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
@@ -346,15 +496,19 @@ model TeamSupervisorHistory {
 
   @@index([teamId, validFrom])
   @@index([supervisorId])
+  @@index([workspaceId])
   @@map("team_supervisor_history")
 }
 
 /// Team members are records only. `user_id` is the future-login hook (brief §5.4).
 model TeamMember {
   id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId     String       @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   fullName        String       @map("full_name")
   nationalIdEnc   Bytes        @map("national_id_enc")
-  nationalIdHash  String       @unique @map("national_id_hash")
+  nationalIdHash  String       @map("national_id_hash")
   nationalIdLast4 String       @map("national_id_last4") @db.Char(4)
   nationalIdFirst String       @map("national_id_first") @db.Char(1)
   jobTitleId      String?      @map("job_title_id") @db.Uuid
@@ -379,12 +533,14 @@ model TeamMember {
   /// A9: organisational positions this member holds.
   orgPositions OrgPosition[]    @relation("OrgPositionMember")
 
+  @@unique([workspaceId, nationalIdHash])
   @@index([jobTitleId])
   @@index([departmentId])
   @@index([fullName])
   /// Member search by the last four digits of the national ID (GET /members?q=1234).
   @@index([nationalIdLast4])
   @@index([photoFileId])
+  @@index([workspaceId])
   @@map("team_members")
 }
 
@@ -392,16 +548,19 @@ model TeamMember {
 ///          WHERE valid_to IS NULL;
 ///          CHECK (valid_to IS NULL OR valid_to > valid_from)
 model TeamMembership {
-  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId  String         @map("member_id") @db.Uuid
-  teamId    String         @map("team_id") @db.Uuid
-  validFrom DateTime       @default(now()) @map("valid_from") @db.Timestamptz(3)
-  validTo   DateTime?      @map("valid_to") @db.Timestamptz(3)
-  movedById String?        @map("moved_by") @db.Uuid
-  reason    String?
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String         @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  memberId    String         @map("member_id") @db.Uuid
+  teamId      String         @map("team_id") @db.Uuid
+  validFrom   DateTime       @default(now()) @map("valid_from") @db.Timestamptz(3)
+  validTo     DateTime?      @map("valid_to") @db.Timestamptz(3)
+  movedById   String?        @map("moved_by") @db.Uuid
+  reason      String?
   /// A9: WORKER, or FOREMAN (at most one open FOREMAN per team — partial unique, raw SQL).
-  role      MembershipRole @default(WORKER)
-  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  role        MembershipRole @default(WORKER)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
 
   member  TeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
   team    Team       @relation(fields: [teamId], references: [id])
@@ -409,30 +568,41 @@ model TeamMembership {
 
   @@index([memberId, validFrom])
   @@index([teamId, validTo])
+  @@index([workspaceId])
   @@map("team_memberships")
 }
 
 model Department {
   id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String       @unique
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String       @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  name        String
   isActive    Boolean      @default(true) @map("is_active")
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdById String?      @map("created_by") @db.Uuid
   members     TeamMember[]
 
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
   @@map("departments")
 }
 
 model JobTitle {
   id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String       @unique
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String       @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  name        String
   isActive    Boolean      @default(true) @map("is_active")
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdById String?      @map("created_by") @db.Uuid
   members     TeamMember[]
 
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
   @@map("job_titles")
 }
 
@@ -442,6 +612,9 @@ model JobTitle {
 /// raw SQL: CHECK (parent_id IS NULL OR parent_id <> id); partial unique code among live units.
 model OrgUnit {
   id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String      @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   parentId    String?     @map("parent_id") @db.Uuid
   name        String
   kind        OrgUnitKind
@@ -458,6 +631,7 @@ model OrgUnit {
   teams     Team[]
 
   @@index([parentId, sort])
+  @@index([workspaceId])
   @@map("org_units")
 }
 
@@ -465,16 +639,19 @@ model OrgUnit {
 /// raw SQL: CHECK NOT (holder_user_id IS NOT NULL AND holder_member_id IS NOT NULL);
 ///          CHECK (reports_to_position_id IS NULL OR reports_to_position_id <> id).
 model OrgPosition {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  unitId              String   @map("unit_id") @db.Uuid
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId         String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  unitId              String    @map("unit_id") @db.Uuid
   title               String
-  holderUserId        String?  @map("holder_user_id") @db.Uuid
-  holderMemberId      String?  @map("holder_member_id") @db.Uuid
-  reportsToPositionId String?  @map("reports_to_position_id") @db.Uuid
-  sort                Float    @default(0)
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById         String?  @map("created_by") @db.Uuid
+  holderUserId        String?   @map("holder_user_id") @db.Uuid
+  holderMemberId      String?   @map("holder_member_id") @db.Uuid
+  reportsToPositionId String?   @map("reports_to_position_id") @db.Uuid
+  sort                Float     @default(0)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById         String?   @map("created_by") @db.Uuid
 
   unit         OrgUnit       @relation(fields: [unitId], references: [id], onDelete: Restrict)
   holderUser   User?         @relation("OrgPositionUser", fields: [holderUserId], references: [id], onDelete: SetNull)
@@ -486,6 +663,7 @@ model OrgPosition {
   @@index([holderUserId])
   @@index([holderMemberId])
   @@index([reportsToPositionId])
+  @@index([workspaceId])
   @@map("org_positions")
 }
 
@@ -493,6 +671,9 @@ model OrgPosition {
 
 model Calendar {
   id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId  String              @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   name         String
   /// 0 = Sunday … 6 = Saturday. Default weekend Friday + Saturday.
   weekendDays  Int[]               @default([5, 6]) @map("weekend_days")
@@ -506,29 +687,37 @@ model Calendar {
   exceptions   CalendarException[]
   projects     Project[]
 
+  @@index([workspaceId])
   @@map("calendars")
 }
 
 model CalendarException {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  calendarId   String   @map("calendar_id") @db.Uuid
-  date         DateTime @db.Date
-  isWorking    Boolean  @default(false) @map("is_working")
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId  String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  calendarId   String    @map("calendar_id") @db.Uuid
+  date         DateTime  @db.Date
+  isWorking    Boolean   @default(false) @map("is_working")
   name         String
   /// A9 hours: the intervals of a special working day (null = the calendar's hours).
-  workingHours Json?    @map("working_hours")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById  String?  @map("created_by") @db.Uuid
+  workingHours Json?     @map("working_hours")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById  String?   @map("created_by") @db.Uuid
 
   calendar Calendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
 
   @@unique([calendarId, date])
+  @@index([workspaceId])
   @@map("calendar_exceptions")
 }
 
 model Project {
   id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId  String        @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   name         String
   description  String?
   startDate    DateTime      @map("start_date") @db.Date
@@ -564,11 +753,15 @@ model Project {
   @@index([ownerId])
   @@index([calendarId])
   @@index([status])
+  @@index([workspaceId])
   @@map("projects")
 }
 
 model ProjectAccess {
   projectId   String             @map("project_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String             @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   userId      String             @map("user_id") @db.Uuid
   level       ProjectAccessLevel @default(VIEW)
   createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -579,6 +772,7 @@ model ProjectAccess {
 
   @@id([projectId, userId])
   @@index([userId])
+  @@index([workspaceId])
   @@map("project_access")
 }
 
@@ -589,6 +783,9 @@ model ProjectAccess {
 ///          projects_unit_columns_chk: HOUR project ⇔ the three hour columns are set.
 model Task {
   id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId        String     @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace          Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   projectId          String     @map("project_id") @db.Uuid
   parentId           String?    @map("parent_id") @db.Uuid
   sortOrder          Float      @default(0) @map("sort_order")
@@ -643,12 +840,16 @@ model Task {
   @@index([assigneeId])
   @@index([parentId])
   @@index([endDate])
+  @@index([workspaceId])
   @@map("tasks")
 }
 
 /// raw SQL: CHECK (predecessor_id <> successor_id)
 model TaskDependency {
   id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId   String         @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   projectId     String         @map("project_id") @db.Uuid
   predecessorId String         @map("predecessor_id") @db.Uuid
   successorId   String         @map("successor_id") @db.Uuid
@@ -667,19 +868,23 @@ model TaskDependency {
   @@unique([predecessorId, successorId])
   @@index([projectId])
   @@index([successorId])
+  @@index([workspaceId])
   @@map("task_dependencies")
 }
 
 model TaskComment {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId    String   @map("task_id") @db.Uuid
-  authorId  String   @map("author_id") @db.Uuid
-  body      String
-  mentions  String[] @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  taskId      String    @map("task_id") @db.Uuid
+  authorId    String    @map("author_id") @db.Uuid
+  body        String
+  mentions    String[]  @db.Uuid
   /// A9: the quoted comment of the same task (flat chat).
-  replyToId String?  @map("reply_to_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  replyToId   String?   @map("reply_to_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   task    Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
   author  User          @relation(fields: [authorId], references: [id])
@@ -688,6 +893,7 @@ model TaskComment {
 
   @@index([taskId, createdAt])
   @@index([authorId])
+  @@index([workspaceId])
   @@map("task_comments")
 }
 
@@ -703,36 +909,47 @@ enum CustomFieldType {
 
 /// Coloured tags of one project.
 model ProjectLabel {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId   String   @map("project_id") @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  projectId   String    @map("project_id") @db.Uuid
   name        String
-  color       String   @db.Char(7)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById String?  @map("created_by") @db.Uuid
+  color       String    @db.Char(7)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?   @map("created_by") @db.Uuid
 
   project Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   tasks   TaskLabel[]
 
   @@unique([projectId, name])
+  @@index([workspaceId])
   @@map("project_labels")
 }
 
 model TaskLabel {
-  taskId    String   @map("task_id") @db.Uuid
-  labelId   String   @map("label_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  taskId      String    @map("task_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  labelId     String    @map("label_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   task  Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
   label ProjectLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@id([taskId, labelId])
   @@index([labelId])
+  @@index([workspaceId])
   @@map("task_labels")
 }
 
 model CustomField {
   id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String          @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   projectId   String          @map("project_id") @db.Uuid
   name        String
   type        CustomFieldType
@@ -747,26 +964,34 @@ model CustomField {
   values  TaskCustomValue[]
 
   @@unique([projectId, name])
+  @@index([workspaceId])
   @@map("custom_fields")
 }
 
 model TaskCustomValue {
-  taskId      String   @map("task_id") @db.Uuid
-  fieldId     String   @map("field_id") @db.Uuid
+  taskId      String    @map("task_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  fieldId     String    @map("field_id") @db.Uuid
   value       Json
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  updatedById String?  @map("updated_by") @db.Uuid
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?   @map("updated_by") @db.Uuid
 
   task  Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
   field CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
 
   @@id([taskId, fieldId])
   @@index([fieldId])
+  @@index([workspaceId])
   @@map("task_custom_values")
 }
 
 model TaskChecklistItem {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   taskId      String    @map("task_id") @db.Uuid
   text        String
   done        Boolean   @default(false)
@@ -781,88 +1006,113 @@ model TaskChecklistItem {
   doneBy User? @relation("ChecklistDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
 
   @@index([taskId, sort])
+  @@index([workspaceId])
   @@map("task_checklist_items")
 }
 
 /// Per-user UI preferences (columns, saved views). Uniqueness of (user, project, key) with a
 /// nullable project is two partial unique indexes in raw SQL.
 model UserViewPref {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  projectId String?  @map("project_id") @db.Uuid
-  key       String
-  value     Json
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  userId      String    @map("user_id") @db.Uuid
+  projectId   String?   @map("project_id") @db.Uuid
+  key         String
+  value       Json
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([userId, projectId])
+  @@index([workspaceId])
   @@map("user_view_prefs")
 }
 
 model Portfolio {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @unique
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  name        String
   description String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdById String?  @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String?   @map("created_by") @db.Uuid
 
   projects PortfolioProject[]
 
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
   @@map("portfolios")
 }
 
 model PortfolioProject {
-  portfolioId String   @map("portfolio_id") @db.Uuid
-  projectId   String   @map("project_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  portfolioId String    @map("portfolio_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  projectId   String    @map("project_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
   project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([portfolioId, projectId])
   @@index([projectId])
+  @@index([workspaceId])
   @@map("portfolio_projects")
 }
 
 /// Time log (minutes per user, task and day). CHECK 1..1440 in raw SQL.
 model TimeEntry {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId    String   @map("task_id") @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  date      DateTime @db.Date
-  minutes   Int
-  note      String?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  taskId      String    @map("task_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  date        DateTime  @db.Date
+  minutes     Int
+  note        String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId, date])
   @@index([taskId])
+  @@index([workspaceId])
   @@map("time_entries")
 }
 
 /// Communication hub read state: the viewer read the task's comments up to `last_read_at`.
 model TaskCommentRead {
-  userId     String   @map("user_id") @db.Uuid
-  taskId     String   @map("task_id") @db.Uuid
-  lastReadAt DateTime @map("last_read_at") @db.Timestamptz(3)
+  userId      String    @map("user_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  taskId      String    @map("task_id") @db.Uuid
+  lastReadAt  DateTime  @map("last_read_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@id([userId, taskId])
   @@index([taskId])
+  @@index([workspaceId])
   @@map("task_comment_reads")
 }
 
 /// Phase 5 (schema only).
 model Baseline {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String         @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   projectId   String         @map("project_id") @db.Uuid
   name        String
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -871,22 +1121,27 @@ model Baseline {
   tasks       BaselineTask[]
 
   @@index([projectId])
+  @@index([workspaceId])
   @@map("baselines")
 }
 
 model BaselineTask {
-  baselineId   String   @map("baseline_id") @db.Uuid
-  taskId       String   @map("task_id") @db.Uuid
-  startDate    DateTime @map("start_date") @db.Date
-  endDate      DateTime @map("end_date") @db.Date
+  baselineId   String    @map("baseline_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId  String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  taskId       String    @map("task_id") @db.Uuid
+  startDate    DateTime  @map("start_date") @db.Date
+  endDate      DateTime  @map("end_date") @db.Date
   /// Planned duration and progress at snapshot time (Phase 5 variance: plan vs actual).
-  durationDays Int      @default(0) @map("duration_days")
-  progress     Decimal  @default(0) @db.Decimal(5, 2)
-  baseline     Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
-  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  durationDays Int       @default(0) @map("duration_days")
+  progress     Decimal   @default(0) @db.Decimal(5, 2)
+  baseline     Baseline  @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  task         Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@id([baselineId, taskId])
   @@index([taskId])
+  @@index([workspaceId])
   @@map("baseline_tasks")
 }
 
@@ -894,7 +1149,10 @@ model BaselineTask {
 
 model ViolationType {
   id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String      @unique
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String      @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  name        String
   severity    Severity?
   isActive    Boolean     @default(true) @map("is_active")
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -902,6 +1160,8 @@ model ViolationType {
   createdById String?     @map("created_by") @db.Uuid
   violations  Violation[]
 
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
   @@map("violation_types")
 }
 
@@ -909,6 +1169,9 @@ model ViolationType {
 /// team_id_snapshot / supervisor_id_snapshot are resolved from history at captured_at.
 model Violation {
   id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId           String          @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace             Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   clientUuid            String          @unique @map("client_uuid") @db.Uuid
   /// A9 (ADR-103): null until the person is assigned.
   memberId              String?         @map("member_id") @db.Uuid
@@ -960,6 +1223,7 @@ model Violation {
   @@index([memberId, capturedAt])
   @@index([status])
   @@index([latitude, longitude])
+  @@index([workspaceId])
   @@map("violations")
 }
 
@@ -967,6 +1231,9 @@ model Violation {
 /// encrypted JSON (CryptoService), the ID number has an HMAC blind index. OCR text is never stored or logged.
 model ViolationOcr {
   violationId   String    @id @map("violation_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId   String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   /// The ID_CARD file that was read.
   fileId        String?   @map("file_id") @db.Uuid
   status        OcrStatus @default(PENDING)
@@ -984,6 +1251,7 @@ model ViolationOcr {
 
   @@index([status, nextAttemptAt])
   @@index([idNumberHash])
+  @@index([workspaceId])
   @@map("violation_ocr")
 }
 
@@ -992,6 +1260,9 @@ model ViolationOcr {
 ///          A9: violation_files_one_person_uq — one PERSON photo per violation.
 model ViolationFile {
   id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String            @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   violationId String            @map("violation_id") @db.Uuid
   fileId      String            @unique @map("file_id") @db.Uuid
   kind        ViolationFileKind
@@ -1001,48 +1272,61 @@ model ViolationFile {
   file      File      @relation(fields: [fileId], references: [id])
 
   @@index([violationId])
+  @@index([workspaceId])
   @@map("violation_files")
 }
 
 model ViolationResponse {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  violationId  String   @map("violation_id") @db.Uuid
-  supervisorId String   @map("supervisor_id") @db.Uuid
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId  String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  violationId  String    @map("violation_id") @db.Uuid
+  supervisorId String    @map("supervisor_id") @db.Uuid
   body         String
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   violation  Violation @relation(fields: [violationId], references: [id], onDelete: Cascade)
   supervisor User      @relation(fields: [supervisorId], references: [id])
 
   @@index([violationId])
   @@index([supervisorId])
+  @@index([workspaceId])
   @@map("violation_responses")
 }
 
 model ViolationVisibility {
   teamId      String         @id @map("team_id") @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String         @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   mode        VisibilityMode @default(INHERIT)
   updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
   updatedById String?        @map("updated_by") @db.Uuid
   team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
+  @@index([workspaceId])
   @@map("violation_visibility")
 }
 
 /// A9 imports (ADR-110): a parsed file kept for one hour between preview and commit, then
 /// deleted (on commit or by the hourly cleanup). Holds task names and assignee names only.
 model ImportPreview {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  createdById String   @map("created_by") @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  createdById String    @map("created_by") @db.Uuid
   format      String
   /// The source upload (deleted with the preview); null for a Jira REST import.
-  fileId      String?  @map("file_id") @db.Uuid
+  fileId      String?   @map("file_id") @db.Uuid
   payload     Json
-  expiresAt   DateTime @map("expires_at") @db.Timestamptz(3)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([expiresAt])
+  @@index([workspaceId])
   @@map("import_previews")
 }
 
@@ -1051,6 +1335,9 @@ model ImportPreview {
 /// The single registry of every stored object (brief §3.2).
 model File {
   id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId  String?    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace    Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   storageKey   String     @unique @map("storage_key")
   bucket       String
   mimeType     String     @map("mime_type")
@@ -1073,11 +1360,15 @@ model File {
 
   @@index([entityType, entityId])
   @@index([status, createdAt])
+  @@index([workspaceId])
   @@map("files")
 }
 
 model Logo {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String         @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   name        String
   fileId      String         @unique @map("file_id") @db.Uuid
   isDefault   Boolean        @default(false) @map("is_default")
@@ -1087,12 +1378,16 @@ model Logo {
   file        File           @relation(fields: [fileId], references: [id])
   templates   CardTemplate[]
 
+  @@index([workspaceId])
   @@map("logos")
 }
 
 model CardSize {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String         @unique
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String         @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  name        String
   widthMm     Decimal        @map("width_mm") @db.Decimal(6, 2)
   heightMm    Decimal        @map("height_mm") @db.Decimal(6, 2)
   isBuiltin   Boolean        @default(false) @map("is_builtin")
@@ -1101,11 +1396,16 @@ model CardSize {
   createdById String?        @map("created_by") @db.Uuid
   templates   CardTemplate[]
 
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
   @@map("card_sizes")
 }
 
 model CardTemplate {
   id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String          @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   name        String
   sizeId      String          @map("size_id") @db.Uuid
   orientation CardOrientation
@@ -1123,18 +1423,22 @@ model CardTemplate {
   batches CardPrintBatch[]
 
   @@index([sizeId])
+  @@index([workspaceId])
   @@map("card_templates")
 }
 
 model CardPrintBatch {
-  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  idempotencyKey   String   @unique @map("idempotency_key") @db.Uuid
-  templateId       String   @map("template_id") @db.Uuid
-  printedById      String   @map("printed_by") @db.Uuid
-  printedAt        DateTime @default(now()) @map("printed_at") @db.Timestamptz(3)
-  cardCount        Int      @map("card_count")
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId      String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  idempotencyKey   String    @unique @map("idempotency_key") @db.Uuid
+  templateId       String    @map("template_id") @db.Uuid
+  printedById      String    @map("printed_by") @db.Uuid
+  printedAt        DateTime  @default(now()) @map("printed_at") @db.Timestamptz(3)
+  cardCount        Int       @map("card_count")
   /// Template snapshot (size, layout, config) at print time.
-  templateSnapshot Json     @default("{}") @map("template_snapshot")
+  templateSnapshot Json      @default("{}") @map("template_snapshot")
 
   template  CardTemplate    @relation(fields: [templateId], references: [id])
   printedBy User            @relation(fields: [printedById], references: [id])
@@ -1143,19 +1447,23 @@ model CardPrintBatch {
   @@index([printedAt])
   @@index([printedById])
   @@index([templateId])
+  @@index([workspaceId])
   @@map("card_print_batches")
 }
 
 model CardPrintItem {
-  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  batchId           String  @map("batch_id") @db.Uuid
-  memberId          String? @map("member_id") @db.Uuid
-  userId            String? @map("user_id") @db.Uuid
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId       String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  batchId           String    @map("batch_id") @db.Uuid
+  memberId          String?   @map("member_id") @db.Uuid
+  userId            String?   @map("user_id") @db.Uuid
   /// Rendered values. The national ID inside is ALWAYS masked (security review M2).
-  renderedData      Json    @map("rendered_data")
+  renderedData      Json      @map("rendered_data")
   /// FULL when the physical card carried the full national ID (decrypted from the DB on demand), else MASKED.
-  nationalIdPrinted String  @default("MASKED") @map("national_id_printed")
-  savedBack         Boolean @default(false) @map("saved_back")
+  nationalIdPrinted String    @default("MASKED") @map("national_id_printed")
+  savedBack         Boolean   @default(false) @map("saved_back")
 
   batch  CardPrintBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
   member TeamMember?    @relation(fields: [memberId], references: [id])
@@ -1164,48 +1472,60 @@ model CardPrintItem {
   @@index([batchId])
   @@index([memberId])
   @@index([userId])
+  @@index([workspaceId])
   @@map("card_print_items")
 }
 
 // ───────────────────────────────────────────────────────────── platform
 
 model Notification {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  type      String
-  payload   Json      @default("{}")
-  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
-  emailedAt DateTime? @map("emailed_at") @db.Timestamptz(3)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  userId      String    @map("user_id") @db.Uuid
+  type        String
+  payload     Json      @default("{}")
+  readAt      DateTime? @map("read_at") @db.Timestamptz(3)
+  emailedAt   DateTime? @map("emailed_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
+  @@index([workspaceId])
   @@map("notifications")
 }
 
 model Setting {
-  key         String   @id
+  key         String
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   value       Json
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-  updatedById String?  @map("updated_by") @db.Uuid
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById String?   @map("updated_by") @db.Uuid
 
+  @@id([workspaceId, key])
   @@map("settings")
 }
 
 /// raw SQL: trigger audit_log_no_update — the audit log is append-only.
 model AuditLog {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  actorId    String?  @map("actor_id") @db.Uuid
-  action     String
-  entityType String   @map("entity_type")
-  entityId   String?  @map("entity_id") @db.Uuid
-  before     Json?
-  after      Json?
-  ip         String?
-  requestId  String?  @map("request_id")
-  at         DateTime @default(now()) @db.Timestamptz(3)
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// A12: the workspace (قسم) of this row; defaults to the session's app.workspace_id (ADR-142).
+  workspaceId String?    @default(dbgenerated("nz_current_workspace()")) @map("workspace_id") @db.Uuid
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  actorId     String?    @map("actor_id") @db.Uuid
+  action      String
+  entityType  String     @map("entity_type")
+  entityId    String?    @map("entity_id") @db.Uuid
+  before      Json?
+  after       Json?
+  ip          String?
+  requestId   String?    @map("request_id")
+  at          DateTime   @default(now()) @db.Timestamptz(3)
 
   actor User? @relation(fields: [actorId], references: [id])
 
@@ -1213,5 +1533,6 @@ model AuditLog {
   @@index([actorId, at])
   @@index([at])
   @@index([action])
+  @@index([workspaceId])
   @@map("audit_log")
 }

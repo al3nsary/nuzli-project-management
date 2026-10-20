@@ -6,6 +6,7 @@ import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import type { AuthUser } from '../common/request';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeWorkspaceId } from '../prisma/workspace-context';
 import { SettingsService } from '../settings/settings.service';
 import { FilesService, type FileEntityHook } from '../storage/files.service';
 import { StorageService } from '../storage/storage.service';
@@ -135,7 +136,7 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
     const { limit } = await this.allowanceFor(v, kind, user);
     await this.prisma.$transaction(async (tx) => {
       // Serialises confirms of the same violation (READ COMMITTED + row lock, like ADR-030).
-      await tx.$queryRaw`SELECT id FROM violations WHERE id = ${violationId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM violations WHERE id = ${violationId}::uuid AND workspace_id = ${activeWorkspaceId()}::uuid FOR UPDATE`;
       const existing = await tx.violationFile.findUnique({ where: { fileId: file.id }, select: { id: true } });
       if (existing) return;
       const count = await tx.violationFile.count({ where: { violationId, kind, file: { deletedAt: null } } });
@@ -156,6 +157,16 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
    * One audit entry per run (system actor).
    */
   @Cron('0 15 3 * * *', { name: 'violation-photo-retention', timeZone: 'Asia/Riyadh' })
+  async purgeExpiredPhotosAllWorkspaces(now = new Date()): Promise<number> {
+    // A12: each workspace has its own retention setting and its own audit trail (ADR-143).
+    let total = 0;
+    await this.prisma.forEachWorkspace('violation-photo-retention', async () => {
+      total += await this.purgeExpiredPhotos(now);
+    });
+    return total;
+  }
+
+  /** The retention pass of the ACTIVE workspace. */
   async purgeExpiredPhotos(now = new Date()): Promise<number> {
     const days = await this.settings.get('VIOLATION_PHOTO_RETENTION_DAYS');
     if (!days || days <= 0) return 0;

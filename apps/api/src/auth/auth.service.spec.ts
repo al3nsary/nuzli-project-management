@@ -21,8 +21,11 @@ const USER = {
   nationalIdEnc: crypto.encrypt('1000000023'),
   nationalIdFirst: '1',
   nationalIdLast2: '23',
-  role: 'ADMIN',
+  username: 'khaled',
+  accountRole: 'USER',
+  memberships: [{ workspaceId: 'ws-1', role: 'ADMIN', status: 'ACTIVE' }],
   requestedRole: null,
+  requestedWorkspaceId: null,
   requestedTeamName: null,
   status: 'ACTIVE',
   rejectionReason: null,
@@ -48,7 +51,7 @@ function setup(opts: { user?: Partial<typeof USER> | null; existing?: Array<{ id
   let failed = opts.user === null ? 0 : (opts.user?.failedLoginCount ?? 0);
   const user = opts.user === null ? null : { ...USER, ...opts.user };
   const tx = {
-    user: { create: jest.fn().mockResolvedValue({ ...USER, id: 'new', status: 'PENDING' }), update: jest.fn() },
+    user: { create: jest.fn().mockResolvedValue({ ...USER, id: 'new', status: 'PENDING' }), update: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) },
     auditLog: { create: jest.fn().mockResolvedValue({}) },
   };
   const prisma = {
@@ -72,6 +75,14 @@ function setup(opts: { user?: Partial<typeof USER> | null; existing?: Array<{ id
   const refreshTokens = { issue: jest.fn().mockResolvedValue({ token: 'rt' }), revokeAllForUser: jest.fn() };
   const notifications = { notifyAdmins: jest.fn().mockResolvedValue(undefined) };
   const mail = { send: jest.fn().mockResolvedValue(undefined) };
+  // A12: a single workspace the user belongs to.
+  const ws = { id: 'ws-1', name: 'إدارة المشاريع', code: 'projects', roles: ['ADMIN'] };
+  const workspaces = {
+    pick: jest.fn().mockResolvedValue({ list: [ws], active: ws }),
+    singleWorkspace: jest.fn().mockResolvedValue(true),
+    resolve: jest.fn().mockResolvedValue({ workspace: ws, roles: ['ADMIN'], role: 'ADMIN' }),
+    registrationWorkspace: jest.fn().mockResolvedValue('ws-1'),
+  };
   let now = Date.parse('2026-10-12T08:00:00Z');
   const throttle = new LoginThrottleService(() => now);
   const auth = new AuthService(
@@ -85,6 +96,7 @@ function setup(opts: { user?: Partial<typeof USER> | null; existing?: Array<{ id
     notifications as never,
     mail as never,
     throttle,
+    workspaces as never,
   );
   return { auth, prisma, tx, mail, notifications, advance: (ms: number) => (now += ms), throttle };
 }

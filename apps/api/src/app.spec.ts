@@ -30,13 +30,23 @@ type Role = 'ADMIN' | 'SUPERVISOR' | 'MONITOR';
 describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
   let app: INestApplication;
   let tokenFor: (id: string, role: Role) => string;
-  const users = new Map<string, { id: string; role: Role; status: string; fullName: string; mustChangePassword: boolean }>();
+  const users = new Map<string, { id: string; role: Role; status: string; fullName: string; mustChangePassword: boolean; accountRole: 'USER' }>();
+  const WS = '0a120000-0000-4000-8000-0000000000aa';
 
   const prismaMock = {
     ping: jest.fn().mockResolvedValue(true),
     $connect: jest.fn(),
     $disconnect: jest.fn(),
     user: { findUnique: jest.fn(({ where }: { where: { id: string } }) => Promise.resolve(users.get(where.id) ?? null)) },
+    // A12: the guard checks the token's workspace against the user's memberships.
+    workspace: {
+      findUnique: jest.fn(({ where, select }: { where: { id: string }; select: { memberships: { where: { userId: string } } } }) => {
+        const u = users.get(select.memberships.where.userId);
+        return Promise.resolve(
+          where.id === WS ? { id: WS, name: 'إدارة المشاريع', code: 'projects', status: 'ACTIVE', memberships: u ? [{ role: u.role }] : [] } : null,
+        );
+      }),
+    },
     setting: { findMany: jest.fn().mockResolvedValue([]) },
   };
 
@@ -61,8 +71,8 @@ describe('HTTP pipeline (AppModule, mocked Prisma)', () => {
 
     const access = nest.get(AccessTokenService);
     tokenFor = (id, role) => {
-      users.set(id, { id, role, status: 'ACTIVE', fullName: 'x', mustChangePassword: false });
-      return access.sign({ id, role });
+      users.set(id, { id, role, status: 'ACTIVE', fullName: 'x', mustChangePassword: false, accountRole: 'USER' });
+      return access.sign({ id }, WS);
     };
   });
 

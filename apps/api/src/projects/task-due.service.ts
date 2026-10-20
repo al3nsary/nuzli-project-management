@@ -34,14 +34,17 @@ export class TaskDueService {
 
   @Cron('0 0 7 * * *', { name: 'task-due-reminders', timeZone: 'Asia/Riyadh' })
   async cronRun(): Promise<void> {
-    try {
-      const r = await this.run();
-      if (r.dueSoon || r.overdue || r.deadlinePassed) {
-        this.logger.log(`Task reminders: ${r.dueSoon} due soon, ${r.overdue} overdue, ${r.deadlinePassed} past deadline`);
+    // A12: one pass per workspace (ADR-143); the notifications land in that workspace.
+    await this.prisma.forEachWorkspace('task-due-reminders', async (ws) => {
+      try {
+        const r = await this.run();
+        if (r.dueSoon || r.overdue || r.deadlinePassed) {
+          this.logger.log(`Task reminders (${ws.id}): ${r.dueSoon} due soon, ${r.overdue} overdue, ${r.deadlinePassed} past deadline`);
+        }
+      } catch (err) {
+        this.logger.error(`Task reminders failed (${ws.id}): ${(err as Error).message}`);
       }
-    } catch (err) {
-      this.logger.error(`Task reminders failed: ${(err as Error).message}`);
-    }
+    });
   }
 
   async run(now: Date = new Date()): Promise<DueRunResult> {

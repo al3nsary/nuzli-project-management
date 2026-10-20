@@ -9,6 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProjectStore } from './project-store';
 import { rangeProblem } from './reports';
 import { addCalendarDaysIso, dateOf, isoOf, riyadhToday } from './task-engine';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { memberOf } from '../users/user-dto';
 
 type Viewer = PermissionSubject & { id: string; fullName?: string };
 
@@ -77,7 +79,8 @@ export class TimeEntriesService {
     let userId = viewer.id;
     if (input.userId && input.userId !== viewer.id) {
       if (!admin) throw new AppError('FORBIDDEN', { fields: ['userId'] });
-      const u = await this.prisma.user.findUnique({ where: { id: input.userId }, select: { status: true } });
+      // A12: a user of this workspace only.
+      const u = await this.prisma.user.findFirst({ where: { id: input.userId, ...memberOf(activeWorkspaceId()) }, select: { status: true } });
       if (!u || u.status !== 'ACTIVE') throw new AppError('VALIDATION_FAILED', { fieldErrors: { userId: ['المستخدم غير نشط أو غير موجود'] } });
       userId = input.userId;
     }

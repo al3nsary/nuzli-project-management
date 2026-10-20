@@ -20,6 +20,11 @@
  *                  list below is used. Violation types are loaded even when teams/members are absent.
  */
 import { PrismaClient, type Prisma, type TeamStatus } from '@prisma/client';
+import { createScopedClient } from '../prisma/prisma.service';
+import { runInWorkspace } from '../prisma/workspace-context';
+import { supervisorsOf } from '../users/user-dto';
+import { allocateUsername } from '../users/usernames';
+import { FIRST_WORKSPACE } from './seed';
 import { fullName as fullNameSchema, nationalId as nationalIdSchema } from '@nuzli/shared';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -74,10 +79,26 @@ const date = (v: unknown): Date | undefined => {
   return d && !Number.isNaN(d.getTime()) ? d : undefined;
 };
 
+/**
+ * A12: the demo data goes into the first workspace «إدارة المشاريع», through the
+ * workspace-scoped client (so it works under Row Level Security too).
+ */
 export async function runDemoSeed(
-  prisma: PrismaClient,
+  raw: PrismaClient,
   env: SeedEnv & NodeJS.ProcessEnv,
   log: Log = console.log,
+): Promise<DemoSeedResult> {
+  const prisma = (raw as unknown as { $base?: unknown }).$base ? raw : createScopedClient(raw);
+  const ws = await prisma.workspace.findUnique({ where: { code: FIRST_WORKSPACE.code }, select: { id: true } });
+  if (!ws) throw new Error('[seed:demo] run the system seed first (no «إدارة المشاريع» workspace)');
+  return runInWorkspace(ws.id, () => runDemoSeedIn(prisma, ws.id, env, log), 'seed:demo');
+}
+
+async function runDemoSeedIn(
+  prisma: PrismaClient,
+  workspaceId: string,
+  env: SeedEnv & NodeJS.ProcessEnv,
+  log: Log,
 ): Promise<DemoSeedResult> {
   const dir = demoDir(env);
   const teamsFile = readFile(dir, 'teams.json');
@@ -115,14 +136,14 @@ export async function runDemoSeed(
   const refByName = { department: new Map<string, string>(), job_title: new Map<string, string>() };
   for (const [kind, key] of [['department', 'departments'], ['job_title', 'jobTitles']] as const) {
     const delegate = (kind === 'department' ? prisma.department : prisma.jobTitle) as unknown as {
-      findUnique(a: object): Promise<{ id: string } | null>;
+      findFirst(a: object): Promise<{ id: string } | null>;
       create(a: object): Promise<{ id: string }>;
       findMany(a: object): Promise<Array<{ id: string; name: string }>>;
     };
     for (const item of list(referenceFile, key)) {
       const name = str(item.name);
       if (!name) continue;
-      let row = await delegate.findUnique({ where: { name }, select: { id: true } });
+      let row = await delegate.findFirst({ where: { name }, select: { id: true } });
       if (!row) {
         row = await delegate.create({ data: { name }, select: { id: true } });
         result.referenceCreated++;
@@ -139,7 +160,7 @@ export async function runDemoSeed(
     const id = str(t.supervisorId);
     const email = str(t.supervisorEmail)?.toLowerCase();
     const found = await prisma.user.findFirst({
-      where: { role: 'SUPERVISOR', OR: [...(id ? [{ id }] : []), ...(email ? [{ email }] : [])] },
+      where: { ...supervisorsOf(workspaceId), OR: [...(id ? [{ id }] : []), ...(email ? [{ email }] : [])] },
       select: { id: true },
     });
     if (found) return found.id;
@@ -158,6 +179,7 @@ export async function runDemoSeed(
     const created = await prisma.user.create({
       data: {
         ...(str(demo.id) ? { id: str(demo.id)! } : {}),
+        username: await allocateUsername(prisma, str(demo.email)!.toLowerCase()),
         fullName: str(demo.fullName)!,
         email: str(demo.email)!.toLowerCase(),
         mobile: str(demo.mobile)!,
@@ -165,9 +187,9 @@ export async function runDemoSeed(
         nationalIdHash: p.hash,
         nationalIdFirst: p.first,
         nationalIdLast2: p.last2,
-        role: 'SUPERVISOR',
         status: demo.status === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE',
         approvedAt: new Date(),
+        memberships: { create: { workspaceId, role: 'SUPERVISOR' } },
       },
       select: { id: true },
     });
@@ -267,7 +289,7 @@ export async function runDemoSeed(
     const nid = nationalIdSchema.safeParse(str(m.nationalId) ?? '');
     if (!name.success || !nid.success) continue;
     const p = crypto.protectNationalId(nid.data);
-    if (await prisma.teamMember.findUnique({ where: { nationalIdHash: p.hash }, select: { id: true } })) continue;
+    if (await prisma.teamMember.findFirst({ where: { nationalIdHash: p.hash }, select: { id: true } })) continue;
     const jsonId = str(m.id);
     const jobId =
       refIds.job_title.get(str(m.jobTitleId) ?? '') ?? refByName.job_title.get(str(m.jobTitle) ?? str(m.jobTitleText) ?? '');
@@ -327,7 +349,7 @@ export async function seedDemoViolationTypes(prisma: PrismaClient, dir: string):
     .filter((t): t is { name: string; severity: (typeof DEMO_VIOLATION_TYPES)[number]['severity'] } => !!t.name);
   let created = 0;
   for (const t of fromFile.length ? fromFile : DEMO_VIOLATION_TYPES) {
-    const exists = await prisma.violationType.findUnique({ where: { name: t.name }, select: { id: true } });
+    const exists = await prisma.violationType.findFirst({ where: { name: t.name }, select: { id: true } });
     if (exists) continue;
     await prisma.violationType.create({ data: { name: t.name, severity: t.severity } });
     created++;

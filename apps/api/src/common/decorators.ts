@@ -6,6 +6,7 @@ export const IS_PUBLIC = 'nuzli:isPublic';
 export const REQUIRED_PERMISSIONS = 'nuzli:permissions';
 export const ANY_PERMISSIONS = 'nuzli:anyPermissions';
 export const ALLOW_PASSWORD_CHANGE_PENDING = 'nuzli:allowMustChangePassword';
+export const WORKSPACE_OPTIONAL = 'nuzli:workspaceOptional';
 
 /** Opt out of the global JWT guard. */
 export const Public = () => SetMetadata(IS_PUBLIC, true);
@@ -25,6 +26,12 @@ export const RequireAnyPermission = (...permissions: Permission[]) =>
 /** Reachable while `mustChangePassword` is true (change-password, me, logout). */
 export const AllowWhenPasswordChangeRequired = () =>
   SetMetadata(ALLOW_PASSWORD_CHANGE_PENDING, true);
+
+/**
+ * A12: reachable by an authenticated user WITHOUT an active workspace (session and account
+ * routes). Every other authenticated route requires one (WORKSPACE_REQUIRED, fail closed).
+ */
+export const WorkspaceOptional = () => SetMetadata(WORKSPACE_OPTIONAL, true);
 
 /** The authenticated user (set by JwtAuthGuard). */
 export const CurrentUser = createParamDecorator(

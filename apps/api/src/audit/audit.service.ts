@@ -20,6 +20,10 @@ export const AuditAction = {
   USER_REACTIVATED: 'user.reactivated',
   SETTINGS_UPDATED: 'settings.updated',
   PASSWORD_CHANGED: 'auth.password_changed',
+  // A12 — workspaces (ADR-142..145):
+  WORKSPACE_SWITCHED: 'auth.workspace_switched',
+  OWNER_PROMOTED: 'user.owner_promoted',
+  OWNER_CROSS_WORKSPACE_ACCESS: 'owner.cross_workspace_access',
   // API-only additions (labelled «إجراء آخر» by the web until it adds them):
   PASSWORD_RESET: 'auth.password_reset',
   REFRESH_REUSE_DETECTED: 'auth.refresh_reuse_detected',

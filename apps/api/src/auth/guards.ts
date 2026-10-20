@@ -8,9 +8,12 @@ import {
   IS_PUBLIC,
   ANY_PERMISSIONS,
   REQUIRED_PERMISSIONS,
+  WORKSPACE_OPTIONAL,
 } from '../common/decorators';
 import type { AuthRequest, AuthUser } from '../common/request';
 import { PrismaService } from '../prisma/prisma.service';
+import { workspaceStorage } from '../prisma/workspace-context';
+import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { AccessTokenService } from './access-token.service';
 import { CSRF_COOKIE, CSRF_HEADER } from './cookies';
 
@@ -20,20 +23,35 @@ const STATUS_ERRORS: Record<string, ErrorCode> = {
   SUSPENDED: 'ACCOUNT_SUSPENDED',
 };
 
-/** Loads the current user state; role and status always come from the database. */
+/**
+ * Loads the current user state; status, account role and workspace roles always come from the
+ * database. A12: `workspaceId` is the token's `wid`; it is checked against the live memberships
+ * (WORKSPACE_FORBIDDEN / WORKSPACE_ARCHIVED) before the request may use it.
+ */
 export interface UserLoader {
-  load(id: string): Promise<AuthUser | null>;
+  load(id: string, workspaceId: string | null): Promise<AuthUser | null>;
 }
 
 @Injectable()
 export class PrismaUserLoader implements UserLoader {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: WorkspaceAccessService,
+  ) {}
 
-  load(id: string): Promise<AuthUser | null> {
-    return this.prisma.user.findUnique({
+  async load(id: string, workspaceId: string | null): Promise<AuthUser | null> {
+    const user = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true, status: true, fullName: true, mustChangePassword: true },
+      select: { id: true, status: true, fullName: true, mustChangePassword: true, accountRole: true },
     });
+    if (!user) return null;
+    if (user.status !== 'ACTIVE') return { ...user, role: null, roles: [], workspaceId: null };
+    // A token without a workspace (issued before A12, or before the user chose one): bound to the
+    // user's ONLY workspace when there is exactly one — never a guess between several.
+    const target = workspaceId ?? (await this.access.pick(user.id, user.accountRole, null)).active?.id ?? null;
+    if (!target) return { ...user, role: null, roles: [], workspaceId: null };
+    const access = await this.access.resolve(user.id, user.accountRole, target);
+    return { ...user, role: access.role, roles: access.roles, workspaceId: access.workspace.id };
   }
 }
 
@@ -60,7 +78,7 @@ export class JwtAuthGuard implements CanActivate {
     const claims = match?.[1] ? this.tokens.verify(match[1]) : null;
     if (!claims) throw new AppError('UNAUTHENTICATED');
 
-    const user = await this.users.load(claims.sub);
+    const user = await this.users.load(claims.sub, claims.wid);
     if (!user) throw new AppError('UNAUTHENTICATED');
     if (user.status !== 'ACTIVE') throw new AppError(STATUS_ERRORS[user.status] ?? 'UNAUTHENTICATED');
 
@@ -70,6 +88,17 @@ export class JwtAuthGuard implements CanActivate {
     ) {
       throw new AppError('PASSWORD_CHANGE_REQUIRED');
     }
+    // A12 (ADR-143): every authenticated route runs inside the token's workspace; only the
+    // session/account routes marked @WorkspaceOptional() may run without one (fail closed).
+    if (!user.workspaceId && !this.reflector.getAllAndOverride<boolean>(WORKSPACE_OPTIONAL, targets)) {
+      throw new AppError('WORKSPACE_REQUIRED');
+    }
+    const store = workspaceStorage.getStore();
+    if (!store) throw new Error('workspace context middleware is not installed');
+    store.workspaceId = user.workspaceId;
+    store.userId = user.id;
+    store.accountRole = user.accountRole;
+    store.bypass = false;
     req.user = user;
     return true;
   }

@@ -69,6 +69,7 @@ function setup(opts: { settings?: Record<string, number>; violation?: Record<str
     },
     teamMember: {
       findUnique: jest.fn().mockResolvedValue(opts.dup ? { id: 'existing-member' } : null),
+      findFirst: jest.fn().mockResolvedValue(opts.dup ? { id: 'existing-member' } : null),
       create: jest.fn().mockResolvedValue({}),
       findUniqueOrThrow: jest.fn(async () => memberRow('new-m', 'راجيش كومار')),
     },

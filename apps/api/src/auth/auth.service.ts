@@ -5,7 +5,9 @@ import {
   normalizeSaudiMobile,
   type AuthSession,
   type ErrorCode,
+  type PermissionSubject,
   type UserDto,
+  type WorkspaceSummaryDto,
 } from '@nuzli/shared';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
@@ -17,7 +19,10 @@ import { emails } from '../notifications/email-templates';
 import { MailService } from '../notifications/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { USER_DTO_SELECT, auditUser, toUserDto, type UserRow } from '../users/user-dto';
+import { activeWorkspaceIdOrNull, runInWorkspace } from '../prisma/workspace-context';
+import { USER_DTO_SELECT, auditUser, displayRole, rolesIn, toUserDto, type UserRow } from '../users/user-dto';
+import { allocateUsername } from '../users/usernames';
+import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { AccessTokenService } from './access-token.service';
 import { LoginThrottleService } from './login-throttle';
 import { PasswordService } from './password.service';
@@ -39,6 +44,9 @@ const DUPLICATE_CODES = new Set<ErrorCode>(['EMAIL_TAKEN', 'MOBILE_TAKEN', 'NATI
 
 export interface RegisterData {
   accountType: 'SUPERVISOR' | 'MONITOR';
+  /** A12: the workspace applied to (optional while only one exists). */
+  workspaceId?: string;
+  username?: string;
   fullName: string;
   email: string;
   mobile: string;
@@ -68,6 +76,7 @@ export class AuthService {
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
     private readonly throttle: LoginThrottleService,
+    private readonly workspaces: WorkspaceAccessService,
   ) {}
 
   // ─────────────────────────────────────────── sessions
@@ -76,26 +85,48 @@ export class AuthService {
    * The single entry point that starts a session (ADR-010). Password login uses it today;
    * an SSO callback (e.g. Entra ID) will resolve its user and call the same method.
    */
-  async issueSession(user: UserRow, ctx: RequestContext, familyId?: string): Promise<IssuedSession> {
+  async issueSession(
+    user: UserRow,
+    ctx: RequestContext,
+    familyId?: string,
+    preferredWorkspaceId: string | null = null,
+  ): Promise<IssuedSession> {
+    // A12: bind the session to the preferred workspace when allowed, else the only one, else none.
+    const { list, active } = await this.workspaces.pick(user.id, user.accountRole, preferredWorkspaceId);
     const { token } = await this.refreshTokens.issue(
       user.id,
       { ip: ctx.ip, userAgent: ctx.userAgent },
       familyId,
+      active?.id ?? null,
     );
-    return { session: this.sessionBody(user), refreshToken: token };
+    return { session: await this.sessionBody(user, list, active), refreshToken: token };
   }
 
-  private sessionBody(user: UserRow): AuthSession {
+  private async sessionBody(user: UserRow, list: WorkspaceSummaryDto[], active: WorkspaceSummaryDto | null): Promise<AuthSession> {
     return {
-      accessToken: this.access.sign(user),
+      accessToken: this.access.sign(user, active?.id ?? null),
       expiresIn: this.access.ttlSeconds,
-      user: this.dto(user),
+      user: this.dto(user, undefined, active?.id ?? null),
+      workspaces: list,
+      activeWorkspace: active,
+      singleWorkspace: await this.workspaces.singleWorkspace(),
     };
   }
 
-  dto(user: UserRow, viewer?: { role: UserRow['role']; status: UserRow['status'] }): UserDto {
-    const subject = viewer ?? user;
-    return toUserDto(user, { fullNationalId: can(subject, 'nationalIds.readFull'), crypto: this.crypto });
+  /** A12: the permission subject of `user` inside `workspaceId`. */
+  subjectIn(user: UserRow, workspaceId: string | null): PermissionSubject {
+    return {
+      role: workspaceId ? displayRole(user, workspaceId) : null,
+      roles: rolesIn(user, workspaceId),
+      accountRole: user.accountRole,
+      status: user.status,
+    };
+  }
+
+  dto(user: UserRow, viewer?: PermissionSubject, workspaceId?: string | null): UserDto {
+    const ws = workspaceId !== undefined ? workspaceId : activeWorkspaceIdOrNull();
+    const subject = viewer ?? this.subjectIn(user, ws);
+    return toUserDto(user, { fullNationalId: can(subject, 'nationalIds.readFull'), crypto: this.crypto, workspaceId: ws });
   }
 
   /**
@@ -107,7 +138,7 @@ export class AuthService {
   async login(identifier: string, password: string, ctx: RequestContext): Promise<IssuedSession> {
     const where = identifierToWhere(identifier);
     // One bucket per account whatever the spelling (0551… / +966551…, upper/lower case e-mail).
-    const tkey = where ? String(where.email ?? where.mobile) : identifier.trim().toLowerCase();
+    const tkey = where ? String(where.email ?? where.mobile ?? where.username) : identifier.trim().toLowerCase();
     this.throttle.assertAllowed(tkey, ctx.ip);
     const user = where
       ? await this.prisma.user.findUnique({
@@ -213,7 +244,48 @@ export class AuthService {
       await this.refreshTokens.revokeByToken(result.token);
       throw new AppError(statusError ?? 'UNAUTHENTICATED');
     }
-    return { session: this.sessionBody(user), refreshToken: result.token };
+    // A12: the refreshed session keeps its workspace while the user may still enter it.
+    const { list, active } = await this.workspaces.pick(user.id, user.accountRole, result.workspaceId);
+    if ((active?.id ?? null) !== result.workspaceId) {
+      // The bound workspace was lost (membership removed, workspace archived): re-issue the
+      // rotated token bound to the fallback so the cookie and the access token agree.
+      await this.refreshTokens.revokeByToken(result.token);
+      const next = await this.refreshTokens.issue(user.id, { ip: ctx.ip, userAgent: ctx.userAgent }, undefined, active?.id ?? null);
+      return { session: await this.sessionBody(user, list, active), refreshToken: next.token };
+    }
+    return { session: await this.sessionBody(user, list, active), refreshToken: result.token };
+  }
+
+  /**
+   * A12: `POST /auth/switch-workspace` — re-issues the session bound to another workspace after
+   * the membership check (owners: any active workspace). The previous refresh family is revoked,
+   * so the old workspace's session cannot be refreshed again. Audited in the target workspace.
+   */
+  async switchWorkspace(
+    userId: string,
+    workspaceId: string,
+    presentedRefresh: string | undefined,
+    ctx: RequestContext,
+    fromWorkspaceId: string | null,
+  ): Promise<IssuedSession> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: USER_DTO_SELECT });
+    if (!user || user.status !== 'ACTIVE') throw new AppError('UNAUTHENTICATED');
+    await this.workspaces.resolve(user.id, user.accountRole, workspaceId);
+    await this.refreshTokens.revokeByToken(presentedRefresh);
+    const issued = await this.issueSession(user, ctx, undefined, workspaceId);
+    await runInWorkspace(workspaceId, () =>
+      this.audit.log({
+        actorId: user.id,
+        action: AuditAction.WORKSPACE_SWITCHED,
+        entityType: 'workspace',
+        entityId: workspaceId,
+        before: { workspaceId: fromWorkspaceId },
+        after: { workspaceId },
+        ip: ctx.ip,
+        requestId: ctx.requestId,
+      }),
+    );
+    return issued;
   }
 
   logout(presented: string | undefined): Promise<void> {
@@ -230,6 +302,13 @@ export class AuthService {
    * there is answered the same way.
    */
   async register(input: RegisterData, ctx: RequestContext): Promise<{ status: 'PENDING' }> {
+    // A12: the applicant picks the workspace by name (nothing to pick in single-workspace mode).
+    // The request, its audit entry and the admins' notification live in that workspace.
+    const workspaceId = await this.workspaces.registrationWorkspace(input.workspaceId);
+    return runInWorkspace(workspaceId, () => this.registerIn(workspaceId, input, ctx), 'registration');
+  }
+
+  private async registerIn(workspaceId: string, input: RegisterData, ctx: RequestContext): Promise<{ status: 'PENDING' }> {
     const nid = this.crypto.protectNationalId(input.nationalId);
     const passwordHash = await this.passwords.hash(input.password);
     const owners = () =>
@@ -243,9 +322,13 @@ export class AuthService {
       this.duplicateRegistration(existing, ctx);
       return { status: 'PENDING' };
     }
+    if (input.username && (await this.prisma.user.findUnique({ where: { username: input.username }, select: { id: true } }))) {
+      // A taken username is the one duplicate the applicant is told about: it is not personal data.
+      throw new AppError('USERNAME_TAKEN');
+    }
     let user: UserRow;
     try {
-      user = await this.createRegistration(input, nid, passwordHash, ctx);
+      user = await this.createRegistration(input, nid, passwordHash, ctx, workspaceId);
     } catch (err) {
       const mapped = err instanceof AppError ? err : mapPrismaError(err);
       if (mapped && DUPLICATE_CODES.has(mapped.code)) {
@@ -288,11 +371,14 @@ export class AuthService {
     nid: ProtectedNationalId,
     passwordHash: string,
     ctx: RequestContext,
+    workspaceId: string,
   ): Promise<UserRow> {
     return withPrismaErrors(() =>
       this.prisma.$transaction(async (tx) => {
         const created = await tx.user.create({
           data: {
+            username: await allocateUsername(tx, input.email, input.username),
+            requestedWorkspaceId: workspaceId,
             fullName: input.fullName,
             email: input.email,
             mobile: input.mobile,
@@ -301,7 +387,6 @@ export class AuthService {
             nationalIdFirst: nid.first,
             nationalIdLast2: nid.last2,
             passwordHash,
-            role: input.accountType,
             requestedRole: input.accountType,
             requestedTeamName: input.requestedTeamName ?? null,
             status: 'PENDING',
@@ -485,7 +570,7 @@ export class AuthService {
       return row;
     });
     await this.refreshTokens.revokeAllForUser(userId);
-    return this.issueSession(updated, ctx);
+    return this.issueSession(updated, ctx, undefined, activeWorkspaceIdOrNull());
   }
 
   // ─────────────────────────────────────────── profile
@@ -528,10 +613,15 @@ export class AuthService {
   }
 }
 
-/** Email (contains @) or Saudi mobile in any accepted format (normalised to E.164). */
+/**
+ * Email (contains @), Saudi mobile in any accepted format (normalised to E.164), or — A12 — a
+ * username (case-insensitive; usernames start with a letter, so they never look like a mobile).
+ */
 export function identifierToWhere(identifier: string): Prisma.UserWhereUniqueInput | null {
   const value = identifier.trim();
   if (value.includes('@')) return { email: value.toLowerCase() };
   const mobile = normalizeSaudiMobile(value);
-  return mobile ? { mobile } : null;
+  if (mobile) return { mobile };
+  const username = value.toLowerCase();
+  return /^[a-z][a-z0-9._-]{2,31}$/.test(username) ? { username } : null;
 }

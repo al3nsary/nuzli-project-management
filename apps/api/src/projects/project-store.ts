@@ -38,6 +38,7 @@ import {
   type VersionedField,
 } from './task-engine';
 import { dependenciesToDays, dependenciesToHours, tasksToDays, tasksToHours } from '@nuzli/scheduling';
+import { activeWorkspaceId, activeWorkspaceIdOrNull } from '../prisma/workspace-context';
 
 type Viewer = PermissionSubject & { id: string };
 
@@ -228,7 +229,7 @@ export class ProjectStore {
 
   /** Locks the project row (serialises writers of one project) and loads its schedule. */
   async lockAndLoad(tx: Db, projectId: string): Promise<WriteState> {
-    await tx.$queryRaw`SELECT id FROM projects WHERE id = ${projectId}::uuid FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM projects WHERE id = ${projectId}::uuid AND workspace_id = ${activeWorkspaceId()}::uuid FOR UPDATE`;
     const project = await tx.project.findUnique({
       where: { id: projectId },
       select: {
@@ -571,17 +572,23 @@ export function mapTaskDbError(err: unknown): unknown {
 }
 
 /** The SQL of `ProjectStore.unreadCounts` (exported for the text check in the unit tests). */
-export function unreadCountsSql(viewerId: string, scope: { projectId: string } | { taskIds: string[] }): Prisma.Sql {
+export function unreadCountsSql(
+  viewerId: string,
+  scope: { projectId: string } | { taskIds: string[] },
+  workspaceId: string | null = activeWorkspaceIdOrNull(),
+): Prisma.Sql {
   const where =
     'projectId' in scope
       ? Prisma.sql`t.project_id = ${scope.projectId}::uuid AND t.archived_at IS NULL`
       : Prisma.sql`c.task_id = ANY(${scope.taskIds}::uuid[])`;
+  // A12 (ADR-143): the workspace filter is part of the SQL (no workspace → no rows).
+  const ws = workspaceId ? Prisma.sql`c.workspace_id = ${workspaceId}::uuid` : Prisma.sql`FALSE`;
   return Prisma.sql`
     SELECT c.task_id AS "taskId", count(*)::int AS "unread"
       FROM task_comments c
-      JOIN tasks t ON t.id = c.task_id
-      LEFT JOIN task_comment_reads r ON r.task_id = c.task_id AND r.user_id = ${viewerId}::uuid
-     WHERE ${where}
+      JOIN tasks t ON t.id = c.task_id AND t.workspace_id = c.workspace_id
+      LEFT JOIN task_comment_reads r ON r.task_id = c.task_id AND r.workspace_id = c.workspace_id AND r.user_id = ${viewerId}::uuid
+     WHERE ${ws} AND ${where}
        AND c.author_id <> ${viewerId}::uuid
        AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)
      GROUP BY c.task_id`;

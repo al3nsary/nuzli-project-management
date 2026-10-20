@@ -12,6 +12,8 @@ export interface RefreshTokenRecord {
   expiresAt: Date;
   revokedAt: Date | null;
   replacedById: string | null;
+  /** A12: the session's workspace (kept across rotations). */
+  workspaceId?: string | null;
 }
 
 export interface NewRefreshToken {
@@ -21,6 +23,7 @@ export interface NewRefreshToken {
   expiresAt: Date;
   userAgent: string | null;
   ip: string | null;
+  workspaceId?: string | null;
 }
 
 /** Storage port for refresh tokens, so rotation logic is unit-testable without a database. */
@@ -78,7 +81,7 @@ export interface ClientMeta {
 }
 
 export type RotateResult =
-  | { ok: true; userId: string; familyId: string; token: string; expiresAt: Date }
+  | { ok: true; userId: string; familyId: string; token: string; expiresAt: Date; workspaceId: string | null }
   | { ok: false; reason: 'invalid' | 'expired' }
   | { ok: false; reason: 'reused'; userId: string; familyId: string };
 
@@ -105,6 +108,7 @@ export class RefreshTokenService {
     userId: string,
     meta: ClientMeta,
     familyId: string = randomUUID(),
+    workspaceId: string | null = null,
   ): Promise<{ token: string; record: RefreshTokenRecord }> {
     const token = randomToken(32);
     const record = await this.repo.create({
@@ -114,6 +118,7 @@ export class RefreshTokenService {
       expiresAt: new Date(this.now().getTime() + this.ttlMs),
       userAgent: meta.userAgent,
       ip: meta.ip,
+      workspaceId,
     });
     return { token, record };
   }
@@ -133,7 +138,7 @@ export class RefreshTokenService {
       return { ok: false, reason: 'expired' };
     }
 
-    const next = await this.issue(current.userId, meta, current.familyId);
+    const next = await this.issue(current.userId, meta, current.familyId, current.workspaceId ?? null);
     const won = await this.repo.markRotated(current.id, next.record.id, now);
     if (!won) {
       // A concurrent request rotated the same token first: treat as reuse.
@@ -146,7 +151,14 @@ export class RefreshTokenService {
       familyId: current.familyId,
       token: next.token,
       expiresAt: next.record.expiresAt,
+      workspaceId: current.workspaceId ?? null,
     };
+  }
+
+  /** A12: the session record of a presented token (switch-workspace revokes its family). */
+  async familyOf(presented: string | undefined): Promise<string | null> {
+    if (!presented) return null;
+    return (await this.repo.findByHash(sha256Hex(presented)))?.familyId ?? null;
   }
 
   /** Logout: revokes the family of the presented token (if any). */

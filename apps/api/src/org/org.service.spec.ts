@@ -125,7 +125,7 @@ function setup() {
       delete: jest.fn(async ({ where }: { where: { id: string } }) => positions.delete(where.id)),
     },
     team: { count: jest.fn(async ({ where }: { where: { orgUnitId: string } }) => (where.orgUnitId === 'with-team' ? 1 : 0)) },
-    user: { findUnique: jest.fn(async ({ where }: { where: { id: string } }) => (where.id === 'ghost' ? null : { archivedAt: null })) },
+    user: { findFirst: jest.fn(async ({ where }: { where: { id: string } }) => (where.id === 'ghost' ? null : { archivedAt: null })) },
     teamMember: { findUnique: jest.fn().mockResolvedValue({ archivedAt: null }) },
     auditLog: { create: jest.fn().mockResolvedValue({}) },
   };

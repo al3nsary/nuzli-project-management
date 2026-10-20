@@ -20,6 +20,8 @@ import { SettingsService } from '../settings/settings.service';
 import { FilesService, type FileEntityHook } from '../storage/files.service';
 import { StorageService } from '../storage/storage.service';
 import { ProjectStore } from './project-store';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { adminsOf, supervisorsOf } from '../users/user-dto';
 
 type Viewer = PermissionSubject & { id: string; fullName?: string };
 type CommentInput = z.output<typeof taskCommentSchema>;
@@ -111,7 +113,8 @@ export class TaskCollabService implements FileEntityHook, OnModuleInit {
       where: {
         id: { in: ids },
         status: 'ACTIVE',
-        OR: [{ role: 'ADMIN' }, ...(task.assigneeId ? [{ id: task.assigneeId, role: 'SUPERVISOR' as const }] : [])],
+        // A12: the workspace's admins (and owners), and the assignee if a supervisor here.
+        OR: [adminsOf(activeWorkspaceId()), ...(task.assigneeId ? [{ id: task.assigneeId, ...supervisorsOf(activeWorkspaceId()) }] : [])],
       },
       select: { id: true },
     });

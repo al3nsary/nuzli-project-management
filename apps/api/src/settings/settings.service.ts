@@ -4,10 +4,14 @@ import { DEFAULT_SETTINGS, SETTINGS_SCHEMA, type SettingKey, type Settings } fro
 import { AuditAction, AuditService } from '../audit/audit.service';
 import type { RequestContext } from '../common/request';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeWorkspaceId } from '../prisma/workspace-context';
 
 const SHAPE = SETTINGS_SCHEMA.shape;
 
-/** System toggles (brief §10) stored as `settings(key, value jsonb)`, defaults from @nuzli/shared. */
+/**
+ * System toggles (brief §10) stored as `settings(workspace_id, key, value jsonb)` — A12: every
+ * workspace has its own settings; defaults from @nuzli/shared.
+ */
 @Injectable()
 export class SettingsService {
   constructor(
@@ -27,7 +31,7 @@ export class SettingsService {
   }
 
   async get<K extends SettingKey>(key: K): Promise<Settings[K]> {
-    const row = await this.prisma.setting.findUnique({ where: { key } });
+    const row = await this.prisma.setting.findUnique({ where: { workspaceId_key: { workspaceId: activeWorkspaceId(), key } } });
     if (!row) return DEFAULT_SETTINGS[key];
     const parsed = SHAPE[key].safeParse(row.value);
     return parsed.success ? (parsed.data as Settings[K]) : DEFAULT_SETTINGS[key];
@@ -39,11 +43,12 @@ export class SettingsService {
       (k) => patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(before[k]),
     );
     if (changed.length) {
+      const workspaceId = activeWorkspaceId();
       await this.prisma.$transaction(async (tx) => {
         for (const key of changed) {
           const value = patch[key] as Prisma.InputJsonValue;
           await tx.setting.upsert({
-            where: { key },
+            where: { workspaceId_key: { workspaceId, key } },
             create: { key, value, updatedById: ctx.actorId },
             update: { value, updatedById: ctx.actorId },
           });

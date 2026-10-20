@@ -1,19 +1,34 @@
 import { z } from 'zod';
 import { email, fullName, nationalId, optionalText, paginationQuery, password, reason, saudiMobile } from './common';
-import type { Role, UserStatus } from '../enums';
+import type { AccountRole, Role, UserStatus, WorkspaceRole } from '../enums';
 
 export const roleSchema = z.enum(['ADMIN', 'SUPERVISOR', 'MONITOR']);
 export const selfRegistrableRole = z.enum(['SUPERVISOR', 'MONITOR']);
 
 export const loginSchema = z.object({
-  /** Email or Saudi mobile. */
-  identifier: z.string().trim().min(3, { message: 'اكتب البريد أو رقم الجوال' }),
+  /** Username, email or Saudi mobile (A12: username added). */
+  identifier: z.string().trim().min(3, { message: 'اكتب اسم المستخدم أو البريد أو رقم الجوال' }),
   password: z.string().min(1, { message: 'اكتب كلمة المرور' }),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+/**
+ * A12: a username — lower-case Latin letters, digits, dot, dash or underscore; starts with a
+ * letter; 3–32 characters. Case-insensitive: the API stores it in lower case.
+ */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z][a-z0-9._-]{2,31}$/, {
+    message: 'اسم المستخدم: ٣–٣٢ حرفًا لاتينيًّا صغيرًا أو رقمًا أو (. _ -) ويبدأ بحرف',
+  });
+
 export const registerSchema = z.object({
   accountType: selfRegistrableRole,
+  /** A12: the workspace (قسم) applied to; optional while only one workspace exists. */
+  workspaceId: z.string().uuid().optional(),
+  username: usernameSchema.optional(),
   fullName,
   email,
   mobile: saudiMobile,
@@ -31,6 +46,8 @@ export const changePasswordSchema = z.object({
 });
 
 export const createUserSchema = z.object({
+  /** A12: generated from the e-mail when omitted. */
+  username: usernameSchema.optional(),
   fullName,
   email,
   mobile: saudiMobile,
@@ -92,6 +109,21 @@ export interface UserDto {
   /** Owner request A8: profile photo (`GET /users/:id/photo-url`, `GET /me/photo-url`). Always sent by the API. */
   photoFileId?: string | null;
   hasPhoto?: boolean;
+  /** A12: login name (case-insensitive, unique). Always sent by the API. */
+  username?: string;
+  /** A12: OWNER (مالك) or USER. Always sent by the API. */
+  accountRole?: AccountRole;
+  /** A12: every role the user holds in the caller's active workspace. `role` is the strongest one. */
+  workspaceRoles?: WorkspaceRole[];
+}
+
+/** A12: a workspace (قسم) the user can enter. */
+export interface WorkspaceSummaryDto {
+  id: string;
+  name: string;
+  code: string;
+  /** The caller's roles there (owners: [] — they hold everything). */
+  roles: WorkspaceRole[];
 }
 
 export interface AuthSession {
@@ -99,6 +131,29 @@ export interface AuthSession {
   /** Seconds until the access token expires. */
   expiresIn: number;
   user: UserDto;
+  /** A12: the workspaces the user can enter (owners: every active workspace). */
+  workspaces?: WorkspaceSummaryDto[];
+  /** A12: the workspace the access token is bound to; null until one is chosen. */
+  activeWorkspace?: WorkspaceSummaryDto | null;
+  /** A12: true while the system has a single active workspace (no picker, no switcher). */
+  singleWorkspace?: boolean;
+}
+
+/** A12: `POST /auth/switch-workspace`. */
+export const switchWorkspaceSchema = z.object({ workspaceId: z.string().uuid() });
+export type SwitchWorkspaceInput = z.infer<typeof switchWorkspaceSchema>;
+
+/** A12: `GET /system/info`. `workspaces` is sent to owners only. */
+export interface SystemInfoDto {
+  workspaceCount: number;
+  singleWorkspace: boolean;
+  workspaces?: Array<{ id: string; name: string; code: string }>;
+}
+
+/** A12: `GET /public/workspaces` (registration) — names of active workspaces only. */
+export interface PublicWorkspaceDto {
+  id: string;
+  name: string;
 }
 
 /** `POST /users/search` — `GET /users` filters in the body (full national IDs stay out of URLs). */

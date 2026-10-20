@@ -199,6 +199,11 @@ function setup(
     },
     user: {
       findUnique: jest.fn().mockResolvedValue({ role: 'SUPERVISOR', status: 'ACTIVE' }),
+      // A12: "an ACTIVE SUPERVISOR of this workspace" — derived from the findUnique fixture above.
+      findFirst: jest.fn(async (args: { where: { id: string } }): Promise<{ id: string } | null> => {
+        const u = (await tx.user.findUnique(args as never)) as { role: string; status: string } | null;
+        return u && u.role === 'SUPERVISOR' && u.status === 'ACTIVE' ? { id: args.where.id } : null;
+      }),
       findMany: jest.fn().mockResolvedValue([]),
     },
     orgUnit: { findUnique: jest.fn().mockResolvedValue({ archivedAt: null }) },

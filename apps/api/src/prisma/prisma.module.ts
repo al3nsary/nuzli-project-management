@@ -1,6 +1,13 @@
 import { Global, Module } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
+import { PRISMA_CLIENT_OPTIONS, PrismaService } from './prisma.service';
 
 @Global()
-@Module({ providers: [PrismaService], exports: [PrismaService] })
+@Module({
+  providers: [
+    // Empty in production (DATABASE_URL); tests replace it with a PGlite driver adapter.
+    { provide: PRISMA_CLIENT_OPTIONS, useValue: {} },
+    PrismaService,
+  ],
+  exports: [PrismaService],
+})
 export class PrismaModule {}

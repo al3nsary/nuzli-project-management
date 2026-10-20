@@ -1,4 +1,4 @@
-import type { Role } from './enums';
+import type { AccountRole, Role } from './enums';
 
 /**
  * The single RBAC matrix (brief §4.1). The API guard and the web UI both read it.
@@ -94,15 +94,27 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 };
 
 export interface PermissionSubject {
-  role: Role;
+  /** The matrix role in the active workspace (A12); null = no role there. */
+  role: Role | null;
   status?: string;
+  /** A12: OWNER holds every permission in every workspace. */
+  accountRole?: AccountRole;
+  /**
+   * A12: every role the user holds in the active workspace (a dual role is allowed). When given,
+   * the permission is granted if ANY of them grants it; `role` stays the strongest one.
+   */
+  roles?: readonly string[];
 }
 
 /** True when the user holds the permission. Non-active users hold nothing. */
 export function can(user: PermissionSubject | null | undefined, permission: Permission): boolean {
   if (!user) return false;
   if (user.status && user.status !== 'ACTIVE') return false;
-  return ROLE_PERMISSIONS[user.role]?.has(permission) ?? false;
+  if (user.accountRole === 'OWNER') return true;
+  if (user.roles?.length) {
+    return user.roles.some((r) => ROLE_PERMISSIONS[r as Role]?.has(permission) ?? false);
+  }
+  return (user.role && ROLE_PERMISSIONS[user.role]?.has(permission)) ?? false;
 }
 
 export function canAny(user: PermissionSubject | null | undefined, permissions: Permission[]) {

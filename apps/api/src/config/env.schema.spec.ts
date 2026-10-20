@@ -109,7 +109,11 @@ describe('bootstrap admin password (security review H1)', () => {
     BOOTSTRAP_ADMIN_MOBILE: '0500000000',
     BOOTSTRAP_ADMIN_NATIONAL_ID: '100000000' + nationalIdCheckDigit('100000000'),
   };
-  const prisma = () => ({ user: { count: jest.fn().mockResolvedValue(0) }, $transaction: jest.fn() });
+  const prisma = () => ({
+    user: { count: jest.fn().mockResolvedValue(0) },
+    workspaceMembership: { count: jest.fn().mockResolvedValue(0) },
+    $transaction: jest.fn(),
+  });
 
   it('the example placeholder is refused in every environment', async () => {
     const p = prisma();

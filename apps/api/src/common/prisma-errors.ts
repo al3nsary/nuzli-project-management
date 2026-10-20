@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { ErrorCode } from '@nuzli/shared';
+import { WorkspaceScopeError } from '../prisma/workspace-context';
 import { AppError } from './app-error';
 
 /** Unique-constraint targets → error codes (P2002 / SQLSTATE 23505). */
@@ -8,6 +9,7 @@ const UNIQUE_TARGETS: Array<[RegExp, ErrorCode]> = [
   [/team_supervisors_one_open_uq|team_id,\s*user_id|teamId,\s*userId/, 'SUPERVISOR_ALREADY_IN_TEAM'],
   [/org_units_code_uq|lower\(code\)/, 'NAME_TAKEN'],
   [/national_id_hash|nationalIdHash/, 'NATIONAL_ID_TAKEN'],
+  [/username/, 'USERNAME_TAKEN'],
   [/email/, 'EMAIL_TAKEN'],
   [/mobile/, 'MOBILE_TAKEN'],
   [/teams_color_reserved_uq|color_id/, 'COLOR_TAKEN'],
@@ -22,8 +24,16 @@ export function targetText(err: Prisma.PrismaClientKnownRequestError): string {
   return err.message;
 }
 
+/** A12 (ADR-144): the cross-workspace guard triggers raise NZ_CROSS_WORKSPACE (SQLSTATE 23514). */
+export function isCrossWorkspaceError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('NZ_CROSS_WORKSPACE');
+}
+
 /** Maps a Prisma error to an AppError, or returns null when it is not a known case. */
 export function mapPrismaError(err: unknown): AppError | null {
+  // A reference to another workspace's row is answered like a missing row (nothing leaks).
+  if (isCrossWorkspaceError(err)) return new AppError('NOT_FOUND');
+  if (err instanceof WorkspaceScopeError) return new AppError('INTERNAL');
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     switch (err.code) {
       case 'P2002': {

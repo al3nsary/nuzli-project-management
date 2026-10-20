@@ -13,6 +13,7 @@
  */
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { UNIT_TEST_WORKSPACE_ID } from './workspace-setup';
 
 export interface FakeTask {
   id: string;
@@ -103,9 +104,12 @@ export interface FakeData {
   portfolioProjects: Row[];
   files: Row[];
   importPreviews: Row[];
+  /** A12: workspace memberships — derived from `users[].role` in the unit-test workspace. */
+  memberships: Row[];
 }
 
 type Table = keyof FakeData;
+
 
 export const d = (iso: string): Date => new Date(`${iso}T00:00:00.000Z`);
 const iso = (x: Date): string => x.toISOString().slice(0, 10);
@@ -160,9 +164,14 @@ const now = () => new Date();
 const MODELS: Record<string, ModelDef> = {
   user: {
     table: 'users',
-    rel: { assignedTasks: { kind: 'many', model: 'task', to: 'assigneeId' }, projectAccess: { kind: 'many', model: 'projectAccess', to: 'userId' } },
+    rel: {
+      assignedTasks: { kind: 'many', model: 'task', to: 'assigneeId' },
+      projectAccess: { kind: 'many', model: 'projectAccess', to: 'userId' },
+      memberships: { kind: 'many', model: 'workspaceMembership', to: 'userId' },
+    },
     extra: { ledTeams: () => [], teamSupervisions: () => [] },
   },
+  workspaceMembership: { table: 'memberships' },
   project: {
     table: 'projects',
     unique: [],
@@ -332,8 +341,20 @@ export function createFakeDb(initial: Partial<FakeData>) {
     portfolioProjects: [],
     files: [],
     importPreviews: [],
+    memberships: [],
     ...initial,
   };
+  // A12: every fake user holds its role as a membership of the unit-test workspace.
+  if (!initial.memberships) {
+    data.memberships = data.users.map((u) => ({
+      id: `m-${u.id}`,
+      workspaceId: UNIT_TEST_WORKSPACE_ID,
+      userId: u.id,
+      role: u.role,
+      status: 'ACTIVE',
+      archivedAt: null,
+    }));
+  }
   data.projects = data.projects.map((p) => MODELS.project!.defaults!(p as unknown as Row) as unknown as FakeProject);
   data.tasks = data.tasks.map((t) => task(t));
   data.calendars = data.calendars.map((c) => MODELS.calendar!.defaults!(c as unknown as Row) as unknown as FakeData['calendars'][number]);

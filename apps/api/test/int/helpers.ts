@@ -66,7 +66,10 @@ export async function startApp(): Promise<IntApp> {
   configureApp(app, app.get(AppConfig));
   await app.init();
 
-  const prisma = app.get(PrismaService);
+  // A12: the app's PrismaService is workspace-scoped (it refuses business queries outside a
+  // request). Tests read and reset the database through the underlying raw client; Testcontainers'
+  // postgres user is a superuser, so RLS does not hide anything from these assertions.
+  const prisma = (app.get(PrismaService) as unknown as { $base: PrismaClient }).$base;
   await resetDatabase(prisma);
   await runSeed(prisma, process.env as never, () => undefined);
 

@@ -447,3 +447,75 @@ All new DTO fields are optional in `@nuzli/shared` and always sent by the API (a
 | `POST /cards/preview` | Every member subject has `data.isForeman` (boolean); the foreman's card also `data.roleLabel = 'مشرف عمّال'`. Supervisor cards are unchanged (`roleLabel = 'مشرف الفريق'`). |
 | `POST /cards/batches` (print-run `cards`, stored `rendered_data`, replays, PDF) | The server sets `isForeman`/`roleLabel` from the member's current membership; a client-sent `isForeman` is ignored and a non-foreman loses a client-sent «مشرف عمّال» label. `cardDataSchema` accepts `isForeman?: boolean`. |
 | `GET /violations/roster` | `RosterEntry.isForeman?` (always sent). |
+
+## A12 — workspaces & session (owner request A12, round 1 — ADR-142..147, `docs/a12-isolation-design.md`)
+
+Every business endpoint now runs **inside the workspace (قسم) bound to the access token** and sees
+only that workspace's rows. Nothing else in the contract changes: while one workspace exists the API
+behaves exactly as before for the web (the session is bound automatically).
+
+### Session
+| Method | Path | Auth | Body / query | Response |
+|---|---|---|---|---|
+| POST | `/auth/login` | public | `{ identifier, password }` — **identifier: username, e-mail or mobile** | `AuthSession` (+ cookies) with the new optional fields below. `activeWorkspace` is set when the user can enter exactly one workspace, else `null` (choose with `switch-workspace`). |
+| POST | `/auth/refresh` | cookie + CSRF | — | `AuthSession`; **keeps the session's workspace** (falls back to the only one if access to it was lost). |
+| POST | `/auth/switch-workspace` | bearer, `@WorkspaceOptional` | `{ workspaceId: uuid }` | `200 AuthSession` + new cookies bound to the target. The presented refresh family is revoked. Non-member (or unknown id) → **403 `WORKSPACE_FORBIDDEN`**; archived → **403 `WORKSPACE_ARCHIVED`**. Owners may enter any active workspace. Audited `auth.workspace_switched` in the target workspace. |
+| GET | `/auth/workspaces` | bearer, `@WorkspaceOptional` | — | `WorkspaceSummaryDto[]` the caller can enter (owners: every active workspace). |
+| GET | `/system/info` | bearer, `@WorkspaceOptional` | — | `SystemInfoDto { workspaceCount, singleWorkspace, workspaces? }` — `workspaces` (`{id,name,code}[]`) for owners only. |
+| GET | `/public/workspaces` | public | — | `PublicWorkspaceDto[] { id, name }` of active workspaces (registration). |
+| POST | `/auth/register` | public | `registerSchema` + optional **`workspaceId`** (required when several workspaces exist → else 400 `VALIDATION_FAILED` `fieldErrors.workspaceId`) + optional **`username`** | unchanged `201 { status: 'PENDING' }`; a taken `username` → 409 `USERNAME_TAKEN` (the only duplicate revealed: not personal data). The request is visible to that workspace's admins and to owners, who are notified in that workspace. |
+
+`@WorkspaceOptional` routes (work without a workspace): `GET /auth/me`, `GET /auth/workspaces`,
+`POST /auth/switch-workspace`, `POST /auth/change-password`, `PATCH /me`, `GET /system/info`.
+**Every other authenticated route without a workspace → 403 `WORKSPACE_REQUIRED`.**
+Access JWT payload: `{ sub, wid }` (`role` removed — it was informational only). A pre-A12 token
+without `wid` is accepted for a user with exactly one workspace.
+
+### DTO changes (additive, all optional in `@nuzli/shared`)
+| Type | New fields |
+|---|---|
+| `AuthSession` | `workspaces?: WorkspaceSummaryDto[]`, `activeWorkspace?: WorkspaceSummaryDto \| null`, `singleWorkspace?: boolean` |
+| `WorkspaceSummaryDto` (new) | `{ id, name, code, roles: WorkspaceRole[] }` (owners: `[]` unless they also hold a membership) |
+| `UserDto` | `username?`, `accountRole?: 'OWNER' \| 'USER'`, `workspaceRoles?: WorkspaceRole[]`. `role` and `status` are now those of the **caller's active workspace** (strongest role; SUSPENDED when the membership there is suspended). |
+| `createUserSchema` | optional `username` (generated from the e-mail when omitted; taken → 409 `USERNAME_TAKEN`) |
+| `PermissionSubject` (`can()`) | `role: Role \| null`, optional `accountRole` (OWNER = every permission) and `roles` (union for a dual role). Old callers passing `{ role, status }` behave as before. |
+| enums | `AccountRole`, `WorkspaceRole`, `WorkspaceStatus`, `WorkspaceMembershipStatus`; helper `effectiveRole(roles)` |
+
+### Behaviour changes inside a workspace
+- `GET /users`, `/users/search`, `/users/:id`, `/users/supervisors`, `/registrations` — only users with a
+  live membership in the workspace (or registrations addressed to it). Another workspace's user → 404.
+  `PATCH /users/:id/role` changes the membership role **in this workspace**; `suspend` / `reactivate`
+  act on this workspace's memberships (the account itself is suspended only when it has no other
+  live membership). Only owners act on owners (else 403). Last-admin protection is per workspace.
+- Task assignees, team leaders, project access, org-position holders, time entries for others, import
+  assignee maps, workload users and supervisor cards accept only users of the workspace (supervisors
+  where required) — others answer as unknown (400/404, same codes as before).
+- Reference data (colours, departments, job titles, violation types, calendars, card sizes/templates,
+  logos) and settings are per workspace; names and colour hexes are unique per workspace; a worker's
+  national ID is unique per workspace.
+- An id of another workspace in a path or body answers exactly like an id that does not exist:
+  **404** (or the existing 400 "not found" field error) — so ids of other workspaces cannot be probed.
+- Audit list, notifications, hub, attachments, statistics, exports and reports cover the workspace only.
+
+### New error codes
+`WORKSPACE_REQUIRED` (403), `WORKSPACE_FORBIDDEN` (403), `WORKSPACE_ARCHIVED` (403), `USERNAME_TAKEN` (409), `LAST_OWNER` (409, reserved for round 2).
+
+### Audit actions
+`auth.workspace_switched`, `user.owner_promoted`, `owner.cross_workspace_access` (workspace NULL).
+
+### What the web must change (later round)
+1. Login form: label «اسم المستخدم أو البريد أو الجوال».
+2. After login: if `activeWorkspace` is null and `workspaces.length > 1`, show the workspace picker →
+   `POST /auth/switch-workspace`; keep the new access token; on `403 WORKSPACE_REQUIRED` show the picker.
+3. Top bar: the switcher on the user's name (only when `singleWorkspace === false`); on switch, clear the
+   previous workspace's device data (offline outbox, caches) before using the new session.
+4. Show the workspace name under the Nozoly logo (`activeWorkspace.name`).
+5. Registration: a workspace select fed by `GET /public/workspaces` when it returns more than one.
+6. Treat `403 WORKSPACE_FORBIDDEN / WORKSPACE_ARCHIVED` as "this workspace is no longer available" →
+   picker or logout.
+7. Users screens: show `username`; roles come per workspace (`workspaceRoles`); owners are marked by `accountRole`.
+
+### Import routes registered
+`POST /projects/import`, `/projects/import/jira`, `/projects/import/commit` (A9, ADR-110) were documented
+but their module was not registered in `AppModule`, so they answered 404. The A12 route inventory found
+it; the module is now registered (and covered by the isolation suite).

@@ -12,6 +12,8 @@ import { TasksService } from './tasks.service';
 import { addCalendarDaysIso, riyadhToday } from './task-engine';
 import { assertEntryDate, TimeEntriesService } from './time-entries.service';
 import { ViewPrefsService } from './view-prefs.service';
+import { newStore, workspaceStorage } from '../prisma/workspace-context';
+import { UNIT_TEST_WORKSPACE_ID } from '../../test/unit/workspace-setup';
 
 const ctx: RequestContext = { actorId: 'admin', ip: null, requestId: 'r', userAgent: null };
 const supCtx: RequestContext = { ...ctx, actorId: 'sup1' };
@@ -308,7 +310,12 @@ describe('A9 hub and attachments SQL (security review L4, ADR-117)', () => {
   const text = (x: { text: string }) => x.text.replace(/\s+/g, ' ');
   it('the scope is a join bound to the viewer, never an id list; values are parameters', () => {
     const sup = hubStatsSql(SUP, { q: '50%_off' });
-    expect(text(sup)).toContain('JOIN task_comments c ON c.task_id = t.id');
+    expect(text(sup)).toContain('JOIN task_comments c ON c.task_id = t.id AND c.workspace_id = t.workspace_id');
+    // A12: the workspace filter is part of the SQL (first two parameters).
+    expect(text(sup)).toContain('WHERE t.workspace_id = $4::uuid AND p.workspace_id = $5::uuid AND');
+    expect(sup.values).toContain(UNIT_TEST_WORKSPACE_ID);
+    // …and without a workspace there is nothing to read.
+    expect(text(workspaceStorage.run(newStore(), () => hubStatsSql(ADMIN, {})))).toContain('WHERE FALSE');
     expect(text(sup)).toMatch(/t\.archived_at IS NULL AND p\.is_template = false AND t\.assignee_id = \$\d+::uuid AND p\.archived_at IS NULL/);
     expect(text(sup)).toContain("ESCAPE '\\'");
     expect(text(sup)).not.toContain(' IN (');
@@ -319,8 +326,8 @@ describe('A9 hub and attachments SQL (security review L4, ADR-117)', () => {
     expect(text(hubStatsSql(nobody, {}))).toContain('WHERE FALSE');
     const att = attachmentWhereSql(SUP, { type: 'other', from: '2026-10-13', to: '2026-10-13' });
     expect(text(att)).toContain("f.entity_type = 'task' AND f.status = 'READY'::\"FileStatus\" AND f.deleted_at IS NULL");
-    expect(text(att)).toContain('t.assignee_id = $1::uuid');
-    expect(att.values).toEqual(['sup1', new Date('2026-10-12T21:00:00Z'), new Date('2026-10-13T21:00:00Z')]);
+    expect(text(att)).toContain('t.assignee_id = $3::uuid');
+    expect(att.values).toEqual([UNIT_TEST_WORKSPACE_ID, UNIT_TEST_WORKSPACE_ID, 'sup1', new Date('2026-10-12T21:00:00Z'), new Date('2026-10-13T21:00:00Z')]);
     expect(likePattern('a\\b')).toBe('%a\\\\b%');
   });
 });
@@ -441,12 +448,13 @@ describe('A10 — chat counts on gantt rows (commentCount + unreadCount)', () =>
   it('the SQL counts only others\' comments newer than the caller\'s read mark, grouped per task, live tasks of the project', () => {
     const sql = unreadCountsSql('u1', { projectId: P });
     const text = sql.strings.join('?').replace(/\s+/g, ' ');
-    expect(text).toContain('LEFT JOIN task_comment_reads r ON r.task_id = c.task_id AND r.user_id = ?::uuid');
+    expect(text).toContain('LEFT JOIN task_comment_reads r ON r.task_id = c.task_id AND r.workspace_id = c.workspace_id AND r.user_id = ?::uuid');
+    expect(text).toContain('WHERE c.workspace_id = ?::uuid AND');
     expect(text).toContain('t.project_id = ?::uuid AND t.archived_at IS NULL');
     expect(text).toContain('c.author_id <> ?::uuid');
     expect(text).toContain('(r.last_read_at IS NULL OR c.created_at > r.last_read_at)');
     expect(text).toContain('GROUP BY c.task_id');
-    expect(sql.values).toEqual(['u1', P, 'u1']);
+    expect(sql.values).toEqual(['u1', UNIT_TEST_WORKSPACE_ID, P, 'u1']);
     const byIds = unreadCountsSql('u1', { taskIds: [A, B] });
     expect(byIds.strings.join('?')).toContain('c.task_id = ANY(?::uuid[])');
   });

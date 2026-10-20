@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { perMemberRate, type ViolationFilter, type ViolationStats } from '@nuzli/shared';
+import { activeWorkspaceIdOrNull } from '../prisma/workspace-context';
 import { parseBbox, riyadhDate, riyadhDayEnd, riyadhDayStart, riyadhWeekBounds } from './violation-scope';
 
 /** The map shows at most this many points (newest first); `pointsTruncated` says when more matched. */
@@ -14,8 +15,15 @@ export const MAX_TREND_FILL_DAYS = 1100;
  * `ignoreDates` drops the captured_at range (used for the "this week / previous week" KPIs,
  * which are always relative to today).
  */
-export function violationWhereSql(f: ViolationFilter, opts: { ignoreDates?: boolean } = {}): Prisma.Sql {
-  const parts: Prisma.Sql[] = [];
+export function violationWhereSql(
+  f: ViolationFilter,
+  opts: { ignoreDates?: boolean; workspaceId?: string | null } = {},
+): Prisma.Sql {
+  // A12 (ADR-143): the statistics are raw SQL, so the workspace filter is part of it —
+  // no workspace context, no rows.
+  const workspaceId = opts.workspaceId !== undefined ? opts.workspaceId : activeWorkspaceIdOrNull();
+  if (!workspaceId) return Prisma.sql`FALSE`;
+  const parts: Prisma.Sql[] = [Prisma.sql`v.workspace_id = ${workspaceId}::uuid`];
   if (!opts.ignoreDates && f.from) parts.push(Prisma.sql`v.captured_at >= ${riyadhDayStart(f.from)}::timestamptz`);
   if (!opts.ignoreDates && f.to) parts.push(Prisma.sql`v.captured_at < ${riyadhDayEnd(f.to)}::timestamptz`);
   if (f.teamId) parts.push(Prisma.sql`v.team_id_snapshot = ${f.teamId}::uuid`);
@@ -36,16 +44,21 @@ export function violationWhereSql(f: ViolationFilter, opts: { ignoreDates?: bool
         : Prisma.sql`(v.longitude >= ${box.west} OR v.longitude <= ${box.east})`,
     );
   }
-  return parts.length ? Prisma.join(parts, ' AND ') : Prisma.sql`TRUE`;
+  return Prisma.join(parts, ' AND ');
 }
 
-const FROM = Prisma.sql`violations v JOIN violation_types t ON t.id = v.type_id`;
+const FROM = Prisma.sql`violations v JOIN violation_types t ON t.id = v.type_id AND t.workspace_id = v.workspace_id`;
 
 /** "Members of the team at period end": the filter's last day, or now. */
 export function periodEnd(f: ViolationFilter, now: Date): Date {
   if (!f.to) return now;
   const end = riyadhDayEnd(f.to);
   return end < now ? end : now;
+}
+
+/** The workspace the statistics run in (the joins repeat it; ADR-143). */
+function workspaceIdOf(_f: ViolationFilter): string | null {
+  return activeWorkspaceIdOrNull();
 }
 
 /** One SQL statement per chart; all share the same WHERE (brief §7.5: every chart, same filters). */
@@ -73,16 +86,16 @@ export function statsQueries(f: ViolationFilter, now: Date) {
       FROM (SELECT v.team_id_snapshot AS team_id, count(*)::int AS n
               FROM ${FROM} WHERE ${where} AND v.team_id_snapshot IS NOT NULL
              GROUP BY v.team_id_snapshot) g
-      JOIN teams tm ON tm.id = g.team_id
-      JOIN team_colors c ON c.id = tm.color_id
+      JOIN teams tm ON tm.id = g.team_id AND tm.workspace_id = ${workspaceIdOf(f)}::uuid
+      JOIN team_colors c ON c.id = tm.color_id AND c.workspace_id = tm.workspace_id
       ORDER BY g.n DESC, tm.name`,
     topMembers: Prisma.sql`
       SELECT g.member_id, mb.full_name, ct.name AS team_name, cc.hex AS color, g.n AS count
       FROM (SELECT v.member_id, count(*)::int AS n FROM ${FROM} WHERE ${where} AND v.member_id IS NOT NULL
              GROUP BY v.member_id HAVING count(*) > 1
              ORDER BY count(*) DESC, v.member_id LIMIT ${Prisma.raw(String(TOP_MEMBERS))}) g
-      JOIN team_members mb ON mb.id = g.member_id
-      LEFT JOIN team_memberships om ON om.member_id = g.member_id AND om.valid_to IS NULL
+      JOIN team_members mb ON mb.id = g.member_id AND mb.workspace_id = ${workspaceIdOf(f)}::uuid
+      LEFT JOIN team_memberships om ON om.member_id = g.member_id AND om.valid_to IS NULL AND om.workspace_id = mb.workspace_id
       LEFT JOIN teams ct ON ct.id = om.team_id
       LEFT JOIN team_colors cc ON cc.id = ct.color_id
       ORDER BY g.n DESC, mb.full_name, g.member_id`,

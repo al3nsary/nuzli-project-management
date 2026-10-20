@@ -3,6 +3,7 @@ import { Interval } from '@nestjs/schedule';
 import { AppConfig } from '../../config/app-config';
 import { CryptoService } from '../../crypto/crypto.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { activeWorkspaceIdOrNull, runInWorkspace, runWithoutWorkspace } from '../../prisma/workspace-context';
 import { StorageService } from '../../storage/storage.service';
 import { ocrImageProblem } from '../../storage/image-dimensions';
 import { OCR_ENGINE, OCR_LANGS, type OcrEngine } from './ocr-engine';
@@ -32,6 +33,8 @@ export function backoffMs(attempt: number): number {
 export const OCR_ENGINE_LABEL = `tesseract.js@5 ${OCR_LANGS.join('+')}`;
 
 interface Job {
+  /** A12: the workspace of the violation — the job is processed inside it. */
+  workspaceId: string;
   violationId: string;
   fileId: string | null;
   attempts: number;
@@ -82,12 +85,30 @@ export class OcrQueueService implements OnApplicationBootstrap, OnModuleDestroy 
     await this.engine.terminate();
   }
 
-  /** Jobs left RUNNING by a stopped process go back to the queue. */
+  /**
+   * A12: the workspaces to look into — the active one inside a request or job, else every active
+   * workspace (the queue runs outside requests).
+   */
+  private async workspaceIds(): Promise<string[]> {
+    const active = activeWorkspaceIdOrNull();
+    if (active) return [active];
+    const rows = await this.prisma.workspace.findMany({ where: { status: 'ACTIVE' }, select: { id: true }, orderBy: { createdAt: 'asc' } });
+    return rows.map((w) => w.id);
+  }
+
+  /** Jobs left RUNNING by a stopped process go back to the queue (every workspace). */
   async sweep(now = new Date()): Promise<number> {
-    const { count } = await this.prisma.violationOcr.updateMany({
-      where: { status: 'RUNNING' },
-      data: { status: 'PENDING', nextAttemptAt: now },
-    });
+    let count = 0;
+    for (const ws of await this.workspaceIds()) {
+      const res = await runInWorkspace(ws, () =>
+        this.prisma.violationOcr.updateMany({
+          where: { status: 'RUNNING' },
+          data: { status: 'PENDING', nextAttemptAt: now },
+        }),
+        'ocr-sweep',
+      );
+      count += res.count;
+    }
     if (count) this.logger.log(`OCR sweep re-queued ${count} interrupted job(s)`);
     this.kick();
     return count;
@@ -147,7 +168,8 @@ export class OcrQueueService implements OnApplicationBootstrap, OnModuleDestroy 
   kick(): void {
     if (!this.enabled || this.draining) return;
     this.draining = true;
-    void this.drain().finally(() => {
+    // A12: never inherit the workspace of the request that kicked the queue.
+    void runWithoutWorkspace(() => this.drain(), 'ocr-drain').finally(() => {
       this.draining = false;
     });
   }
@@ -179,8 +201,16 @@ export class OcrQueueService implements OnApplicationBootstrap, OnModuleDestroy 
     }
   }
 
-  /** Optimistic claim of the oldest due PENDING job. */
+  /** Optimistic claim of the oldest due PENDING job, workspace by workspace (A12). */
   async claim(now = new Date()): Promise<Job | null> {
+    for (const ws of await this.workspaceIds()) {
+      const job = await runInWorkspace(ws, () => this.claimIn(ws, now), 'ocr-claim');
+      if (job) return job;
+    }
+    return null;
+  }
+
+  private async claimIn(workspaceId: string, now: Date): Promise<Job | null> {
     for (let i = 0; i < 5; i++) {
       const next = await this.prisma.violationOcr.findFirst({
         where: { status: 'PENDING', OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
@@ -192,12 +222,16 @@ export class OcrQueueService implements OnApplicationBootstrap, OnModuleDestroy 
         where: { violationId: next.violationId, status: 'PENDING' },
         data: { status: 'RUNNING', attempts: { increment: 1 } },
       });
-      if (won.count === 1) return { ...next, attempts: next.attempts + 1 };
+      if (won.count === 1) return { ...next, workspaceId, attempts: next.attempts + 1 };
     }
     return null;
   }
 
   async process(job: Job, now = new Date()): Promise<void> {
+    return runInWorkspace(job.workspaceId, () => this.processIn(job, now), 'ocr-job');
+  }
+
+  private async processIn(job: Job, now: Date): Promise<void> {
     try {
       if (!job.fileId) throw new OcrPermanentError('NO_ID_CARD');
       const file = await this.prisma.file.findUnique({

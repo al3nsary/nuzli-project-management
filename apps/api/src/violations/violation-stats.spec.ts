@@ -8,14 +8,17 @@ import {
   violationWhereSql,
   type StatsRows,
 } from './violation-stats';
+import { newStore, workspaceStorage } from '../prisma/workspace-context';
+import { UNIT_TEST_WORKSPACE_ID } from '../../test/unit/workspace-setup';
 
 const text = (s: Prisma.Sql) => s.text.replace(/\s+/g, ' ');
 
 describe('violationWhereSql — the WHERE shared by every chart', () => {
-  it('no filters → TRUE', () => {
+  it('no filters → the workspace filter only (A12); no workspace → FALSE', () => {
     const w = violationWhereSql({});
-    expect(w.text).toBe('TRUE');
-    expect(w.values).toEqual([]);
+    expect(w.text).toBe('v.workspace_id = $1::uuid');
+    expect(w.values).toEqual([UNIT_TEST_WORKSPACE_ID]);
+    expect(workspaceStorage.run(newStore(), () => violationWhereSql({})).text).toBe('FALSE');
   });
 
   it('binds every filter as a parameter, casting uuids and enums', () => {
@@ -31,12 +34,13 @@ describe('violationWhereSql — the WHERE shared by every chart', () => {
       bbox: '24.1,46.2,24.9,46.8',
     });
     expect(text(w)).toBe(
-      'v.captured_at >= $1::timestamptz AND v.captured_at < $2::timestamptz AND v.team_id_snapshot = $3::uuid' +
-        ' AND v.member_id = $4::uuid AND v.recorded_by = $5::uuid AND v.type_id = $6::uuid' +
-        ' AND v.status = $7::"ViolationStatus" AND t.severity = $8::"Severity"' +
-        ' AND v.latitude BETWEEN $9 AND $10 AND v.longitude BETWEEN $11 AND $12',
+      'v.workspace_id = $1::uuid AND v.captured_at >= $2::timestamptz AND v.captured_at < $3::timestamptz AND v.team_id_snapshot = $4::uuid' +
+        ' AND v.member_id = $5::uuid AND v.recorded_by = $6::uuid AND v.type_id = $7::uuid' +
+        ' AND v.status = $8::"ViolationStatus" AND t.severity = $9::"Severity"' +
+        ' AND v.latitude BETWEEN $10 AND $11 AND v.longitude BETWEEN $12 AND $13',
     );
     expect(w.values).toEqual([
+      UNIT_TEST_WORKSPACE_ID,
       new Date('2026-09-30T21:00:00Z'),
       new Date('2026-10-07T21:00:00Z'),
       '11111111-1111-4111-8111-111111111111',
@@ -56,7 +60,7 @@ describe('violationWhereSql — the WHERE shared by every chart', () => {
 
   it('ignoreDates drops only the captured_at range (week KPIs are relative to today)', () => {
     const w = violationWhereSql({ from: '2026-01-01', to: '2026-01-31', status: 'SUBMITTED' }, { ignoreDates: true });
-    expect(text(w)).toBe('v.status = $1::"ViolationStatus"');
+    expect(text(w)).toBe('v.workspace_id = $1::uuid AND v.status = $2::"ViolationStatus"');
   });
 });
 
@@ -137,8 +141,8 @@ describe('assembleStats', () => {
 
 describe('A9: unassigned violations in the statistics (ADR-103)', () => {
   it('assigned=false / true filter on member_id', () => {
-    expect(violationWhereSql({ assigned: 'false' }).text).toBe('v.member_id IS NULL');
-    expect(violationWhereSql({ assigned: 'true' }).text).toBe('v.member_id IS NOT NULL');
+    expect(violationWhereSql({ assigned: 'false' }).text).toBe('v.workspace_id = $1::uuid AND v.member_id IS NULL');
+    expect(violationWhereSql({ assigned: 'true' }).text).toBe('v.workspace_id = $1::uuid AND v.member_id IS NOT NULL');
   });
 
   it('a separate "unassigned" KPI with the same filters; byTeam and topMembers leave them out', () => {

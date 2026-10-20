@@ -13,6 +13,8 @@ import { AppConfig } from '../config/app-config';
 import { PrismaService } from '../prisma/prisma.service';
 import { emails, type RenderedEmail } from './email-templates';
 import { MailService } from './mail.service';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { adminsOf } from '../users/user-dto';
 
 type Payload = Record<string, unknown>;
 
@@ -81,10 +83,13 @@ export class NotificationsService {
     }
   }
 
-  /** Notifies every active admin (e.g. a new registration request). */
+  /**
+   * Notifies the active admins of the ACTIVE workspace and every owner (A12: a workspace's
+   * requests go to its admins and to owners), e.g. a new registration request.
+   */
   async notifyAdmins(type: NotificationType, payload: Payload = {}): Promise<void> {
     const admins = await this.prisma.user.findMany({
-      where: { role: 'ADMIN', status: 'ACTIVE' },
+      where: adminsOf(activeWorkspaceId()),
       select: { id: true },
     });
     await this.notify(

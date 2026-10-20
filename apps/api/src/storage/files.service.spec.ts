@@ -5,8 +5,8 @@ import { AppError } from '../common/app-error';
 import type { AuthUser } from '../common/request';
 import { FilesService } from './files.service';
 
-const ADMIN: AuthUser = { id: 'admin-1', role: 'ADMIN', status: 'ACTIVE', fullName: 'x', mustChangePassword: false };
-const SUPERVISOR: AuthUser = { id: 'sup-1', role: 'SUPERVISOR', status: 'ACTIVE', fullName: 'x', mustChangePassword: false };
+const ADMIN: AuthUser = { id: 'admin-1', role: 'ADMIN', status: 'ACTIVE', fullName: 'x', mustChangePassword: false, accountRole: 'USER', workspaceId: 'ws-test', roles: [] };
+const SUPERVISOR: AuthUser = { id: 'sup-1', role: 'SUPERVISOR', status: 'ACTIVE', fullName: 'x', mustChangePassword: false, accountRole: 'USER', workspaceId: 'ws-test', roles: [] };
 const ID = '44444444-4444-4444-8444-444444444444';
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(56, 1)]);
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');

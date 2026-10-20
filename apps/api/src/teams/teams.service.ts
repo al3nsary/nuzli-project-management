@@ -37,6 +37,8 @@ import {
   type Viewer,
 } from './team-dto';
 import { closeLeaderRow, openLeaders, resolveCreateLeaders, switchPrimary } from './team-leaders';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { supervisorsOf } from '../users/user-dto';
 
 type Tx = Prisma.TransactionClient;
 
@@ -755,12 +757,13 @@ export class TeamsService {
 
   /** Serialises leadership and foreman changes of one team (READ COMMITTED + row lock, ADR-030). */
   private async lockTeam(tx: Tx, id: string): Promise<void> {
-    await tx.$queryRaw`SELECT id FROM teams WHERE id = ${id}::uuid FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM teams WHERE id = ${id}::uuid AND workspace_id = ${activeWorkspaceId()}::uuid FOR UPDATE`;
   }
 
   private async assertSupervisor(tx: Tx, userId: string): Promise<void> {
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { role: true, status: true } });
-    if (!user || user.role !== 'SUPERVISOR' || user.status !== 'ACTIVE') throw new AppError('NOT_A_SUPERVISOR');
+    // A12: a SUPERVISOR of this workspace (the DB trigger checks the membership too).
+    const user = await tx.user.findFirst({ where: { id: userId, ...supervisorsOf(activeWorkspaceId()) }, select: { id: true } });
+    if (!user) throw new AppError('NOT_A_SUPERVISOR');
   }
 
   /**

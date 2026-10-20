@@ -15,6 +15,8 @@
  * carry counts only — never an ID, a hash or a row id.
  */
 import { PrismaClient } from '@prisma/client';
+import { createScopedClient } from '../prisma/prisma.service';
+import { newStore, runInStore } from '../prisma/workspace-context';
 import { CryptoService } from '../crypto/crypto.service';
 
 export interface RotationRow {
@@ -171,16 +173,21 @@ async function main(): Promise<void> {
   const batchSize = Math.min(Math.max(Number(argValue('batch-size') ?? 500) || 500, 1), 5000);
   const log = (m: string) => console.log(m);
   log(`[rotate] target key version ${crypto.keyVersion}${dryRun ? ' (dry run: nothing is written)' : ''}`);
-  const prisma = new PrismaClient();
+  const raw = new PrismaClient();
+  // A12 (ADR-145): an operator CLI over every workspace — the scoped client with an explicit
+  // maintenance bypass (RLS GUC app.bypass_rls = on), never reachable from HTTP.
+  const prisma = createScopedClient(raw);
   try {
-    for (const table of ['user', 'teamMember'] as const) {
-      const s = await rotateTable(prisma, crypto, table, { batchSize, dryRun, log });
-      log(`[rotate] ${table} done — ${s.scanned} rows, ${s.reencrypted} re-encrypted, ${s.rehashed} re-hashed`);
-    }
-    const o = await rotateOcr(prisma, crypto, { batchSize, dryRun, log });
-    log(`[rotate] violation_ocr done — ${o.scanned} rows, ${o.reencrypted} re-encrypted, ${o.rehashed} re-hashed`);
+    await runInStore(newStore({ bypass: true, label: 'maintenance:rotate-national-id-key' }), async () => {
+      for (const table of ['user', 'teamMember'] as const) {
+        const s = await rotateTable(prisma, crypto, table, { batchSize, dryRun, log });
+        log(`[rotate] ${table} done — ${s.scanned} rows, ${s.reencrypted} re-encrypted, ${s.rehashed} re-hashed`);
+      }
+      const o = await rotateOcr(prisma, crypto, { batchSize, dryRun, log });
+      log(`[rotate] violation_ocr done — ${o.scanned} rows, ${o.reencrypted} re-encrypted, ${o.rehashed} re-hashed`);
+    });
   } finally {
-    await prisma.$disconnect();
+    await raw.$disconnect();
   }
   log('[rotate] finished. Remove retired keys from NATIONAL_ID_ENC_KEYS_OLD only after a fresh backup.');
 }

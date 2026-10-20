@@ -26,6 +26,18 @@ Backups taken before ADR-069 (`*.sql.gz.enc`, openssl AES-256-CBC) can still be 
 `restore.sh` checks them with the checksum, `gzip -t` and the pg_dump trailer, because that
 format has no MAC. They age out after `BACKUP_RETENTION_DAYS`.
 
+### Before the A12 migration (workspaces, 2026-10)
+
+The A12 migration (`20261023000000_a12_workspaces`) rewrites every business table. **Take a backup and
+verify it before deploying it:** `docker compose exec backup backup.sh`, then
+`restore.sh <file> --verify`. The migration runs in one transaction, checks the row count of every
+table before and after (printed as NOTICEs in the `migrate deploy` output) and rolls back entirely on
+any mismatch — see `docs/a12-isolation-design.md` §8.
+
+After a restore: dumps are taken with `--no-privileges`, so the API role `nuzli_app` loses its table
+grants; the seed re-grants them at the next API start (the role itself is cluster-wide and survives).
+Row Level Security policies are part of the schema and are restored with it.
+
 ## 2. Restore
 
 `restore.sh` fails closed at every step, and it never writes to the live database before the

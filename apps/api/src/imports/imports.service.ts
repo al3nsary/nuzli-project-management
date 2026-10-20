@@ -28,6 +28,8 @@ import { fetchJiraIssues, issuesToDraft, parseJiraCsv } from './jira';
 import { parseMspdi } from './mspdi';
 import { detectGanttpro, ganttproToDraft } from './ganttpro';
 import { decodeText, readCsv, readXlsx, tableToDraft } from './tabular';
+import { activeWorkspaceId } from '../prisma/workspace-context';
+import { supervisorsOf } from '../users/user-dto';
 
 type Viewer = PermissionSubject & { id: string };
 type ImportFile = z.output<typeof importProjectSchema>;
@@ -228,7 +230,7 @@ export class ImportsService {
     for (const t of p.tasks) if (t.assigneeName) counts.set(t.assigneeName, (counts.get(t.assigneeName) ?? 0) + 1);
     const names = [...counts.keys()];
     const supervisors = names.length
-      ? await this.prisma.user.findMany({ where: { role: 'SUPERVISOR', status: 'ACTIVE' }, select: { id: true, fullName: true, email: true } })
+      ? await this.prisma.user.findMany({ where: supervisorsOf(activeWorkspaceId()), select: { id: true, fullName: true, email: true } })
       : [];
     const byName = suggestionIndex(supervisors);
     const tasks = previewTasksDto(p);
@@ -274,7 +276,7 @@ export class ImportsService {
     const mapped = Object.entries(input.assigneeMap).filter(([, id]) => !!id) as Array<[string, string]>;
     const ids = [...new Set(mapped.map(([, id]) => id))];
     if (ids.length) {
-      const ok = await this.prisma.user.findMany({ where: { id: { in: ids }, role: 'SUPERVISOR', status: 'ACTIVE' }, select: { id: true } });
+      const ok = await this.prisma.user.findMany({ where: { id: { in: ids }, ...supervisorsOf(activeWorkspaceId()) }, select: { id: true } });
       if (ok.length !== ids.length) {
         const good = new Set(ok.map((u) => u.id));
         throw new AppError('ASSIGNEE_NOT_SUPERVISOR', { userIds: ids.filter((i) => !good.has(i)) });
@@ -413,8 +415,17 @@ export class ImportsService {
     for (const p of drop) if (p.fileId && p.fileId !== keepFileId) await this.deleteUpload(p.fileId).catch(() => undefined);
   }
 
-  /** Expired previews and their uploads are deleted every hour, in batches until none is left (L2). */
+  /** A12: the hourly job runs every workspace explicitly (ADR-143). */
   @Cron(CronExpression.EVERY_HOUR, { name: 'import-previews-cleanup' })
+  async cleanupExpiredAllWorkspaces(now = new Date()): Promise<number> {
+    let total = 0;
+    await this.prisma.forEachWorkspace('import-previews-cleanup', async () => {
+      total += await this.cleanupExpired(now);
+    });
+    return total;
+  }
+
+  /** Expired previews of the ACTIVE workspace and their uploads are deleted, in batches until none is left (L2). */
   async cleanupExpired(now = new Date()): Promise<number> {
     let total = 0;
     for (;;) {

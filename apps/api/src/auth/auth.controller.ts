@@ -7,7 +7,9 @@ import {
   loginSchema,
   registerSchema,
   resetPasswordSchema,
+  switchWorkspaceSchema,
   updateProfileSchema,
+  type WorkspaceSummaryDto,
   type AuthSession,
   type UserDto,
 } from '@nuzli/shared';
@@ -19,6 +21,7 @@ import {
   Public,
   ReqCtx,
   RequirePermission,
+  WorkspaceOptional,
 } from '../common/decorators';
 import type { AuthRequest, AuthUser, RequestContext } from '../common/request';
 import { ZodBody } from '../common/zod-openapi';
@@ -27,6 +30,7 @@ import { AuthService, type IssuedSession } from './auth.service';
 import { clearSessionCookies, REFRESH_COOKIE, setSessionCookies } from './cookies';
 import { CsrfGuard } from './guards';
 import { RefreshTokenService } from './refresh-tokens';
+import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 
 /** Auth endpoints get a tighter per-IP limit (brief §13). Read lazily so tests can relax it. */
 const authLimit = () => Number(process.env.THROTTLE_AUTH_LIMIT ?? 10);
@@ -44,6 +48,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly cfg: AppConfig,
     private readonly refreshTokens: RefreshTokenService,
+    private readonly workspaces: WorkspaceAccessService,
   ) {}
 
   private respond(res: Response, issued: IssuedSession): AuthSession {
@@ -127,6 +132,7 @@ export class AuthController {
   }
 
   @AllowWhenPasswordChangeRequired()
+  @WorkspaceOptional()
   @AuthThrottle()
   @Post('change-password')
   @HttpCode(200)
@@ -145,11 +151,44 @@ export class AuthController {
   }
 
   @AllowWhenPasswordChangeRequired()
+  @WorkspaceOptional()
   @Get('me')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'المستخدم الحالي' })
   me(@CurrentUser() user: AuthUser): Promise<UserDto> {
     return this.auth.me(user.id);
+  }
+
+  /** A12: the workspaces the caller can enter (owners: every active workspace). */
+  @WorkspaceOptional()
+  @Get('workspaces')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'الأقسام التي يمكنني الدخول إليها' })
+  workspacesList(@CurrentUser() user: AuthUser): Promise<WorkspaceSummaryDto[]> {
+    return this.workspaces.accessible(user.id, user.accountRole);
+  }
+
+  /**
+   * A12: re-issues the session (access token + refresh cookie) bound to another workspace after
+   * the membership check; the previous refresh family is revoked. Audited in the target workspace.
+   */
+  @WorkspaceOptional()
+  @AuthThrottle()
+  @Post('switch-workspace')
+  @HttpCode(200)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'التبديل إلى قسم آخر (جلسة جديدة لذلك القسم)' })
+  async switchWorkspace(
+    @CurrentUser() user: AuthUser,
+    @ZodBody(switchWorkspaceSchema) body: z.output<typeof switchWorkspaceSchema>,
+    @Req() req: AuthRequest,
+    @ReqCtx() ctx: RequestContext,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthSession> {
+    return this.respond(
+      res,
+      await this.auth.switchWorkspace(user.id, body.workspaceId, refreshCookie(req), ctx, user.workspaceId),
+    );
   }
 }
 
@@ -160,6 +199,7 @@ export class MeController {
   constructor(private readonly auth: AuthService) {}
 
   @Patch()
+  @WorkspaceOptional()
   @RequirePermission('profile.update')
   @ApiOperation({ summary: 'تعديل ملفي الشخصي وتفضيلاتي' })
   update(

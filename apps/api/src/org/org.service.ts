@@ -6,6 +6,8 @@ import { AppError } from '../common/app-error';
 import { withPrismaErrors } from '../common/prisma-errors';
 import type { RequestContext } from '../common/request';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeWorkspaceId, activeWorkspaceIdOrNull } from '../prisma/workspace-context';
+import { displayRole, memberOf, ROLE_VIEW_SELECT } from '../users/user-dto';
 import { COLOR_SELECT, LEADERS_SELECT, toColorDto, toSupervisorDtos, type Viewer } from '../teams/team-dto';
 import { nextSort, orderTree, wouldCreateCycle } from './org-tree';
 
@@ -17,7 +19,7 @@ const POSITION_SELECT = {
   title: true,
   sort: true,
   reportsToPositionId: true,
-  holderUser: { select: { id: true, fullName: true, photoFileId: true, role: true, archivedAt: true } },
+  holderUser: { select: { id: true, fullName: true, photoFileId: true, archivedAt: true, ...ROLE_VIEW_SELECT } },
   holderMember: {
     select: {
       id: true,
@@ -43,7 +45,7 @@ function toPositionDto(p: PositionRow): OrgPositionDto {
       id: p.holderUser.id,
       fullName: p.holderUser.fullName,
       hasPhoto: !!p.holderUser.photoFileId,
-      role: p.holderUser.role,
+      role: displayRole(p.holderUser, activeWorkspaceIdOrNull()),
     };
   } else if (p.holderMember && !p.holderMember.archivedAt) {
     const team = p.holderMember.memberships[0]?.team ?? null;
@@ -452,7 +454,8 @@ export class OrgService {
 
   /** One structural change at a time (cycle checks read the whole forest). */
   private async lock(tx: Tx): Promise<void> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('nuzli.org_structure'))`;
+    // A12: one lock per workspace (each workspace has its own structure).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('nuzli.org_structure:' || ${activeWorkspaceId()}::text))`;
   }
 
   private async liveUnit(tx: Tx, id: string, field: string): Promise<void> {
@@ -481,7 +484,11 @@ export class OrgService {
       });
     }
     if (userId) {
-      const u = await tx.user.findUnique({ where: { id: userId }, select: { archivedAt: true } });
+      // A12: only a member of this workspace (or an owner) may hold one of its positions.
+      const u = await tx.user.findFirst({
+        where: { id: userId, OR: [memberOf(activeWorkspaceId()), { accountRole: 'OWNER' }] },
+        select: { archivedAt: true },
+      });
       if (!u || u.archivedAt) throw new AppError('VALIDATION_FAILED', { fieldErrors: { holderUserId: ['المستخدم غير موجود'] } });
     }
     if (memberId) {
