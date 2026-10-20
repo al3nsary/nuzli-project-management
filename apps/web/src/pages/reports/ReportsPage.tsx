@@ -32,7 +32,10 @@ const money = (v: number | null | undefined, currency?: string) => (v === null |
 export function ReportsPage() {
   const navigate = useNavigate();
   // A12 round 2: money fields are not sent without budget.read — hide them, never show zeros.
-  const showMoney = can(useAuthStore((s) => s.user), 'budget.read');
+  const me = useAuthStore((s) => s.user);
+  const showMoney = can(me, 'budget.read');
+  // A12: an assistant with the reports module only cannot open the projects — names stay text.
+  const canOpen = can(me, 'projects.readAll');
   const [filter, setFilter] = useTabParam<Filter>('status', FILTERS, 'OPEN');
   const q = useProjectsReport(filter === 'OPEN' ? undefined : (filter as ProjectStatus | 'ALL'));
   const rows = useMemo(() => q.data ?? [], [q.data]);
@@ -159,9 +162,9 @@ export function ReportsPage() {
               {showMoney ? <Kpi icon={IconCoin} small label={t('a9r.rep.kpiActual')} value={money(totals.actual)} foot={t('a9r.rep.kpiPlanned', { amount: money(totals.planned) })} /> : null}
             </div>
 
-            <ReportCard flush title={t('a9r.rep.tableTitle')} sub={t('a9r.rep.tableSub')}>
+            <ReportCard flush title={t('a9r.rep.tableTitle')} sub={canOpen ? t('a9r.rep.tableSub') : undefined}>
               <div className="rp-table-scroll">
-                <ReportTable rows={rows} totals={totals} money={showMoney} />
+                <ReportTable rows={rows} totals={totals} money={showMoney} links={canOpen} />
               </div>
             </ReportCard>
 
@@ -206,7 +209,7 @@ export function ReportsPage() {
   );
 }
 
-function ReportTable({ rows, totals, money: showMoney = true }: { money?: boolean; rows: ProjectReportRow[]; totals: { leaf: number; done: number; overdue: number; deadline: number; milestones: number; budget: number; planned: number; actual: number; withBudget: number } }) {
+function ReportTable({ rows, totals, money: showMoney = true, links = true }: { money?: boolean; links?: boolean; rows: ProjectReportRow[]; totals: { leaf: number; done: number; overdue: number; deadline: number; milestones: number; budget: number; planned: number; actual: number; withBudget: number } }) {
   return (
     <table className="rp-table" aria-label={t('a9r.rep.tableTitle')}>
       <thead>
@@ -239,9 +242,13 @@ function ReportTable({ rows, totals, money: showMoney = true }: { money?: boolea
           return (
             <tr key={pr.id}>
               <td style={{ minWidth: 200, maxWidth: 320 }}>
-                <Link to={`/projects/${pr.id}`} className="rp-link">
-                  {pr.name}
-                </Link>
+                {links ? (
+                  <Link to={`/projects/${pr.id}`} className="rp-link">
+                    {pr.name}
+                  </Link>
+                ) : (
+                  <span>{pr.name}</span>
+                )}
               </td>
               <td>
                 <ProjectStatusBadge status={pr.status} />

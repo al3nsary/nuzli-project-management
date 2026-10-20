@@ -599,7 +599,9 @@ also accept `projects.readGranted` (participants; the service scopes).
 **Budget (owner rule):** money fields (`budget, plannedCost, actualCost, costVariance, budgetVariance,
 budgetUsedPct, overBudget, overBudgetTasks, budgetShare, budgetBurn`) are removed from every project /
 task / report / hub response for callers without `budget.read` (supervisors, monitors, participants,
-assistants without the budget module), and from their exports (zeros). A request that sets
+assistants without the budget module), and from their exports: Excel and CSV leave out the two cost
+columns, MS Project XML has no `Cost`/`ActualCost` tags, GanttPRO keeps its fixed layout with empty cost
+cells, and no project budget (A12 verification D6 — zeros would read as «costs nothing»). A request that sets
 `budget / plannedCost / actualCost` without `budget.manage` → **403 `FORBIDDEN` `details.field = 'budget'`**.
 
 ### Project participants (مشاركون: محرّر / مساهم / مطّلع)

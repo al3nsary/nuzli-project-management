@@ -178,6 +178,23 @@ describe('exports: no money without budget.read (Excel, CSV, GanttPRO, MS Projec
     await login('editor1');
     expect(await textOf(await api.projects.export(PARK, 'csv'))).not.toMatch(/123457/);
   });
+
+  it('A12 verification D6: without budget.read the cost COLUMNS are left out (not zeros); MS Project has no cost tags', async () => {
+    await login('admin1');
+    expect(await textOf(await api.projects.export(PARK, 'csv'))).toContain('التكلفة المخططة');
+    expect(await textOf(await api.projects.export(PARK, 'xlsx'))).toContain('التكلفة الفعلية');
+    expect(await textOf(await api.projects.export(PARK, 'xml'))).toContain('<Cost>');
+    await login('editor1');
+    const csv = await textOf(await api.projects.export(PARK, 'csv'));
+    expect(csv).not.toMatch(/التكلفة المخططة|التكلفة الفعلية/);
+    // the header and every row keep the same width
+    const widths = new Set(csv.trim().split(/\r?\n/).slice(0, 5).map((l) => l.split(',').length));
+    expect(widths.size).toBe(1);
+    expect(await textOf(await api.projects.export(PARK, 'xlsx'))).not.toMatch(/التكلفة المخططة|التكلفة الفعلية/);
+    const xml = await textOf(await api.projects.export(PARK, 'xml'));
+    expect(xml).not.toMatch(/<Cost>|<ActualCost>/);
+    expect(xml).toContain('<Task>');
+  });
 });
 
 describe('an assistant limited to some teams: violation statistics and export', () => {

@@ -148,7 +148,8 @@ export const NAV: NavNode[] = [
     label: 'nav.reports',
     icon: IconFileReport,
     group: 'projects',
-    permission: 'projects.readAll',
+    // A12: the assistant's reports module opens these without projects (server: projects.readAll | reports.read).
+    anyOf: ['projects.readAll', 'reports.read'],
   },
   {
     id: 'workload',
@@ -156,7 +157,8 @@ export const NAV: NavNode[] = [
     label: 'nav.workload',
     icon: IconChartArcs,
     group: 'projects',
-    permission: 'projects.readAll',
+    // A12: the assistant's reports module opens these without projects (server: projects.readAll | reports.read).
+    anyOf: ['projects.readAll', 'reports.read'],
   },
   // ------------------------------------------------------------------ التواصل (A9)
   // Supervisors see both too, scoped to the tasks assigned to them (ADR-092, ADR-097).

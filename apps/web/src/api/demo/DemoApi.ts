@@ -1161,8 +1161,12 @@ export class DemoApi implements ApiClient {
       const data = validate(changePasswordSchema, input);
       if (user.passwordHash !== (await hashPassword(data.currentPassword))) {
         fail('VALIDATION_FAILED', {
-          fieldErrors: { currentPassword: [ERRORS.INVALID_CREDENTIALS] },
+          // Same answer as the server (auth.service changePassword).
+          fieldErrors: { currentPassword: ['كلمة المرور الحالية غير صحيحة'] },
         });
+      }
+      if (data.currentPassword === data.newPassword) {
+        fail('VALIDATION_FAILED', { fieldErrors: { newPassword: ['اختر كلمة مرور مختلفة عن الحالية'] } });
       }
       const passwordHash = await hashPassword(data.newPassword);
       await this.unscoped(() => this.db.users.update(user.id, { passwordHash, mustChangePassword: false }));

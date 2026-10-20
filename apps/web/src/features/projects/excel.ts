@@ -66,7 +66,16 @@ export interface ProjectExportMeta {
   budget?: number | null;
   /** Custom field columns, in display order. */
   customFields?: Array<{ id: string; name: string; type: CustomFieldType }>;
+  /**
+   * A12 (budget for budget.read only): false → the cost columns are left out altogether (not
+   * zeros, which would read as «costs nothing»). Default true.
+   */
+  money?: boolean;
 }
+
+const MONEY_COLUMNS = ['التكلفة المخططة', 'التكلفة الفعلية'];
+/** Drops the two cost cells (positions 12 and 13 of a task row) when money is hidden. */
+const moneyCells = <T,>(cells: T[], money: boolean | undefined): T[] => (money === false ? cells.filter((_, i) => i !== 12 && i !== 13) : cells);
 
 export const SHEET_VIEWS = [{ rightToLeft: true }] as const;
 const DATE_FMT = 'yyyy-mm-dd';
@@ -89,9 +98,9 @@ export function customCell(type: CustomFieldType, v: unknown): string | number |
 }
 
 /** The columns of the tasks sheet (also the CSV header). */
-export function taskColumns(meta: Pick<ProjectExportMeta, 'durationUnit' | 'customFields'>): string[] {
+export function taskColumns(meta: Pick<ProjectExportMeta, 'durationUnit' | 'customFields' | 'money'>): string[] {
   const hours = meta.durationUnit === 'HOUR';
-  return [
+  const all = [
     'رقم WBS',
     'المهمة',
     'النوع',
@@ -111,6 +120,7 @@ export function taskColumns(meta: Pick<ProjectExportMeta, 'durationUnit' | 'cust
     ...(hours ? ['أيام العمل'] : []),
     ...(meta.customFields ?? []).map((f) => f.name),
   ];
+  return meta.money === false ? all.filter((c) => !MONEY_COLUMNS.includes(c)) : all;
 }
 
 function fitWidths(ws: Worksheet, min = 10, max = 60): void {
@@ -140,7 +150,7 @@ export async function buildTasksWorkbook(meta: ProjectExportMeta, rows: TaskExpo
   header.font = { bold: true };
   header.alignment = { vertical: 'middle', horizontal: 'right' };
   for (const r of [...rows].sort((a, b) => compareWbs(a.wbs, b.wbs))) {
-    const row = ws.addRow([
+    const row = ws.addRow(moneyCells([
       r.wbs,
       r.name,
       TASK_TYPE_LABELS[r.type],
@@ -159,7 +169,7 @@ export async function buildTasksWorkbook(meta: ProjectExportMeta, rows: TaskExpo
       (r.labels ?? []).join('، '),
       ...(hours ? [r.durationDays] : []),
       ...fields.map((f) => customCell(f.type, r.customValues?.[f.id])),
-    ]);
+    ], meta.money));
     row.getCell(2).alignment = { horizontal: 'right', indent: levelOf(r.wbs) - 1, readingOrder: 'rtl' };
     if (r.type === 'GROUP') row.getCell(2).font = { bold: true };
   }
@@ -167,10 +177,10 @@ export async function buildTasksWorkbook(meta: ProjectExportMeta, rows: TaskExpo
   ws.getColumn(5).numFmt = hours ? DATETIME_FMT : DATE_FMT;
   if (hours) ws.getColumn(6).numFmt = '0.##';
   ws.getColumn(7).numFmt = '0%';
-  ws.getColumn(13).numFmt = '#,##0.00';
-  ws.getColumn(14).numFmt = '#,##0.00';
-  ws.getColumn(15).numFmt = DATE_FMT;
-  const firstCustom = hours ? 18 : 17;
+  const columns = taskColumns(meta);
+  for (const c of MONEY_COLUMNS) if (columns.includes(c)) ws.getColumn(columns.indexOf(c) + 1).numFmt = '#,##0.00';
+  ws.getColumn(columns.indexOf('الموعد النهائي') + 1).numFmt = DATE_FMT;
+  const firstCustom = columns.length - fields.length + 1;
   fields.forEach((f, i) => {
     if (f.type === 'DATE') ws.getColumn(firstCustom + i).numFmt = DATE_FMT;
   });
@@ -217,14 +227,14 @@ export function csvField(v: unknown): string {
  * correctly), CRLF line ends, dates `YYYY-MM-DD` (`YYYY-MM-DD HH:MM` in HOUR projects),
  * progress as a number 0–100.
  */
-export function buildTasksCsv(meta: Pick<ProjectExportMeta, 'durationUnit' | 'customFields'>, rows: TaskExportRow[]): Uint8Array {
+export function buildTasksCsv(meta: Pick<ProjectExportMeta, 'durationUnit' | 'customFields' | 'money'>, rows: TaskExportRow[]): Uint8Array {
   const hours = meta.durationUnit === 'HOUR';
   const fields = meta.customFields ?? [];
   const text = (d: string) => (d.length > 10 ? d.slice(0, 16).replace('T', ' ') : d);
   const lines = [taskColumns(meta).map(csvField).join(',')];
   for (const r of [...rows].sort((a, b) => compareWbs(a.wbs, b.wbs))) {
     lines.push(
-      [
+      moneyCells([
         r.wbs,
         r.name,
         TASK_TYPE_LABELS[r.type],
@@ -246,7 +256,7 @@ export function buildTasksCsv(meta: Pick<ProjectExportMeta, 'durationUnit' | 'cu
           const v = r.customValues?.[f.id];
           return f.type === 'CHECKBOX' ? (v === true ? 'نعم' : v === false ? 'لا' : '') : (v ?? '');
         }),
-      ]
+      ] as unknown[], meta.money)
         .map(csvField)
         .join(','),
     );

@@ -914,7 +914,7 @@ export const ar = {
   'audit.entity.team_member': 'عضو',
   'audit.entity.member': 'عضو',
   'audit.entity.team_color': 'لون فريق',
-  'audit.entity.department': 'قسم',
+  'audit.entity.department': 'إدارة',
   'audit.entity.job_title': 'مسمى وظيفي',
   'audit.entity.reference': 'بيان مرجعي',
   'audit.entity.card_template': 'قالب كرت',

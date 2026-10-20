@@ -127,6 +127,10 @@
     transform: translateY(4px);
     transition: opacity 0.18s var(--e), transform 0.18s var(--e);
   }
+  /* The workspace chip gives way to the settled page title. */
+  .nz-mtop.deep .nz-ws-chip {
+    display: none;
+  }
   .nz-mtop.deep .nz-mtop-title {
     opacity: 1;
     transform: none;
@@ -347,6 +351,11 @@
     inset-inline: 12px;
     inset-block-end: calc(var(--tbar-h) + var(--safe-b) + 12px);
     max-width: none;
+  }
+  /* The monitor's raised «تسجيل مخالفة» rises 26px above the bar: keep the banner clear of it
+     (A12 verification D8). */
+  html body:has(.nz-tbar .nz-tb-raise) .nz-update {
+    inset-block-end: calc(var(--tbar-h) + var(--safe-b) + 34px);
   }
 }
 
@@ -2292,5 +2301,65 @@ label.nz-more-row:hover {
   .nz-update,
   .nz-install-card {
     display: none !important;
+  }
+}
+
+/* ================================================================== touch tablets (≥ 768px)
+   A12 verification D9: iPads (portrait 834, landscape 1133/1194) kept the desktop density —
+   40px buttons, 36–42px fields, 28–34px icon buttons. With a finger every control is 44px at
+   least, like on phones (the dense Gantt grid keeps its 36px rows, see docs/A12-verification.md). */
+@media (min-width: 48em) and (pointer: coarse) {
+  .mantine-Input-wrapper {
+    --input-height-xs: 44px;
+    --input-height-sm: 44px;
+    --input-height-md: 48px;
+  }
+  .mantine-Button-root {
+    --button-height-xs: 44px;
+    --button-height-sm: 44px;
+    --button-height-md: 48px;
+    min-height: 44px !important;
+  }
+  .mantine-ActionIcon-root:not(.mantine-Table-td *):not(.nz-gantt *) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mantine-SegmentedControl-control,
+  .mantine-Tabs-tab,
+  .nz-ps-tool,
+  .nz-ps-chip,
+  .nz-rolebtn,
+  .mantine-Stepper-step,
+  .nz-check-card {
+    min-height: 44px;
+  }
+  .nz-ps-tool,
+  .nz-ps-chip,
+  .nz-iconbtn {
+    min-width: 44px;
+  }
+  .nz-iconbtn {
+    min-height: 44px;
+  }
+  /* Project names in the list: the whole line is the target. */
+  .nz-pl-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .nz-chatbtn {
+    min-width: 44px !important;
+    min-height: 44px;
+    flex-shrink: 0;
+    justify-content: center;
+  }
+}
+
+/* Map zoom buttons on any touch screen (Leaflet draws them 30px). */
+@media (pointer: coarse) {
+  .leaflet-touch .leaflet-bar a {
+    width: 44px !important;
+    height: 44px !important;
+    line-height: 44px !important;
   }
 }

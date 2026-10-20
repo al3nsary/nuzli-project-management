@@ -23,7 +23,7 @@ import { useApi } from '../../api/context';
 import { useOnline } from '../../lib/useOnline';
 import { useOfflineStore, useUnsyncedCount } from '../../features/violations/offline/runtime';
 import { formatNumber, t, tCount } from '../../i18n';
-import { useWorkspaceMenu } from '../../features/workspaces/WorkspaceName';
+import { useWorkspaceMenu, WorkspaceName } from '../../features/workspaces/WorkspaceName';
 import { workspaceRoleText } from '../../features/workspaces/roles';
 import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import { UserPhotoAvatar } from '../../components/UserAvatar';
@@ -234,6 +234,8 @@ function CompactTopBar({ trail, home }: { trail: Trail; home: boolean }) {
             <NozolyLogo width={84} decorative />
           </Link>
         )}
+        {/* A12: with several workspaces, which one is open (hidden in single-workspace mode). */}
+        <WorkspaceName variant="chip" />
       </div>
       <h2 className="nz-mtop-title" aria-hidden={!deep || undefined} key={location.pathname}>
         <span className="sr-only">{title}</span>

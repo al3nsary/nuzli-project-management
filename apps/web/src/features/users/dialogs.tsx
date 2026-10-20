@@ -176,7 +176,8 @@ export function CreateAccountDialog({ opened, onClose }: { opened: boolean; onCl
               {t('a12admin.create.body')}
             </Text>
             <FormError error={error} />
-            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            {/* The username hint is long: align both inputs on their baseline (A12 verification). */}
+            <SimpleGrid cols={{ base: 1, sm: 2 }} style={{ alignItems: 'end' }}>
               <TextInput
                 label={t('a12admin.username')}
                 description={t('a12admin.usernameHint')}

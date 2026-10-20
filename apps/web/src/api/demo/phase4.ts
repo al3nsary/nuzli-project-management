@@ -906,9 +906,11 @@ export function createPhase4(
     export: async (id, format) => {
       const viewer = await api.actor(undefined, { project: { projectId: id } });
       // A12 round 3 (projects.service exportProject): the budget is for budget.read only — every
-      // other exporter's Excel / CSV / GanttPRO / MSPDI file carries no money (zeros, no budget).
+      // other exporter's file carries no money: no cost columns in Excel / CSV, no cost tags in
+      // MSPDI, empty cost cells in GanttPRO's fixed layout, no budget.
       const full = await projects.gantt(id);
-      const g = can(viewer, 'budget.read') ? full : stripMoney(full);
+      const money = can(viewer, 'budget.read');
+      const g = money ? full : stripMoney(full);
       const generatedAt = new Date();
       const unit = unitOf(g.project);
       const labelName = new Map((g.labels ?? []).map((l) => [l.id, l.name]));
@@ -935,7 +937,7 @@ export function createPhase4(
       }));
       let blob: Blob;
       if (format === 'csv') {
-        blob = new Blob([buildTasksCsv({ durationUnit: unit, customFields }, rows)], { type: 'text/csv;charset=utf-8' });
+        blob = new Blob([buildTasksCsv({ durationUnit: unit, customFields, money }, rows)], { type: 'text/csv;charset=utf-8' });
       } else if (format === 'xml') {
         const xml = writeMspdi({
           name: g.project.name,
@@ -960,8 +962,7 @@ export function createPhase4(
             durationDays: t.durationDays,
             ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
             progress: t.progress,
-            plannedCost: t.plannedCost ?? 0,
-            actualCost: t.actualCost ?? 0,
+            ...(money ? { plannedCost: t.plannedCost ?? 0, actualCost: t.actualCost ?? 0 } : {}),
             deadline: t.deadline ?? null,
             notes: t.description,
             assigneeName: t.assignee?.fullName ?? null,
@@ -1031,6 +1032,7 @@ export function createPhase4(
             currency: g.project.currency,
             budget: g.project.budget ?? null,
             customFields,
+            money,
           },
           rows,
         );

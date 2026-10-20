@@ -410,18 +410,18 @@ export const routes: RouteObject[] = [
         path: 'reports',
         handle: { fullWidth: true },
         element: (
-          <RequirePermission permission="projects.readAll">
+          <RequireAnyPermission permissions={['projects.readAll', 'reports.read']}>
             <ReportsPage />
-          </RequirePermission>
+          </RequireAnyPermission>
         ),
       },
       {
         path: 'workload',
         handle: { fullWidth: true },
         element: (
-          <RequirePermission permission="projects.readAll">
+          <RequireAnyPermission permissions={['projects.readAll', 'reports.read']}>
             <WorkloadPage />
-          </RequirePermission>
+          </RequireAnyPermission>
         ),
       },
       {

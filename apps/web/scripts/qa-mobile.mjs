@@ -123,8 +123,17 @@ async function newPage(b) {
   const s = (m, p) => b.send(m, p, sid);
   await s('Page.enable');
   await s('Runtime.enable');
+  await s('Log.enable');
   await s('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-  return { s, sid, ctx: ctx.result.browserContextId };
+  // Console errors and uncaught exceptions of this page (must stay zero).
+  const errors = [];
+  b.listeners.add((m) => {
+    if (m.sessionId !== sid) return;
+    if (m.method === 'Runtime.exceptionThrown') errors.push('EXC ' + String(m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text).slice(0, 300));
+    if (m.method === 'Runtime.consoleAPICalled' && (m.params.type === 'error' || m.params.type === 'assert')) errors.push('console.error ' + m.params.args.map((a) => a.value ?? a.description).join(' ').slice(0, 300));
+    if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error') errors.push('log ' + m.params.entry.text.slice(0, 300));
+  });
+  return { s, sid, ctx: ctx.result.browserContextId, errors };
 }
 
 async function evaluate(p, expression) {
@@ -273,8 +282,9 @@ async function shoot(base, out, opts) {
               await sleep(250);
               await shot(p, join(out, `${stem}~${i}.png`), d);
             }
-            report.push({ device: dk, scheme, role, page: name, path, ...checks });
-            const flag = (checks.pageScrollX ? ' SCROLL-X' : '') + (checks.overflow.length ? ` overflow:${checks.overflow.length}` : '') + (checks.smallCount ? ` small:${checks.smallCount}` : '') + (checks.clipped.length ? ` clipped:${checks.clipped.length}` : '');
+            const errors = p.errors.splice(0);
+            report.push({ device: dk, scheme, role, page: name, path, ...checks, errors });
+            const flag = (checks.pageScrollX ? ' SCROLL-X' : '') + (checks.overflow.length ? ` overflow:${checks.overflow.length}` : '') + (checks.smallCount ? ` small:${checks.smallCount}` : '') + (checks.clipped.length ? ` clipped:${checks.clipped.length}` : '') + (errors.length ? ` ERRORS:${errors.length}` : '');
             console.log(`${stem}${flag}`);
           }
         }

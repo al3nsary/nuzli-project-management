@@ -300,8 +300,9 @@ export interface MspdiTask {
   durationDays: number;
   durationHours?: number;
   progress: number;
-  plannedCost: number;
-  actualCost: number;
+  /** Absent → no cost tags (A12: the exporter has no budget.read). */
+  plannedCost?: number;
+  actualCost?: number;
   deadline: string | null;
   notes: string | null;
   assigneeName: string | null;
@@ -427,8 +428,8 @@ export function writeMspdi(p: MspdiProject): string {
       tag('Milestone', t.type === 'MILESTONE' ? 1 : 0),
       tag('Summary', t.type === 'GROUP' ? 1 : 0),
       tag('PercentComplete', Math.round(t.progress)),
-      tag('Cost', Math.round(t.plannedCost * 100)),
-      tag('ActualCost', Math.round(t.actualCost * 100)),
+      tag('Cost', t.plannedCost === undefined ? undefined : Math.round(t.plannedCost * 100)),
+      tag('ActualCost', t.actualCost === undefined ? undefined : Math.round(t.actualCost * 100)),
       t.deadline ? tag('Deadline', `${t.deadline}T${last === '24:00' ? '23:59' : last}:00`) : '',
       t.notes ? tag('Notes', t.notes) : '',
     );

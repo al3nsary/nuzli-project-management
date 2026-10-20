@@ -124,7 +124,8 @@ export function AccountsPage() {
               <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>{t('users.col.name')}</Table.Th>
+                    {/* A12 verification: long Arabic names must not wrap onto three lines. */}
+                    <Table.Th miw={230}>{t('users.col.name')}</Table.Th>
                     <Table.Th>{t('a12admin.username')}</Table.Th>
                     <Table.Th>{t('register.email')}</Table.Th>
                     <Table.Th>{t('a12admin.accountRole')}</Table.Th>

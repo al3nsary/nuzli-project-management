@@ -393,7 +393,8 @@ export class ProjectsService {
   ): Promise<{ filename: string; buffer: Buffer; contentType: string }> {
     const g = await this.gantt(id, viewer);
     // A12 round 2: the budget is for budget.read only — exports of everyone else carry no money.
-    if (!can(viewer, 'budget.read')) stripBudget(g);
+    const money = can(viewer, 'budget.read');
+    if (!money) stripBudget(g);
     const generatedAt = new Date();
     const unit = g.project.durationUnit ?? 'DAY';
     const labelName = new Map((g.labels ?? []).map((l) => [l.id, l.name]));
@@ -421,7 +422,7 @@ export class ProjectsService {
     const base = `project-${id.slice(0, 8)}-${isoOf(generatedAt)}`;
     let out: { filename: string; buffer: Buffer; contentType: string };
     if (format === 'csv') {
-      out = { filename: `${base}.csv`, buffer: buildTasksCsv({ durationUnit: unit, customFields }, rows), contentType: 'text/csv; charset=utf-8' };
+      out = { filename: `${base}.csv`, buffer: buildTasksCsv({ durationUnit: unit, customFields, money }, rows), contentType: 'text/csv; charset=utf-8' };
     } else if (format === 'xml') {
       const xml = writeMspdi({
         name: g.project.name,
@@ -446,8 +447,7 @@ export class ProjectsService {
           durationDays: t.durationDays,
           ...(t.durationHours !== undefined ? { durationHours: t.durationHours } : {}),
           progress: t.progress,
-          plannedCost: t.plannedCost ?? 0,
-          actualCost: t.actualCost ?? 0,
+          ...(money ? { plannedCost: t.plannedCost ?? 0, actualCost: t.actualCost ?? 0 } : {}),
           deadline: t.deadline ?? null,
           notes: t.description,
           assigneeName: t.assignee?.fullName ?? null,
@@ -517,6 +517,7 @@ export class ProjectsService {
           currency: g.project.currency,
           budget: g.project.budget ?? null,
           customFields,
+          money,
         },
         rows,
       );

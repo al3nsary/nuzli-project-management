@@ -140,7 +140,7 @@ function AddOwnerDialog({ opened, onClose }: { opened: boolean; onClose: () => v
         ) : (
           <form onSubmit={addNew} noValidate>
             <Stack>
-              <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <SimpleGrid cols={{ base: 1, sm: 2 }} style={{ alignItems: 'end' }}>
                 <TextInput
                   label={t('a12admin.username')}
                   description={t('a12admin.usernameHint')}

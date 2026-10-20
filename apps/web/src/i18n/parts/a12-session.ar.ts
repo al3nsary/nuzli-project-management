@@ -80,6 +80,13 @@ export const arA12Session = {
   'dualRole.confirm': 'تأكيد المنح بصلاحية مزدوجة',
   'dualRole.cancel': 'إلغاء المنح',
 
+  // ---- audit entity types (A12 verification D7: these showed the generic «عنصر»)
+  'audit.entity.workspace': 'قسم',
+  'audit.entity.member_request': 'طلب عامل',
+  'audit.entity.user_photo': 'صورة مستخدم',
+  'audit.entity.member_photo': 'صورة عضو',
+  'audit.entity.project_cover': 'غلاف مشروع',
+
   // ---- audit actions (A12 round 1 + 2)
   'audit.action.auth.workspace_switched': 'التبديل إلى قسم',
   'audit.action.user.owner_promoted': 'ترقية حساب إلى مالك',
