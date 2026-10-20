@@ -80,6 +80,19 @@ const date = (v: unknown): Date | undefined => {
 };
 
 /**
+ * A12 final step (ADR-169): demo data can never enter a production database by accident.
+ * `seed:demo` refuses when NODE_ENV=production unless ALLOW_DEMO_SEED=true is set explicitly
+ * (the production API image does not even contain this script or the seed/demo files).
+ * Returns the refusal message, or null when the demo seed may run.
+ */
+export function demoSeedRefusal(env: NodeJS.ProcessEnv): string | null {
+  if (env.NODE_ENV !== 'production') return null;
+  if (env.ALLOW_DEMO_SEED === 'true') return null;
+  return '[seed:demo] refused: NODE_ENV=production. Demo data must never enter a production database. ' +
+    'رُفض: هذه بيئة إنتاج، والبيانات التجريبية لا تدخلها. (Set ALLOW_DEMO_SEED=true only on a throw-away test server.)';
+}
+
+/**
  * A12: the demo data goes into the first workspace «إدارة المشاريع», through the
  * workspace-scoped client (so it works under Row Level Security too).
  */
@@ -88,6 +101,8 @@ export async function runDemoSeed(
   env: SeedEnv & NodeJS.ProcessEnv,
   log: Log = console.log,
 ): Promise<DemoSeedResult> {
+  const refusal = demoSeedRefusal(env);
+  if (refusal) throw new Error(refusal);
   const prisma = (raw as unknown as { $base?: unknown }).$base ? raw : createScopedClient(raw);
   const ws = await prisma.workspace.findUnique({ where: { code: FIRST_WORKSPACE.code }, select: { id: true } });
   if (!ws) throw new Error('[seed:demo] run the system seed first (no «إدارة المشاريع» workspace)');

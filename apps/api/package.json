@@ -15,7 +15,8 @@
     "seed": "node dist/seed/seed.js",
     "seed:demo": "node dist/seed/seed-demo.js",
     "owner:recover": "node dist/scripts/recover-owner.js",
-    "test:isolation:mutation": "node --experimental-strip-types test/isolation/mutation-check.ts"
+    "test:isolation:mutation": "node --experimental-strip-types test/isolation/mutation-check.ts",
+    "verify:fresh-install": "jest --config jest.fresh-install.config.js --runInBand"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.670.0",
