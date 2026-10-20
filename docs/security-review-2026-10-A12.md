@@ -13,7 +13,7 @@
 
 ## Status (2026-10-20) — every finding fixed, server and demo alike
 
-Fixed in commit `__COMMIT__` (ADR-162 … ADR-167). Each fix has a regression test that replays the
+Fixed in commit `5e0e75e` (ADR-162 … ADR-167). Each fix has a regression test that replays the
 reviewer's scenario (ported from §5's scratch specs) and asserts the fixed behaviour.
 
 | # | Status | Fix | Regression test |
