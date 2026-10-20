@@ -17,6 +17,9 @@ import {
 } from '@tabler/icons-react';
 import { can, HUB_FILTERS, type HubFilter, type HubItemDto } from '@nuzli/shared';
 import { DualRoleBadge } from '../../features/workspaces/DualRole';
+import { UserAvatar } from '../../components/UserAvatar';
+import { Drawer } from '@mantine/core';
+import { IconAdjustmentsHorizontal } from '@tabler/icons-react';
 import { useApi } from '../../api/context';
 import { useProjects } from '../../api/projectQueries';
 import { useAuthStore } from '../../stores/auth';
@@ -131,6 +134,39 @@ function HubRow({ item, selected, onOpen }: { item: HubItemDto; selected: boolea
 }
 
 /**
+ * A12 — the hub as an inbox on phones and portrait tablets (Figma Inbox 0:2021): the last writer's
+ * avatar, the task, the last message on one line, the time and the unread badge.
+ */
+function HubInboxRow({ item, onOpen }: { item: HubItemDto; onOpen: () => void }) {
+  const unread = item.unreadCount > 0;
+  const who = item.lastComment?.author ?? item.task.assignee;
+  return (
+    <li>
+      <button type="button" className="hb-irow" data-unread={unread || undefined} onClick={onOpen}>
+        <span className="hb-irow-av" aria-hidden>
+          {who ? <UserAvatar name={who.fullName} size={52} /> : <span className="hb-irow-ic"><IconMessages size={22} /></span>}
+        </span>
+        <span className="hb-irow-main">
+          <b>{item.task.name}</b>
+          <span className="hb-irow-project">{item.project.name}</span>
+          <span className="hb-irow-last">
+            {item.lastComment ? `${item.lastComment.author.fullName.split(' ')[0]}: ${item.lastComment.bodyPreview}` : t('mhub.noComments')}
+          </span>
+        </span>
+        <span className="hb-irow-side">
+          {item.lastComment ? <span className="hb-irow-time">{hubTime(item.lastComment.createdAt)}</span> : null}
+          {unread ? (
+            <span className="hb-irow-n" aria-label={tCount('hub.unreadAria', item.unreadCount)}>
+              {formatNumber(item.unreadCount)}
+            </span>
+          ) : null}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+/**
  * «مركز التواصل» (route `/hub`, owner request A9, screenshot 3): every conversation on every task
  * the viewer can open — admins all of them, supervisors only the tasks assigned to them. A project
  * filter, a search on the task name or the comment text, five tabs (all · with new comments ·
@@ -142,11 +178,12 @@ export function HubPage() {
   const api = useApi();
   const user = useAuthStore((s) => s.user);
   const isAdmin = can(user, 'projects.readAll');
-  const wide = useMediaQuery('(min-width: 62em)', true);
+  const wide = useMediaQuery('(min-width: 62em)', true, { getInitialValueInEffect: false });
   const p = useHubParams();
   const [search, setSearch] = useState(p.q);
   const [debounced] = useDebouncedValue(search.trim(), 300);
   const [size, setSize] = useState(PAGE);
+  const [filters, setFilters] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
@@ -243,6 +280,76 @@ export function HubPage() {
   if (!wide && chatPanel) return <div className="hb-phone-chat">{chatPanel}</div>;
 
   const counts = hub.data?.counts;
+  if (!wide) {
+    return (
+      <div className="hb-inbox">
+        <div className="nz-mhead">
+          <h1 tabIndex={-1}>{t('nav.communication')}</h1>
+        </div>
+        <div className="nz-msearch">
+          <IconSearch size={20} stroke={1.7} aria-hidden />
+          <input type="text" inputMode="search" enterKeyHint="search" value={search} onChange={(e) => setSearch(e.currentTarget.value)} placeholder={t('hub.search')} aria-label={t('hub.search')} />
+          <button type="button" className="nz-msearch-filter" data-on={p.projectId ? true : undefined} onClick={() => setFilters(true)} aria-label={t('hub.project')} aria-haspopup="dialog">
+            <IconAdjustmentsHorizontal size={20} stroke={1.7} aria-hidden />
+          </button>
+        </div>
+        <div className="nz-chips" role="tablist" aria-label={t('hub.tabs')}>
+          {HUB_FILTERS.map((f) => (
+            <button key={f} type="button" role="tab" aria-selected={p.filter === f} className="nz-chip-btn" onClick={() => p.set({ filter: f, task: null })}>
+              {t(`hub.tab.${f}` as MessageKey)}
+              {counts?.[f] !== undefined ? <span className="n num">{formatNumber(counts[f])}</span> : null}
+            </button>
+          ))}
+        </div>
+        <Drawer
+          opened={filters}
+          onClose={() => setFilters(false)}
+          position="bottom"
+          size="auto"
+          title={t('hub.project')}
+          classNames={{ content: 'nz-sheet-content', header: 'nz-sheet-header', body: 'nz-sheet-body' }}
+        >
+          <div style={{ padding: '0 8px 8px' }}>
+            <Select
+              aria-label={t('hub.project')}
+              placeholder={t('hub.allProjects')}
+              data={projectOptions}
+              value={p.projectId || null}
+              onChange={(v) => {
+                p.set({ project: v, task: null });
+                setFilters(false);
+              }}
+              clearable
+              searchable
+              leftSection={<IconFolder size={16} />}
+              nothingFoundMessage={t('hub.noProjects')}
+              comboboxProps={{ withinPortal: true }}
+            />
+          </div>
+        </Drawer>
+        {hub.isLoading ? (
+          <LoadingBlock variant="list" rows={6} />
+        ) : hub.isError ? (
+          <ErrorBlock error={hub.error} onRetry={() => void hub.refetch()} />
+        ) : !items.length ? (
+          <EmptyState icon={IconMessages} title={p.q || p.projectId || p.filter !== 'all' ? t('hub.emptyFiltered') : t('hub.empty')} body={isAdmin ? t('hub.emptyBodyAdmin') : t('hub.emptyBodySupervisor')} />
+        ) : (
+          <>
+            <ul className="hb-ilist" aria-label={t('hub.listAria')}>
+              {items.map((it) => (
+                <HubInboxRow key={it.task.id} item={it} onOpen={() => open(it)} />
+              ))}
+            </ul>
+            {hub.data && hub.data.total > items.length && size < 100 ? (
+              <Button variant="light" fullWidth mt="md" onClick={() => setSize((x) => Math.min(100, x + PAGE))} loading={hub.isFetching}>
+                {t('hub.more')}
+              </Button>
+            ) : null}
+          </>
+        )}
+      </div>
+    );
+  }
   return (
     <>
       <PageHeader title={t('nav.communication')} lead={isAdmin ? t('hub.leadAdmin') : t('hub.leadSupervisor')} />

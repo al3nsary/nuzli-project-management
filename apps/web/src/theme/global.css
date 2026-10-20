@@ -794,14 +794,6 @@ a {
   min-width: 0;
 }
 
-/* «تحديث متاح» */
-.nz-update-toast {
-  position: fixed;
-  inset-block-end: var(--sp-4);
-  inset-inline-start: var(--sp-4);
-  z-index: 400;
-  max-width: min(420px, calc(100vw - 32px));
-}
 
 /* Print: the dashboard prints as a report (fallback for the server PDF). */
 .print-only {
@@ -817,7 +809,7 @@ a {
     background: #fff !important;
   }
   .no-print,
-  .nz-update-toast,
+  .nz-update,
   .leaflet-control-zoom {
     display: none !important;
   }

@@ -105,5 +105,5 @@ export function useWorkspaceMenu() {
     </Modal>
   );
 
-  return { items, dialog, visible };
+  return { items, dialog, visible, pick, workspaces, activeId: activeWorkspace?.id ?? null, busyId };
 }

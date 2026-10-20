@@ -35,6 +35,8 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import {
   IconArchive,
+  IconArrowLeft,
+  IconLayoutDashboard,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconArrowsMaximize,
@@ -120,6 +122,8 @@ import { EDGE_SAFE_MIDDLEWARES } from '../../lib/floating';
 import { useProjectAccess, type ProjectAccess } from '../../features/participants/access';
 import { ParticipantsTab, levelLabel } from '../../features/participants/ParticipantsTab';
 import { ProjectCover } from '../../features/projects/ProjectCover';
+import { PhoneProjectOverview } from './PhoneProjectView';
+import { usePhone } from '../../app/shell/viewport';
 import { useMyParticipations } from '../../api/a12Queries';
 import './projects.css';
 import './a9-projects.css';
@@ -136,6 +140,7 @@ const TAB_ICONS: Record<View, typeof IconChartBar> = {
   dashboard: IconChartDonut,
   participants: IconUsersGroup,
 };
+const PHONE_VIEWS = ['overview', ...VIEWS] as const;
 const tabLabel = (v: View) => (v === 'participants' ? t('a12roles.tab.participants') : t(`project.tab.${v}`));
 /** Gantt/list cost columns are hidden when money is not sent (A12 round 2: no budget.read). */
 const COST_COLUMNS = new Set(['plannedCost', 'actualCost']);
@@ -155,7 +160,10 @@ const BAR_SWATCHES = ['#5030e5', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F
 
 export function ProjectPage() {
   const { id = '' } = useParams();
-  const [view, setView] = useTabParam<View>('view', VIEWS, 'gantt');
+  // A12: phones open on «نظرة عامة» (PhoneProjectOverview); the Gantt is one tap away, full screen.
+  const phone = usePhone();
+  const [anyView, setView] = useTabParam<View | 'overview'>('view', PHONE_VIEWS, phone ? 'overview' : 'gantt');
+  const view: View = anyView === 'overview' ? 'gantt' : anyView;
   const gantt = useGantt(id);
   const writes = useProjectWrites(id);
   const access = useProjectAccess(id);
@@ -208,7 +216,28 @@ export function ProjectPage() {
   const admin = access.manageProject;
 
   return (
-    <div className="nz-project-shell nz-ps" ref={shellRef} data-fullscreen={fullscreen || undefined}>
+    <div className="nz-project-shell nz-ps" ref={shellRef} data-fullscreen={fullscreen || undefined} data-phone={phone || undefined}>
+      {phone ? (
+        anyView === 'overview' ? (
+          <PhoneProjectOverview
+            data={data}
+            access={access}
+            onSettings={() => panel.open('settings')}
+            onShowGantt={() => setView('gantt')}
+            onOpenTask={setOpenTask}
+            onOpenChat={access.comment || access.level ? chat.open : undefined}
+            views={<PhoneViewChips value={anyView} onChange={setView} />}
+          />
+        ) : (
+          <>
+            <h1 className="nz-pv-bar-title" tabIndex={-1}>
+              {data.project.name}
+            </h1>
+            <PhoneViewChips value={anyView} onChange={setView} />
+          </>
+        )
+      ) : (
+        <>
       <ProjectHeader data={data} admin={admin} access={access} onSettings={() => panel.open('settings')} />
       <Tabs value={view} onChange={(v) => setView(v)} keepMounted={false} className="nz-ps-tabs">
         <Tabs.List>
@@ -222,6 +251,21 @@ export function ProjectPage() {
           })}
         </Tabs.List>
       </Tabs>
+        </>
+      )}
+      {phone && anyView === 'overview' ? null : (
+      <div className={phone && view === 'gantt' ? 'nz-gantt-full' : undefined} data-testid={phone && view === 'gantt' ? 'gantt-full' : undefined}>
+        {phone && view === 'gantt' ? (
+          <header className="nz-gantt-full-head">
+            <button type="button" className="nz-roundbtn" onClick={() => setView('overview')} aria-label={t('mproject.closeGantt')}>
+              <IconArrowLeft size={20} stroke={1.8} className="mirror-rtl" aria-hidden />
+            </button>
+            <span className="nz-gantt-full-title">
+              <b>{data.project.name}</b>
+              <span className="nz-gantt-full-hint">{t('mproject.rotateHint')}</span>
+            </span>
+          </header>
+        ) : null}
       <ProjectBody
         key={id}
         view={view}
@@ -246,9 +290,29 @@ export function ProjectPage() {
           else void shellRef.current?.requestFullscreen?.().catch(() => undefined);
         }}
       />
+      </div>
+      )}
       <TaskDrawer data={data} taskId={task.value} writes={writes} onClose={task.close} />
       <TaskChatDrawer taskId={chat.value && data.tasks.some((x) => x.id === chat.value) ? chat.value : null} projectName={data.project.name} onClose={chat.close} />
       {admin ? <ProjectSettingsDrawer opened={panel.value === 'settings'} onClose={panel.close} project={data.project} data={data} /> : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- phone view chips (A12)
+
+function PhoneViewChips({ value, onChange }: { value: View | 'overview'; onChange(v: string): void }) {
+  return (
+    <div className="nz-chips" role="tablist" aria-label={t('mproject.views')}>
+      {PHONE_VIEWS.map((v) => {
+        const Icon = v === 'overview' ? IconLayoutDashboard : TAB_ICONS[v];
+        return (
+          <button key={v} type="button" role="tab" aria-selected={value === v} className="nz-chip-btn" onClick={() => onChange(v)} data-testid={`view-chip-${v}`}>
+            <Icon size={16} aria-hidden />
+            {v === 'overview' ? t('mproject.overview') : tabLabel(v)}
+          </button>
+        );
+      })}
     </div>
   );
 }

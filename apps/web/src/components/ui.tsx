@@ -19,7 +19,7 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <Group justify="space-between" align="flex-end" wrap="wrap" gap="md" mb="lg">
+    <Group justify="space-between" align="flex-end" wrap="wrap" gap="md" mb="lg" className="nz-ph">
       <Box style={{ minWidth: 0, flex: '1 1 260px' }}>
         <Title order={1} tabIndex={-1}>
           {title}
@@ -30,7 +30,7 @@ export function PageHeader({
           </Text>
         ) : null}
       </Box>
-      {actions ? <Group gap="sm">{actions}</Group> : null}
+      {actions ? <Group gap="sm" className="nz-ph-actions">{actions}</Group> : null}
     </Group>
   );
 }

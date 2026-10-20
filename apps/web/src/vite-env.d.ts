@@ -14,3 +14,7 @@ interface ImportMeta {
 
 /** apps/web package.json version, injected by vite.config.ts (sent as device info). */
 declare const __APP_VERSION__: string;
+/** A12: the short git commit of the build («abc1234», or «local» outside a git checkout). */
+declare const __APP_BUILD__: string;
+/** A12: when the build was made (ISO 8601 UTC). */
+declare const __APP_BUILT_AT__: string;

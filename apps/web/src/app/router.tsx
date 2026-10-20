@@ -27,6 +27,8 @@ import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage';
 import { ChangePasswordPage } from '../pages/auth/ChangePasswordPage';
 import { WorkspacePickerPage } from '../features/workspaces/WorkspacePickerPage';
 import { DashboardPage } from '../pages/DashboardPage';
+import { MorePage } from '../pages/MorePage';
+import { InstallGuidePage } from './pwa/InstallGuidePage';
 import { RegistrationsPage } from '../pages/RegistrationsPage';
 import { UsersPage } from '../pages/UsersPage';
 import { AuditPage } from '../pages/AuditPage';
@@ -141,6 +143,8 @@ export const routes: RouteObject[] = [
     ),
   },
   { path: '/reset-password', element: <ResetPasswordPage /> },
+  // A12: «أضف إلى الشاشة الرئيسية» — the iPhone install guide; public (works before sign-in).
+  { path: '/install', element: <InstallGuidePage />, errorElement: <RouteError /> },
   // A12: «اختر القسم» after sign-in (several workspaces, none chosen) — outside the shell.
   {
     path: '/choose-workspace',
@@ -238,6 +242,8 @@ export const routes: RouteObject[] = [
         ),
       },
       { path: 'profile', element: <ProfilePage /> },
+      // A12: «المزيد» of the phone bar (also «التطبيق والتحديثات» in the desktop user menu).
+      { path: 'more', element: <MorePage /> },
       // Phase 2
       {
         path: 'teams',

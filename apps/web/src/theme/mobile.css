@@ -1,0 +1,2294 @@
+/*
+ * A12 — phones and tablets «كالسيف» (owner request 2026-10-20). The style of the owner's Figma
+ * reference (Mobile Dashboard UI, file bBBiLx64ZpfOsh2UpNBNQs) in our identity: a light grey page,
+ * white rounded cards, 16–24px gutters, large bold titles, minimal line icons and one accent —
+ * the A11 violet. Logical properties only; physical offsets × --ds (skill nuzli-arabic-rtl).
+ *
+ *   compact shell  ≤ 1023px   bottom bar, drawer side, light top bar   (app/shell/viewport.ts)
+ *   phone          ≤ 767px    phone page layouts, bottom sheets, 48px inputs
+ *   tablet         768–1279   two-column cards (portrait), rail by default (landscape)
+ */
+
+:root {
+  --m-page: #f6f6f9;
+  --m-card: #ffffff;
+  --m-line: #ecebf2;
+  --m-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -16px rgba(16, 24, 40, 0.16);
+  --m-gutter: clamp(16px, 4.6vw, 24px);
+  --tbar-h: 68px;
+  --mtop-h: 56px;
+  --kb: 0px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+:root[data-mantine-color-scheme='dark'] {
+  --m-page: #0f1115;
+  --m-card: #171a21;
+  --m-line: #252a35;
+  --m-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 10px 26px -18px rgba(0, 0, 0, 0.9);
+}
+
+/* ================================================================== compact shell (≤ 1023px) */
+.nz-tbar,
+.nz-mtop,
+.nz-fab {
+  display: none;
+}
+
+@media (max-width: 63.99em) {
+  .nz-room,
+  .nz-room.is-mini {
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--m-page);
+  }
+  .nz-stage {
+    background: var(--m-page);
+  }
+  /* The side becomes a drawer from the inline start (same as phones before A12, now up to tablets). */
+  .nz-side {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    height: 100dvh;
+    width: min(320px, 86vw);
+    z-index: 300;
+    transform: translateX(calc(var(--ds) * -100%));
+    visibility: hidden;
+    transition: transform 0.32s var(--e), visibility 0s linear 0.32s;
+    box-shadow: none;
+  }
+  .nz-side.open {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.32s var(--e), visibility 0s;
+    box-shadow: 0 0 60px -10px rgba(16, 24, 40, 0.35);
+  }
+  .nz-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 290;
+    background: var(--scrim);
+    backdrop-filter: blur(3px);
+  }
+  .nz-nav,
+  .nz-kid {
+    min-height: 44px;
+  }
+
+  /* ---- light top bar */
+  .nz-mtop {
+    position: sticky;
+    top: 0;
+    z-index: 110;
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+    align-items: center;
+    gap: 8px;
+    height: calc(var(--mtop-h) + var(--safe-t));
+    padding: var(--safe-t) var(--m-gutter) 0;
+    background: color-mix(in srgb, var(--m-page) 96%, transparent);
+    backdrop-filter: saturate(1.4) blur(14px);
+    -webkit-backdrop-filter: saturate(1.4) blur(14px);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s var(--e), background 0.2s var(--e);
+  }
+  .nz-mtop.deep {
+    border-bottom-color: var(--line);
+  }
+  .nz-mtop-start,
+  .nz-mtop-end {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .nz-mtop-end {
+    justify-content: flex-end;
+  }
+  .nz-mtop-logo {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    border-radius: 10px;
+  }
+  .nz-mtop-title {
+    margin: 0;
+    min-width: 0;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.18s var(--e), transform 0.18s var(--e);
+  }
+  .nz-mtop.deep .nz-mtop-title {
+    opacity: 1;
+    transform: none;
+  }
+  /* Round white buttons (search, bell, back) — the Figma header buttons. */
+  .nz-mtop .nz-iconbtn,
+  .nz-hello-end .nz-iconbtn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--m-card);
+    color: var(--ink);
+    box-shadow: var(--m-shadow);
+  }
+  .nz-mtop .nz-iconbtn:hover,
+  .nz-hello-end .nz-iconbtn:hover {
+    background: var(--m-card);
+    color: var(--accent);
+  }
+  .nz-mtop .nz-bdg,
+  .nz-hello-end .nz-bdg {
+    border-color: var(--m-card);
+  }
+  .nz-mtop .nz-chip {
+    height: 36px;
+    padding: 0 10px;
+  }
+  .nz-mtop .nz-chip:not(.nz-chip--wait),
+  .nz-mtop .nz-chip-label {
+    display: none;
+  }
+  .nz-offline {
+    top: calc(var(--mtop-h) + var(--safe-t));
+  }
+  .nz-room[data-home] .nz-offline {
+    top: 0;
+  }
+
+  /* ---- page */
+  .nz-main {
+    padding: 4px var(--m-gutter) 32px;
+  }
+  .nz-has-bottombar .nz-main {
+    padding-bottom: calc(var(--tbar-h) + var(--safe-b) + 28px);
+  }
+  .nz-room[data-home] .nz-main {
+    padding-top: calc(var(--safe-t) + 16px);
+  }
+  .nz-main h1 {
+    font-size: 24px;
+    line-height: 1.35;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  /* ---- the five-tab bar */
+  .nz-tbar {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 150;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: stretch;
+    height: calc(var(--tbar-h) + var(--safe-b));
+    padding: 6px 6px var(--safe-b);
+    background: var(--tabs-bg);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -12px 28px -24px rgba(16, 24, 40, 0.3);
+  }
+  /* Fewer destinations (a participant may have three): the tabs share the width. */
+  .nz-tbar[data-count='4'] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .nz-tbar[data-count='3'] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .nz-tbar[data-count='2'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .nz-tb {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 3px;
+    min-width: 0;
+    min-height: 56px;
+    padding: 2px 2px 0;
+    border-radius: 14px;
+    color: var(--tabs-ink);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: center;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  .nz-tb:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+  }
+  .nz-tb-ic {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 30px;
+    border-radius: 99px;
+    transition: background 0.2s var(--e), color 0.2s var(--e);
+  }
+  .nz-tb.on {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  /* Active = filled: the filled glyph where the set has one, always on the violet tint capsule. */
+  .nz-tb.on .nz-tb-ic {
+    background: var(--tint);
+    color: var(--accent);
+  }
+  .nz-tb:active .nz-tb-ic {
+    transform: scale(0.94);
+  }
+  .nz-tb-label {
+    max-width: 100%;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  /* The monitor's «تسجيل مخالفة»: the raised violet centre. */
+  .nz-tb.primary {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .nz-tb-ic.nz-tb-raise,
+  .nz-tb.on .nz-tb-ic.nz-tb-raise {
+    width: 58px;
+    height: 58px;
+    margin-top: -26px;
+    border-radius: 50%;
+    color: var(--on-primary);
+    background: var(--primary);
+    border: 4px solid var(--tabs-bg);
+    box-shadow: 0 10px 22px -10px rgba(55, 29, 168, 0.7);
+  }
+  .nz-tb-badge {
+    position: absolute;
+    top: -4px;
+    inset-inline-end: 4px;
+    min-width: 19px;
+    height: 19px;
+    padding: 0 5px;
+    border-radius: 99px;
+    background: var(--red);
+    color: #fff;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--tabs-bg);
+    font-variant-numeric: tabular-nums;
+  }
+  .nz-tb-badge.q {
+    background: var(--amber);
+  }
+  .nz-tb-raise .nz-tb-badge {
+    top: -2px;
+    inset-inline-end: -4px;
+  }
+  /* The keyboard is open: the bar steps aside so the form's button sits right above the keys. */
+  html[data-kb] .nz-tbar,
+  html[data-kb] .nz-fab {
+    display: none;
+  }
+  html[data-kb] .nz-has-bottombar .nz-main {
+    padding-bottom: 32px;
+  }
+  /* The violation wizard's «رجوع / التالي» bar (already sticky) follows the bar and the keyboard. */
+  .nz-has-bottombar {
+    --nz-bottombar-h: calc(var(--tbar-h) + var(--safe-b));
+  }
+  html[data-kb] .nz-record-actions {
+    inset-block-end: calc(var(--kb) + 8px);
+  }
+
+  /* ---- floating «+» (bottom-left in RTL = inline end) */
+  .nz-fab {
+    position: fixed;
+    inset-inline-end: var(--m-gutter);
+    bottom: calc(var(--tbar-h) + var(--safe-b) + 16px);
+    z-index: 140;
+    display: grid;
+    place-items: center;
+    width: 60px;
+    height: 60px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--on-primary);
+    box-shadow: 0 14px 28px -12px rgba(55, 29, 168, 0.65), 0 2px 6px rgba(16, 24, 40, 0.12);
+    cursor: pointer;
+    transition: transform 0.18s var(--e), background 0.18s var(--e);
+  }
+  .nz-fab:hover {
+    background: var(--primary-hover);
+  }
+  .nz-fab:active {
+    transform: scale(0.94);
+  }
+
+  /* ---- «تحديث متاح» above the bar */
+  html body .nz-update {
+    inset-inline: 12px;
+    inset-block-end: calc(var(--tbar-h) + var(--safe-b) + 12px);
+    max-width: none;
+  }
+}
+
+/* Portrait tablets: the bar's five tabs stay together in the middle instead of spreading out. */
+@media (min-width: 48em) and (max-width: 63.99em) {
+  .nz-tbar,
+  .nz-tbar[data-count] {
+    grid-template-columns: repeat(var(--tabs, 5), minmax(0, 112px));
+    justify-content: center;
+    gap: 8px;
+  }
+  html body .nz-update {
+    inset-inline: auto 24px;
+    max-width: 460px;
+  }
+}
+
+/* ================================================================== «تحديث متاح» banner */
+.nz-update {
+  position: fixed;
+  inset-block-end: 16px;
+  inset-inline-start: 16px;
+  z-index: 400;
+  max-width: min(460px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  padding-inline: 14px 10px;
+  border-radius: 16px;
+  background: #1a1433;
+  color: #fff;
+  box-shadow: 0 18px 40px -16px rgba(13, 6, 45, 0.55);
+  animation: nz-update-in 0.28s var(--e3) both;
+}
+:root[data-mantine-color-scheme='dark'] .nz-update {
+  background: #262b38;
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.9), inset 0 0 0 1px #333a48;
+}
+.nz-update-ic {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex: none;
+  background: rgba(150, 128, 255, 0.22);
+  color: #c9bdff;
+}
+.nz-update-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+}
+.nz-update-text b {
+  font-size: 14px;
+  font-weight: 700;
+}
+.nz-update-text span {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.72);
+}
+.nz-update-btn {
+  flex: none;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nz-update-btn:hover {
+  background: var(--primary-hover);
+}
+.nz-update-btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+@keyframes nz-update-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ================================================================== home (compact) */
+.nz-home {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  /* The last card scrolls clear of the floating «+». */
+  padding-bottom: 72px;
+}
+.nz-hello {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+}
+.nz-hello-av {
+  flex: none;
+  border-radius: 50%;
+}
+.nz-hello-av .nz-avatar {
+  box-shadow: 0 0 0 3px var(--m-card), 0 6px 16px -8px rgba(16, 24, 40, 0.4);
+}
+.nz-hello-text {
+  flex: 1;
+  min-width: 0;
+}
+.nz-hello-text h1 {
+  margin: 0;
+  font-size: 22px !important;
+  line-height: 1.35;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-hello-text span {
+  display: block;
+  font-size: 13.5px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-hello-end {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.nz-kgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.nz-k {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  min-height: 108px;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.16s var(--e), border-color 0.16s var(--e);
+  -webkit-tap-highlight-color: transparent;
+}
+.nz-k:active {
+  transform: scale(0.98);
+}
+.nz-k:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.nz-k-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.nz-k-ic {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--p-brand-b);
+  color: var(--accent);
+}
+.nz-k[data-tone='wait'] .nz-k-ic {
+  background: var(--p-wait-b);
+  color: var(--amber);
+}
+.nz-k[data-tone='no'] .nz-k-ic {
+  background: var(--p-no-b);
+  color: var(--red);
+}
+.nz-k[data-tone='ok'] .nz-k-ic {
+  background: var(--p-live-b);
+  color: var(--live);
+}
+.nz-k[data-tone='blue'] .nz-k-ic {
+  background: var(--p-blue-b);
+  color: var(--blue);
+}
+.nz-k-label {
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nz-k-n {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.nz-k[data-tone='no'] .nz-k-n {
+  color: var(--red);
+}
+
+.nz-hgrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.nz-hcard {
+  min-width: 0;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+}
+.nz-hcard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.nz-hcard-title {
+  margin: 0 0 12px;
+  font-size: 17px !important;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.nz-hcard-head .nz-hcard-title {
+  margin: 0;
+}
+.nz-hcard-all {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--link);
+  text-decoration: none;
+}
+.nz-hcard-empty {
+  margin: 8px 0 0;
+  color: var(--dim);
+  font-size: 13.5px;
+}
+
+.nz-chart-donut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.nz-donut {
+  position: relative;
+  width: 176px;
+  height: 176px;
+}
+.nz-donut svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.nz-donut-track {
+  fill: none;
+  stroke: var(--panel2);
+  stroke-width: 20;
+}
+.nz-donut-seg {
+  fill: none;
+  stroke-width: 20;
+  stroke-linecap: butt;
+}
+.nz-donut-mid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+}
+.nz-donut-mid b {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.nz-donut-mid span {
+  font-size: 12px;
+  color: var(--dim);
+}
+.nz-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+}
+.nz-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+.nz-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+.nz-legend span {
+  flex: 1;
+  min-width: 0;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-legend b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.nz-bars {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  height: 168px;
+  padding-top: 4px;
+}
+.nz-bar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.nz-bar b {
+  min-height: 16px;
+  font-size: 11.5px;
+  color: var(--ink);
+}
+.nz-bar-track {
+  flex: 1;
+  width: 100%;
+  max-width: 24px;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 8px;
+  background: var(--panel2);
+  overflow: hidden;
+}
+.nz-bar-fill {
+  width: 100%;
+  border-radius: 8px;
+  background: var(--primary);
+}
+.nz-bar-x {
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.nz-rows {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.nz-rows li + li .nz-row {
+  border-top: 1px solid var(--m-line);
+}
+.nz-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding-block: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.nz-row-lead {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.nz-row-lead > * {
+  width: 48px !important;
+  height: 48px !important;
+  border-radius: 12px !important;
+}
+.nz-row-ic {
+  display: grid;
+  place-items: center;
+  background: var(--p-brand-b);
+  color: var(--accent);
+}
+.nz-row-ic[data-tone='no'] {
+  background: var(--p-no-b);
+  color: var(--red);
+}
+.nz-row-ic[data-tone='wait'] {
+  background: var(--p-wait-b);
+  color: var(--amber);
+}
+.nz-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nz-row-main b {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-row-main span {
+  font-size: 12.5px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-row-end {
+  flex: none;
+  align-self: flex-start;
+  padding-top: 4px;
+}
+.nz-row-date {
+  font-size: 12px;
+  color: var(--dim2);
+  white-space: nowrap;
+}
+.nz-row-date.late {
+  color: var(--red);
+  font-weight: 600;
+}
+.nz-home-grants .mantine-Card-root {
+  border-radius: 18px;
+  background: var(--m-card);
+}
+
+@media (min-width: 48em) {
+  .nz-kgrid[data-count='4'] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .nz-hgrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+/* ---- install card */
+.nz-install-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 14px;
+  padding: 16px;
+  padding-inline-end: 44px;
+  border-radius: 18px;
+  background: linear-gradient(var(--tint), var(--tint)), var(--m-card);
+  border: 1px solid var(--tint2);
+}
+.nz-install-ic {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.nz-install-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.45;
+}
+.nz-install-text b {
+  font-size: 15px;
+  color: var(--ink);
+}
+.nz-install-text span {
+  font-size: 13px;
+  color: var(--dim);
+}
+.nz-install-btn {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.nz-install-x {
+  position: absolute;
+  top: 6px;
+  inset-inline-end: 6px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+}
+.nz-install-x:hover {
+  background: var(--m-card);
+  color: var(--ink);
+}
+@media (min-width: 48em) {
+  .nz-install-card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .nz-install-btn {
+    grid-column: auto;
+    padding: 0 18px;
+  }
+}
+
+/* ---- action sheet (the «+») and every bottom Drawer used as a sheet */
+.nz-sheet-content {
+  border-start-start-radius: 24px !important;
+  border-start-end-radius: 24px !important;
+  padding-bottom: var(--safe-b);
+  max-height: calc(100dvh - 40px);
+}
+.nz-sheet-content::before {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 4px;
+  margin: 10px auto 0;
+  border-radius: 99px;
+  background: var(--line2);
+}
+.nz-sheet-header {
+  padding-inline: 20px !important;
+}
+.nz-sheet-header h2 {
+  font-size: 17px;
+  font-weight: 700;
+}
+.nz-sheet-body {
+  padding: 0 12px 16px !important;
+}
+.nz-actions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nz-action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  color: inherit;
+  text-decoration: none;
+}
+.nz-action:hover,
+.nz-action:focus-visible {
+  background: var(--hover);
+}
+.nz-action-ic {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--tint);
+  color: var(--accent);
+}
+.nz-action-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+}
+.nz-action-text b {
+  font-size: 15px;
+  color: var(--ink);
+}
+.nz-action-text span {
+  font-size: 12.5px;
+  color: var(--dim);
+}
+
+/* ================================================================== «المزيد» */
+.nz-more {
+  max-width: 640px;
+  margin-inline: auto;
+}
+.nz-more-title {
+  margin: 4px 0 16px;
+}
+.nz-more-me {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 88px;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+  color: inherit;
+  text-decoration: none;
+}
+.nz-more-me-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nz-more-me-text > b {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-more-me-text > span {
+  font-size: 13px;
+  color: var(--dim);
+}
+.nz-more-me-ws {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nz-more-me-ws .nz-ws-name {
+  margin: 0;
+  font-size: 12.5px;
+}
+.nz-more-sec {
+  margin-top: 22px;
+  scroll-margin-top: calc(var(--mtop-h) + 12px);
+}
+.nz-more-h {
+  margin: 0 6px 8px !important;
+  font-size: 13px !important;
+  font-weight: 700;
+  color: var(--dim);
+  line-height: 1.4;
+}
+.nz-more-card {
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+}
+.nz-more-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+div.nz-more-row {
+  cursor: default;
+}
+.nz-more-row + .nz-more-row {
+  border-top: 1px solid var(--m-line);
+}
+a.nz-more-row:hover,
+button.nz-more-row:hover,
+label.nz-more-row:hover {
+  background: var(--hover);
+}
+.nz-more-ic {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--tint);
+  color: var(--accent);
+}
+.nz-more-ic[data-tone='red'] {
+  background: var(--p-no-b);
+  color: var(--red);
+}
+.nz-more-row[data-tone='red'] .nz-more-text b {
+  color: var(--red);
+}
+.nz-more-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.45;
+}
+.nz-more-text b {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.nz-more-text span {
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.nz-more-chev {
+  flex: none;
+  color: var(--dim2);
+}
+.nz-more-n {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 99px;
+  background: var(--red);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.nz-more-n.q {
+  background: var(--amber);
+}
+
+/* ================================================================== install guide (/install) */
+.nz-ig {
+  min-height: 100dvh;
+  padding: calc(var(--safe-t) + 24px) 16px calc(var(--safe-b) + 24px);
+  background: var(--m-page);
+}
+.nz-ig-card {
+  max-width: 540px;
+  margin-inline: auto;
+  padding: 28px 20px;
+  border-radius: 24px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+}
+.nz-ig-logo {
+  display: flex;
+  justify-content: center;
+}
+.nz-ig-title {
+  margin: 18px 0 6px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.nz-ig-lead {
+  margin: 0 auto 16px;
+  max-width: 420px;
+  text-align: center;
+  color: var(--dim);
+  font-size: 14px;
+}
+.nz-ig-art {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  height: auto;
+  margin: 8px auto 20px;
+  direction: rtl;
+}
+.nz-ig-art .ig-phone {
+  fill: var(--m-card);
+  stroke: var(--line2);
+  stroke-width: 2;
+}
+.nz-ig-art .ig-fill,
+.nz-ig-art .ig-bar {
+  fill: var(--panel2);
+}
+.nz-ig-art .ig-card {
+  fill: var(--tint);
+}
+.nz-ig-art .ig-sheet {
+  fill: var(--m-card);
+  stroke: var(--line);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 -6px 10px rgba(16, 24, 40, 0.08));
+}
+.nz-ig-art .ig-hl,
+.nz-ig-art .ig-step {
+  fill: var(--primary);
+}
+.nz-ig-art .ig-hl-row {
+  fill: var(--tint);
+  stroke: var(--primary);
+  stroke-width: 1.5;
+}
+.nz-ig-art .ig-icon-on,
+.nz-ig-art .ig-icon,
+.nz-ig-art .ig-icon-on2,
+.nz-ig-art .ig-arrow {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nz-ig-art .ig-icon-on {
+  stroke: #fff;
+  stroke-width: 2;
+}
+.nz-ig-art .ig-icon {
+  stroke: var(--dim2);
+  stroke-width: 2;
+}
+.nz-ig-art .ig-icon-box {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.6;
+}
+.nz-ig-art .ig-icon-on2 {
+  stroke: var(--primary);
+  stroke-width: 1.8;
+}
+.nz-ig-art .ig-arrow {
+  stroke: var(--primary);
+  stroke-width: 2.5;
+}
+.nz-ig-art .ig-label {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 600;
+  fill: var(--accent);
+}
+.nz-ig-art .ig-label.strong {
+  font-size: 7.4px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+.nz-ig-art .ig-step-n {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  fill: #fff;
+}
+.nz-ig-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.nz-ig-steps li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.nz-ig-n {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.nz-ig-step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.55;
+}
+.nz-ig-step b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15.5px;
+  color: var(--ink);
+}
+.nz-ig-step b svg {
+  color: var(--accent);
+  flex: none;
+}
+.nz-ig-step span {
+  font-size: 14px;
+  color: var(--dim);
+}
+.nz-ig-note,
+.nz-ig-warn,
+.nz-ig-done {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--panel2);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+.nz-ig-note svg,
+.nz-ig-warn svg,
+.nz-ig-done svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+}
+.nz-ig-note b {
+  display: block;
+  color: var(--ink);
+}
+.nz-ig-warn {
+  background: var(--p-wait-b);
+  color: var(--p-wait-t);
+}
+.nz-ig-warn svg {
+  color: currentColor;
+}
+.nz-ig-done {
+  background: var(--p-live-b);
+  color: var(--p-live-t);
+  font-weight: 600;
+}
+.nz-ig-done svg {
+  color: currentColor;
+}
+.nz-ig-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+/* ================================================================== phones (≤ 767px) */
+@media (max-width: 47.99em) {
+  /* Inputs 48px and 16px text (iOS does not zoom into a 16px field); buttons ≥ 44px. */
+  .mantine-Input-wrapper {
+    --input-height-xs: 40px;
+    --input-height-sm: 48px;
+    --input-height-md: 48px;
+  }
+  .mantine-Input-input {
+    font-size: 16px !important;
+  }
+  .mantine-Button-root {
+    --button-height-xs: 44px;
+    --button-height-sm: 44px;
+    --button-height-md: 48px;
+    min-height: 44px !important;
+  }
+  .mantine-ActionIcon-root {
+    --ai-size-md: 40px;
+    --ai-size-lg: 44px;
+  }
+  /* Tap targets the QA sweep found under 44px. */
+  .nz-ps-tool,
+  .nz-rolebtn,
+  .mantine-Stepper-step,
+  .nz-check-card {
+    min-height: 44px;
+  }
+  .nz-ps-tool {
+    min-width: 44px;
+  }
+  .mantine-InputWrapper-label {
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+
+  /* Dialogs become bottom sheets (the command palette stays at the top, above the keyboard). */
+  .mantine-Modal-inner:not(:has(.nz-palette)) {
+    padding: 0 !important;
+    align-items: flex-end !important;
+    padding-bottom: var(--kb) !important;
+  }
+  .mantine-Modal-inner:not(:has(.nz-palette)) .mantine-Modal-content {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - var(--kb) - 24px) !important;
+    border-radius: 24px 24px 0 0 !important;
+    padding-bottom: var(--safe-b);
+  }
+  .mantine-Modal-inner:not(:has(.nz-palette)) .mantine-Modal-content::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 10px auto 0;
+    border-radius: 99px;
+    background: var(--line2);
+  }
+  .mantine-Modal-header {
+    padding-inline: 20px;
+  }
+  .mantine-Modal-title {
+    font-size: 17px;
+    font-weight: 700;
+  }
+  .mantine-Modal-close {
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px;
+    border-radius: 50%;
+  }
+  .mantine-Modal-body {
+    padding-inline: 20px;
+  }
+  /* The primary action stays visible: the dialog's last button row sticks to the sheet's bottom. */
+  .mantine-Modal-body > form > .mantine-Group-root:last-child,
+  .mantine-Modal-body > .mantine-Stack-root > .mantine-Group-root:last-child,
+  .mantine-Modal-body > form > .mantine-Stack-root > .mantine-Group-root:last-child,
+  .mantine-Modal-body .nz-sheet-actions,
+  .nz-sticky-cta {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    margin-inline: -20px;
+    margin-bottom: -16px;
+    padding: 12px 20px 16px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    flex-wrap: nowrap !important;
+  }
+  .mantine-Modal-body > form > .mantine-Group-root:last-child > .mantine-Button-root,
+  .mantine-Modal-body > .mantine-Stack-root > .mantine-Group-root:last-child > .mantine-Button-root,
+  .mantine-Modal-body > form > .mantine-Stack-root > .mantine-Group-root:last-child > .mantine-Button-root,
+  .mantine-Modal-body .nz-sheet-actions > .mantine-Button-root {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .mantine-Modal-body .nz-sticky-cta {
+    margin-bottom: 0;
+  }
+  /* A page form's own sticky bar: above the bottom bar, and above the keyboard when it is open. */
+  .nz-main .nz-sticky-cta {
+    bottom: calc(var(--tbar-h) + var(--safe-b));
+    margin-inline: calc(-1 * var(--m-gutter));
+    padding-inline: var(--m-gutter);
+    background: color-mix(in srgb, var(--m-page) 92%, transparent);
+    backdrop-filter: blur(10px);
+  }
+  html[data-kb] .nz-main .nz-sticky-cta {
+    bottom: var(--kb);
+  }
+
+  /* Drawers (task, member, violation…) take the whole phone width. */
+  .mantine-Drawer-content {
+    max-width: 100vw;
+  }
+
+  /* Page headers: the title on its own line, the actions under it. */
+  .nz-ph {
+    gap: 12px !important;
+    margin-bottom: 16px !important;
+  }
+  .nz-ph-actions {
+    width: 100%;
+  }
+  .nz-ph-actions > .mantine-Button-root,
+  .nz-ph-actions > a.mantine-Button-root {
+    flex: 1 1 auto;
+  }
+
+  /* Tables become cards: a horizontal scroll inside a rounded panel with a visible edge fade. */
+  .nz-main .mantine-Table-scrollContainer,
+  .nz-main .mantine-ScrollArea-root:has(> .mantine-ScrollArea-viewport > div > .mantine-Table-table) {
+    border-radius: 16px;
+    background: var(--m-card);
+    border: 1px solid var(--m-line);
+  }
+  /* Cards on the grey page read as cards. */
+  .nz-main .mantine-Card-root,
+  .nz-main .mantine-Paper-root[data-with-border],
+  .nz-main .surface-card {
+    border-radius: 18px;
+    border-color: var(--m-line);
+    background: var(--m-card);
+  }
+  .nz-main .mantine-Tabs-list {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nz-main .mantine-Tabs-list::-webkit-scrollbar {
+    display: none;
+  }
+  .nz-main .mantine-Tabs-tab {
+    flex: none;
+    min-height: 44px;
+  }
+}
+
+/* ================================================================== tablets */
+/* Landscape tablets: drawers open as side sheets that leave the page visible. */
+@media (min-width: 48em) and (max-width: 79.99em) {
+  .mantine-Drawer-content {
+    max-width: min(560px, 72vw);
+  }
+}
+
+/* ================================================================== phone page parts (A12) */
+/* A big title with round actions at its end (Figma: «All Projects»). */
+.nz-mhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  margin: 4px 0 14px;
+}
+.nz-mhead h1 {
+  margin: 0;
+  min-width: 0;
+}
+.nz-mhead-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+.nz-roundbtn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--m-card);
+  color: var(--ink);
+  box-shadow: var(--m-shadow);
+  cursor: pointer;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.nz-roundbtn.primary {
+  background: var(--primary);
+  color: var(--on-primary);
+  box-shadow: 0 10px 20px -10px rgba(55, 29, 168, 0.6);
+}
+.nz-roundbtn:active {
+  transform: scale(0.94);
+}
+/* Search field with a filter button (Figma Inbox). */
+.nz-msearch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding-inline: 16px 6px;
+  border-radius: 16px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+  color: var(--dim);
+}
+.nz-msearch:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--tint);
+}
+.nz-msearch input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+}
+.nz-msearch input::placeholder {
+  color: var(--dim2);
+}
+.nz-msearch input::-webkit-search-cancel-button {
+  display: none;
+}
+.nz-msearch-filter {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+.nz-msearch-filter[data-on] {
+  background: var(--tint);
+}
+/* Chips: one row that scrolls sideways, with the edge fading out. */
+.nz-chips {
+  display: flex;
+  gap: 8px;
+  margin: 12px calc(-1 * var(--m-gutter)) 16px;
+  padding: 2px var(--m-gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-padding-inline: var(--m-gutter);
+  mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+}
+[dir='rtl'] .nz-chips {
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
+.nz-chips::-webkit-scrollbar {
+  display: none;
+}
+.nz-chip-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--m-line);
+  border-radius: 99px;
+  background: var(--m-card);
+  color: var(--dim);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nz-chip-btn[aria-checked='true'],
+.nz-chip-btn[aria-selected='true'] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+.nz-chip-btn .n {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--panel2);
+  color: var(--ink);
+  font-size: 11.5px;
+  display: grid;
+  place-items: center;
+}
+.nz-chip-btn[aria-selected='true'] .n,
+.nz-chip-btn[aria-checked='true'] .n {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.nz-action--pick {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.nz-action--pick[aria-checked='true'] {
+  background: var(--tint);
+}
+
+/* Project cards (Figma Projects). */
+.nz-pc-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.nz-pc {
+  border-radius: 22px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+  padding: 14px;
+  min-width: 0;
+}
+.nz-pc-cover {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.nz-pc-cover-link {
+  display: block;
+  border-radius: 16px;
+}
+.nz-pc-cover .nz-cover {
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+}
+.nz-pc-menu {
+  position: absolute !important;
+  top: 10px;
+  inset-inline-end: 10px;
+  color: var(--ink) !important;
+  box-shadow: 0 4px 12px -6px rgba(16, 24, 40, 0.45);
+}
+.nz-pc-fav {
+  position: absolute;
+  top: 10px;
+  inset-inline-start: 10px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #f5a524;
+}
+.nz-pc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 4px 4px;
+  color: inherit;
+  text-decoration: none;
+}
+.nz-pc-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nz-pc-progress b {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  min-width: 44px;
+  text-align: end;
+}
+.nz-pc-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.nz-pc-title h2 {
+  margin: 0;
+  min-width: 0;
+  font-size: 19px !important;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nz-pc-title .pill {
+  flex: none;
+  margin-top: 3px;
+}
+.nz-pc-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+.nz-pc-line svg {
+  flex: none;
+  color: var(--dim2);
+}
+.nz-pc-tasks {
+  color: var(--accent);
+  font-weight: 600;
+}
+.nz-pc-tasks svg {
+  color: var(--accent);
+}
+.nz-pc-owner {
+  color: var(--ink);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Project on phones (Figma Project view). */
+.nz-pv {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.nz-pv-cover {
+  position: relative;
+  margin-inline: calc(-1 * var(--m-gutter));
+  margin-top: -4px;
+}
+.nz-pv-cover .nz-cover {
+  aspect-ratio: 16 / 8.5;
+  border-radius: 0 0 24px 24px;
+}
+.nz-pv-edit {
+  position: absolute;
+  top: 12px;
+  inset-inline-end: var(--m-gutter);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #0d062d;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 6px 14px -8px rgba(16, 24, 40, 0.5);
+  cursor: pointer;
+}
+.nz-pv-title,
+.nz-pv-bar-title {
+  margin: 4px 0 0 !important;
+  font-size: 22px !important;
+  line-height: 1.4 !important;
+}
+.nz-pv-bar-title {
+  margin-bottom: 4px !important;
+}
+.nz-pv-desc p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 14.5px;
+  line-height: 1.75;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nz-pv-desc p[data-open] {
+  -webkit-line-clamp: unset;
+  display: block;
+}
+.nz-pv-more {
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nz-pv-owner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nz-pv-owner b {
+  color: var(--accent);
+  font-size: 15px;
+}
+.nz-pv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.nz-pv-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+}
+.nz-pv-info svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+}
+.nz-pv-info > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.4;
+}
+.nz-pv-info-l {
+  font-size: 12px;
+  color: var(--dim);
+}
+.nz-pv-info-v {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.nz-pv-gantt {
+  border-radius: 14px !important;
+}
+.nz-pv .nz-chips {
+  margin-block: 0;
+}
+.nz-pv-h {
+  margin: 4px 0 0 !important;
+  font-size: 18px !important;
+  font-weight: 700;
+}
+.nz-pv-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nz-pv-sec {
+  border-radius: 18px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+  overflow: hidden;
+}
+.nz-pv-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.nz-pv-sec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex: none;
+}
+.nz-pv-sec-head b {
+  flex: 1;
+  min-width: 0;
+  font-size: 15.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-pv-sec-n {
+  font-size: 12.5px;
+  color: var(--dim);
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--panel2);
+}
+.nz-pv-sec-chev {
+  color: var(--dim2);
+  transition: transform 0.2s var(--e);
+}
+.nz-pv-sec[data-open] .nz-pv-sec-chev {
+  transform: rotate(180deg);
+}
+.nz-pv-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 4px;
+  border-top: 1px solid var(--m-line);
+}
+.nz-pv-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 16px 10px;
+}
+.nz-pv-task + .nz-pv-task {
+  border-top: 1px solid var(--m-line);
+}
+.nz-pv-task-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 64px;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.nz-pv-task-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.nz-pv-task-top b {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-pv-ms {
+  flex: none;
+  color: var(--accent);
+}
+.nz-pv-task-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nz-pv-due {
+  font-size: 12px;
+  color: var(--dim2);
+}
+.nz-pv-due.late {
+  color: var(--red);
+  font-weight: 600;
+}
+.nz-pv-task-end {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.nz-pv-av {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--m-card), 0 0 0 4px var(--team);
+}
+.nz-pv-av .nz-dual {
+  position: absolute;
+  bottom: -6px;
+  inset-inline-start: -6px;
+}
+.nz-pv-task .nz-chatbtn {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* The Gantt on phones: full screen above the bar, the page title and a landscape hint. */
+.nz-gantt-full {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: flex;
+  flex-direction: column;
+  background: var(--m-page);
+  padding: var(--safe-t) 8px var(--safe-b);
+  overflow: auto;
+}
+.nz-gantt-full-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 8px 8px 4px;
+  flex: none;
+}
+.nz-gantt-full-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+.nz-gantt-full-title b {
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-gantt-full-hint {
+  font-size: 12px;
+  color: var(--dim);
+}
+@media (orientation: landscape) {
+  .nz-gantt-full-hint {
+    display: none;
+  }
+}
+
+/* The hub as an inbox (Figma Inbox). */
+.hb-ilist {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.hb-irow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 84px;
+  padding: 12px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--m-line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.hb-ilist li:last-child .hb-irow {
+  border-bottom: 0;
+}
+.hb-irow-av {
+  flex: none;
+  border-radius: 50%;
+}
+.hb-irow-ic {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--tint);
+  color: var(--accent);
+}
+.hb-irow-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.45;
+}
+.hb-irow-main b {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hb-irow-project {
+  font-size: 12px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hb-irow-last {
+  font-size: 13.5px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hb-irow[data-unread] .hb-irow-last {
+  color: var(--ink);
+  font-weight: 600;
+}
+.hb-irow-side {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px;
+  padding-block: 4px;
+}
+.hb-irow-time {
+  font-size: 12px;
+  color: var(--dim2);
+  white-space: nowrap;
+}
+.hb-irow[data-unread] .hb-irow-time {
+  color: var(--accent);
+  font-weight: 700;
+}
+.hb-irow-n {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 99px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  margin-inline-start: auto;
+}
+.hb-inbox .nz-msearch {
+  margin-bottom: 0;
+}
+
+/* People lists on phones (Figma All users): avatar rows on a white card. */
+.nz-plist {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  border-radius: 18px;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
+  box-shadow: var(--m-shadow);
+}
+.nz-plist li + li .nz-prow {
+  border-top: 1px solid var(--m-line);
+}
+.nz-prow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 68px;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.nz-prow-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nz-prow-main > b {
+  font-size: 15px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nz-prow-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 12.5px;
+  color: var(--dim);
+  min-width: 0;
+}
+.nz-prow-end {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dim2);
+}
+
+/* Large phones in landscape and small tablets (iPad mini portrait is 744px): two columns of cards. */
+@media (min-width: 37.5em) {
+  .nz-pc-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .nz-hgrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .nz-kgrid[data-count='4'] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .nz-pv-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .nz-pv-cover .nz-cover {
+    aspect-ratio: 16 / 6;
+  }
+}
+
+@media print {
+  .nz-tbar,
+  .nz-fab,
+  .nz-mtop,
+  .nz-update,
+  .nz-install-card {
+    display: none !important;
+  }
+}

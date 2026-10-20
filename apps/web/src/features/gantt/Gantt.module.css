@@ -746,3 +746,13 @@
   stroke-linecap: round;
   fill: none;
 }
+
+/* A12: touch — the link dot shows without hover (there is none), the end handle is a visible grip. */
+@media (pointer: coarse) {
+  .linkHandle {
+    opacity: 0.55;
+  }
+  .resize {
+    fill: color-mix(in srgb, var(--field) 14%, transparent);
+  }
+}

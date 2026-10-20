@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button, Group, Menu, Modal, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import {
-  IconAlertTriangle,
   IconArrowLeft,
   IconChevronDown,
   IconCloudUpload,
   IconKeyboard,
   IconLogout,
-  IconMenu2,
+  IconDeviceMobileDown,
   IconMessageQuestion,
   IconMoon,
   IconRefresh,
@@ -23,16 +22,16 @@ import { useAuthStore } from '../../stores/auth';
 import { useApi } from '../../api/context';
 import { useOnline } from '../../lib/useOnline';
 import { useOfflineStore, useUnsyncedCount } from '../../features/violations/offline/runtime';
-import { offlineDb } from '../../features/violations/offline/db';
-import { unsyncedCount } from '../../features/violations/offline/outbox';
 import { formatNumber, t, tCount } from '../../i18n';
-import { useWorkspaceMenu, WorkspaceName } from '../../features/workspaces/WorkspaceName';
+import { useWorkspaceMenu } from '../../features/workspaces/WorkspaceName';
 import { workspaceRoleText } from '../../features/workspaces/roles';
 import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import { UserPhotoAvatar } from '../../components/UserAvatar';
 import { NotificationBell } from '../NotificationBell';
 import { useSessionActions } from '../useSessionActions';
 import { useShellStore } from './store';
+import { useLogoutFlow } from './useLogoutFlow';
+import { NozolyLogo } from '../../components/Brand';
 import type { Trail } from '../nav';
 
 /** In-app history exists when the router's history index is above the first entry. */
@@ -128,50 +127,15 @@ export function DemoResetDialog({ opened, onClose }: { opened: boolean; onClose(
 function UserMenu() {
   const user = useAuthStore((s) => s.user);
   const api = useApi();
-  const { logout } = useSessionActions();
   const setSheet = useShellStore((s) => s.setSheet);
   const { scheme, toggle: toggleScheme } = useThemeToggle();
-  const [unsynced, setUnsynced] = useState(0);
-  const [busy, setBusy] = useState(false);
   const [demoReset, setDemoReset] = useState(false);
   const wsMenu = useWorkspaceMenu();
+  const logoutFlow = useLogoutFlow();
   if (!user) return null;
-  // Brief §7.4: warn before logout wipes violations that never reached the server.
-  const requestLogout = async () => {
-    const n = await unsyncedCount(offlineDb()).catch(() => 0);
-    if (n > 0) setUnsynced(n);
-    else void logout();
-  };
   return (
     <>
-      <Modal opened={unsynced > 0} onClose={() => setUnsynced(0)} title={t('shell.logoutUnsyncedTitle')}>
-        <Stack>
-          <Group gap="sm" wrap="nowrap" align="flex-start">
-            <IconAlertTriangle size={24} color="var(--red)" style={{ flexShrink: 0 }} aria-hidden />
-            <Text>{tCount('shell.logoutUnsyncedBody', unsynced)}</Text>
-          </Group>
-          <Group justify="flex-end" gap="xs">
-            <Button variant="default" onClick={() => setUnsynced(0)}>
-              {t('shell.logoutStay')}
-            </Button>
-            <Button
-              color="breach"
-              loading={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await logout();
-                } finally {
-                  setBusy(false);
-                  setUnsynced(0);
-                }
-              }}
-            >
-              {tCount('shell.logoutWipe', unsynced)}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+      {logoutFlow.dialog}
       {wsMenu.dialog}
       {api.demo ? <DemoResetDialog opened={demoReset} onClose={() => setDemoReset(false)} /> : null}
       <Menu position="bottom-end" width={250}>
@@ -212,13 +176,17 @@ function UserMenu() {
           <Menu.Item leftSection={<IconKeyboard size={18} />} rightSection={<kbd className="nz-kbd">?</kbd>} onClick={() => setSheet(true)}>
             {t('shortcuts.title')}
           </Menu.Item>
+          {/* A12: install, updates and the app version live in «المزيد». */}
+          <Menu.Item component={Link} to="/more#app" leftSection={<IconDeviceMobileDown size={18} />}>
+            {t('more.appMenu')}
+          </Menu.Item>
           {api.demo ? (
             <Menu.Item leftSection={<IconRefresh size={18} />} onClick={() => setDemoReset(true)}>
               {t('shell.demoReset')}
             </Menu.Item>
           ) : null}
           <Menu.Divider />
-          <Menu.Item color="breach" leftSection={<IconLogout size={18} className="mirror-rtl" />} onClick={() => void requestLogout()}>
+          <Menu.Item color="breach" leftSection={<IconLogout size={18} className="mirror-rtl" />} onClick={() => void logoutFlow.request()}>
             {t('shell.logout')}
           </Menu.Item>
         </Menu.Dropdown>
@@ -228,13 +196,72 @@ function UserMenu() {
 }
 
 /**
+ * A12 — the compact top bar of phones and portrait tablets: light, 56px, on the page grey. The
+ * start holds Back (pages below the top level) or the Nozoly logo; the end holds the sync chip
+ * (offline / waiting only), search and the bell as round white buttons. The page's own h1 is the
+ * large title; once it scrolls away, its name settles into the bar (like iOS large titles).
+ * The home page has no bar: its greeting header (avatar, «مرحبًا، …», workspace, bell) replaces it.
+ */
+function CompactTopBar({ trail, home }: { trail: Trail; home: boolean }) {
+  const setPalette = useShellStore((s) => s.setPalette);
+  const location = useLocation();
+  const [deep, setDeep] = useState(false);
+  useEffect(() => {
+    const el = document.getElementById('nz-stage');
+    if (!el) return;
+    const onScroll = () => setDeep(el.scrollTop > 52);
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [location.pathname]);
+  const below = Boolean(trail.parent) && (trail.crumbs.length > 0 || trail.status === 'forbidden' || trail.status === 'missing');
+  const parentLabel = trail.crumbs[trail.crumbs.length - 1]?.label ?? t('nav.dashboard');
+  const title = trail.status && trail.status !== 'ok' ? '' : trail.title;
+  if (home) {
+    return (
+      <h2 className="sr-only" key={location.pathname}>
+        {title}
+      </h2>
+    );
+  }
+  return (
+    <header className={deep ? 'nz-mtop deep' : 'nz-mtop'}>
+      <div className="nz-mtop-start">
+        {below ? (
+          <BackButton parent={trail.parent!} label={t('nav.backTo', { page: parentLabel })} />
+        ) : (
+          <Link to="/" className="nz-mtop-logo" aria-label={t('nav.homeAria')}>
+            <NozolyLogo width={84} decorative />
+          </Link>
+        )}
+      </div>
+      <h2 className="nz-mtop-title" aria-hidden={!deep || undefined} key={location.pathname}>
+        <span className="sr-only">{title}</span>
+        <span aria-hidden>{title}</span>
+      </h2>
+      <div className="nz-mtop-end">
+        <SyncChip />
+        <button type="button" className="nz-iconbtn nz-round" onClick={() => setPalette(true)} aria-label={t('palette.openAria')}>
+          <IconSearch size={20} stroke={1.7} aria-hidden />
+        </button>
+        <NotificationBell />
+      </div>
+    </header>
+  );
+}
+
+/**
  * The top bar (the Figma dashboard): the search field on the inline start (it opens the command
  * palette, Ctrl+K), then sync, shortcuts, bell and the user. The page title is the page's own h1;
  * breadcrumbs and Back sit in a quiet strip under the bar on pages below the top level.
+ * Phones and portrait tablets (`mobile`) get the compact bar above.
  */
-export function TopBar({ trail, mobile }: { trail: Trail; mobile: boolean }) {
-  const setDrawer = useShellStore((s) => s.setDrawer);
-  const drawer = useShellStore((s) => s.drawer);
+export function TopBar({ trail, mobile, home = false }: { trail: Trail; mobile: boolean; home?: boolean }) {
+  if (mobile) return <CompactTopBar trail={trail} home={home} />;
+  return <DesktopTopBar trail={trail} />;
+}
+
+function DesktopTopBar({ trail }: { trail: Trail }) {
   const setPalette = useShellStore((s) => s.setPalette);
   const location = useLocation();
   const [deep, setDeep] = useState(false);
@@ -253,18 +280,6 @@ export function TopBar({ trail, mobile }: { trail: Trail; mobile: boolean }) {
   return (
     <>
       <header className={deep ? 'nz-top deep' : 'nz-top'}>
-        {mobile ? (
-          <button
-            type="button"
-            className="nz-iconbtn"
-            onClick={() => setDrawer(true)}
-            aria-label={t('common.openMenu')}
-            aria-expanded={drawer}
-            aria-controls="nz-side"
-          >
-            <IconMenu2 size={20} stroke={1.8} />
-          </button>
-        ) : null}
         <button
           type="button"
           className="nz-searchbar"
@@ -279,7 +294,6 @@ export function TopBar({ trail, mobile }: { trail: Trail; mobile: boolean }) {
         <h2 className="sr-only" key={location.pathname}>
           {trail.status && trail.status !== 'ok' ? '' : trail.title}
         </h2>
-        {mobile ? <WorkspaceName variant="chip" /> : null}
         <div className="nz-top-sp" />
         <div className="nz-top-chips">
           <SyncChip />

@@ -13,6 +13,7 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
+import { usePhone } from '../../app/shell/viewport';
 import { IconId, IconSearch } from '@tabler/icons-react';
 import { useMembers, useTeams } from '../../api/queries';
 import { EmptyState, ErrorBlock, Ltr, LoadingBlock, PageHeader } from '../../components/ui';
@@ -45,6 +46,8 @@ export function MembersPage() {
     pageSize: PAGE_SIZE,
   });
   const pages = members.data ? Math.max(1, Math.ceil(members.data.total / PAGE_SIZE)) : 1;
+  // A12: phones list people as avatar rows (Figma «All users»), not a table.
+  const phone = usePhone();
 
   return (
     <>
@@ -93,6 +96,29 @@ export function MembersPage() {
           <ErrorBlock error={members.error} onRetry={() => void members.refetch()} />
         ) : !members.data?.items.length ? (
           <EmptyState icon={IconId} title={t('members.empty')} body={t('members.emptyBody')} />
+        ) : phone ? (
+          <ul className="nz-plist" aria-label={t('members.title')}>
+            {members.data.items.map((m) => (
+              <li key={m.id}>
+                <button type="button" className="nz-prow" onClick={() => member.open(m.id)} data-foreman={m.isForeman || undefined}>
+                  <ForemanAvatar foreman={m.isForeman} size={44}>
+                    <MemberAvatar member={m} size={44} />
+                  </ForemanAvatar>
+                  <span className="nz-prow-main">
+                    <b>{m.fullName}</b>
+                    <span className="nz-prow-sub">
+                      {m.team ? <TeamBadge name={m.team.name} color={m.team.color.hex} size="sm" /> : <span>{t('formation.unassigned')}</span>}
+                      {m.jobTitle ? <span>{m.jobTitle}</span> : null}
+                    </span>
+                  </span>
+                  <span className="nz-prow-end">
+                    {m.isForeman ? <ForemanBadge size="xs" /> : null}
+                    <Ltr mono>{localizeDigits(m.nationalIdMasked)}</Ltr>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : (
           <Card p={0}>
             <Table.ScrollContainer minWidth={640}>
@@ -151,7 +177,7 @@ export function MembersPage() {
             <Text size="sm" c="dimmed">
               {t('common.total', { count: members.data.total })}
             </Text>
-            {pages > 1 ? <Pagination total={pages} value={page} onChange={setPage} /> : null}
+            {pages > 1 ? <Pagination total={pages} value={page} onChange={setPage} siblings={phone ? 0 : 1} boundaries={phone ? 1 : 1} size={phone ? 'md' : 'sm'} /> : null}
           </Group>
         ) : null}
       </Stack>

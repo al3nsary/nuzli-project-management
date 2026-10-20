@@ -6,12 +6,14 @@
 import { arA12Session } from './parts/a12-session.ar';
 import { arA12Admin } from './parts/a12-admin.ar';
 import { arA12Roles } from './parts/a12-roles.ar';
+import { arA12Mobile } from './parts/a12-mobile.ar';
 
 export const ar = {
   // A12 (owner request 2026-10-20): workspaces, owners, user management, assistants, participants.
   ...arA12Session,
   ...arA12Admin,
   ...arA12Roles,
+  ...arA12Mobile,
   // ---------------------------------------------------------------- app
   'app.name': 'نُزلي',
   'app.tagline': 'إدارة المشاريع والفرق الميدانية',
@@ -959,7 +961,7 @@ export const ar = {
   'nav.violations': 'المخالفات',
   'nav.violationsDashboard': 'لوحة المخالفات',
   'nav.teamViolations': 'مخالفات فرقي',
-  'nav.bottomBar': 'اختصارات المراقبة',
+  'nav.bottomBar': 'الشريط السفلي',
   'vstatus.SUBMITTED': 'مُرسلة',
   'vstatus.UNDER_REVIEW': 'قيد المراجعة',
   'vstatus.CONFIRMED': 'مؤكَّدة',
@@ -986,8 +988,8 @@ export const ar = {
   'sync.err.auth': 'انتهت جلستك. سجّل الدخول لإرسال المخالفات المحفوظة.',
   'sync.err.photoMissing': 'صورة من صور المخالفة لم تعد على الجهاز. احذف المخالفة وسجّلها من جديد.',
   'pwa.updateTitle': 'تحديث متاح',
-  'pwa.updateBody': 'نسخة أحدث من نزلي جاهزة. المخالفات المحفوظة على الجهاز لن تتأثر.',
-  'pwa.updateNow': 'تحديث الآن',
+  'pwa.updateBody': 'نسخة أحدث جاهزة، ومخالفاتك المحفوظة في أمان.',
+  'pwa.updateNow': 'حدّث الآن',
   'pwa.later': 'لاحقًا',
   'record.title': 'تسجيل مخالفة',
   'record.step.member': 'اختيار العضو',

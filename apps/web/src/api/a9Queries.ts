@@ -129,6 +129,22 @@ export function useWorkload(from: string, to: string, userIds?: string[], enable
   });
 }
 
+/**
+ * A12: the number of unread comments across the hub (the phone tab «التواصل» shows it). One row
+ * page; the hub page itself refetches its list every 30 s, this badge every minute.
+ */
+export function useHubUnread(enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['hub', 'unread-total'] as const,
+    queryFn: () => api.hub.list({ filter: 'all', pageSize: 1 }),
+    select: (d) => ({ unreadTotal: d.unreadTotal }),
+    enabled: useSignedIn() && enabled,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useHub(filter: HubFilter, projectId?: string, q?: string, enabled = true) {
   const api = useApi();
   return useQuery({ queryKey: qkA9.hub(filter, projectId, q), queryFn: () => api.hub.list({ filter, projectId, q }), enabled: useSignedIn() && enabled });

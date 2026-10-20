@@ -8,11 +8,13 @@ import type { MessageKey } from './ar';
 import { enA12Session } from './parts/a12-session.en';
 import { enA12Admin } from './parts/a12-admin.en';
 import { enA12Roles } from './parts/a12-roles.en';
+import { enA12Mobile } from './parts/a12-mobile.en';
 
 export const en: Record<MessageKey, string> = {
   ...enA12Session,
   ...enA12Admin,
   ...enA12Roles,
+  ...enA12Mobile,
   'app.name': 'Nuzli',
   'app.tagline': 'Projects and field teams',
   'app.fullName': 'Nuzli — Projects and Field Teams',

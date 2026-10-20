@@ -112,6 +112,19 @@ import classes from './Gantt.module.css';
 import { DualRoleBadge } from '../workspaces/DualRole';
 import { TaskChatButton, type ChatCount } from '../tasks/TaskChatButton';
 
+/** A12: touch screens (phones, tablets) get bigger Gantt handles. Read once per session. */
+let touchPointer: boolean | null = null;
+function TOUCH(): boolean {
+  if (touchPointer === null) {
+    try {
+      touchPointer = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches);
+    } catch {
+      touchPointer = false;
+    }
+  }
+  return touchPointer;
+}
+
 export type GridMode = 'full' | 'compact' | 'narrow';
 
 export interface AddTaskInput {
@@ -1745,8 +1758,9 @@ const Bar = memo(function Bar(p: {
       ) : null}
       {p.editable ? (
         <>
-          <rect data-handle="resize" className={classes.resize} x={bar.x - 3} y={bar.y} width={8} height={bar.h} />
-          <circle data-handle="link" className={classes.linkHandle} cx={bar.startX + 9} cy={cy} r={5} />
+          {/* A12: a finger needs a wider end handle and a bigger link dot (coarse pointers). */}
+          <rect data-handle="resize" className={classes.resize} x={bar.x - (TOUCH() ? 11 : 3)} y={bar.y - (TOUCH() ? 4 : 0)} width={TOUCH() ? 24 : 8} height={bar.h + (TOUCH() ? 8 : 0)} />
+          <circle data-handle="link" className={classes.linkHandle} cx={bar.startX + (TOUCH() ? 12 : 9)} cy={cy} r={TOUCH() ? 8 : 5} />
         </>
       ) : null}
     </g>

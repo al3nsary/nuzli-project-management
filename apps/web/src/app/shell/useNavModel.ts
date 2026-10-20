@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { uiRoleOf } from '../../features/workspaces/roles';
 import { useMemberRequests, useMyParticipations, usePendingMemberRequestCount } from '../../api/a12Queries';
-import { useTask } from '../../api/a9Queries';
+import { useHubUnread, useTask } from '../../api/a9Queries';
 import { useLocation } from 'react-router-dom';
 import { can } from '@nuzli/shared';
 import { useAuthStore } from '../../stores/auth';
@@ -29,12 +29,14 @@ export function useNavBadges(): Record<BadgeKind, number> {
   const pendingTeams = useTeams({ status: 'PENDING_APPROVAL' }, can(user, 'teams.approve'));
   const outbox = useUnsyncedCount(can(user, 'violations.create') ? user?.id : undefined);
   const mine = useMyTasks(can(user, 'tasks.readAssigned'));
+  const hub = useHubUnread(can(user, 'tasks.comment'));
   return {
     registrations: (reg.data?.total ?? 0) + approvers,
     workerRequests: supervisorPending.data?.total ?? 0,
     pendingTeams: pendingTeams.data?.length ?? 0,
     outbox: outbox ?? 0,
     overdueTasks: mine.data?.filter((x) => x.overdue).length ?? 0,
+    hubUnread: hub.data?.unreadTotal ?? 0,
   };
 }
 

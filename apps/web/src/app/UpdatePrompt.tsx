@@ -1,31 +1,31 @@
-import { Button, Group, Paper, Text } from '@mantine/core';
+import { Loader } from '@mantine/core';
 import { IconRefresh } from '@tabler/icons-react';
 import { usePwaStore } from './pwaStore';
 import { t } from '../i18n';
 
-/** «تحديث متاح»: shown when a new service worker is waiting. */
+/**
+ * «تحديث متاح — حدّث الآن» (A12): a persistent banner while a new version waits. It stays until
+ * the user updates (the update also stays available in «المزيد»). Pressing it waits for any
+ * violation upload in flight, then reloads once into the new version.
+ */
 export function UpdatePrompt() {
-  const { needRefresh, update, set } = usePwaStore();
+  const needRefresh = usePwaStore((s) => s.needRefresh);
+  const updating = usePwaStore((s) => s.updating);
+  const waitingForSync = usePwaStore((s) => s.waitingForSync);
+  const update = usePwaStore((s) => s.update);
   if (!needRefresh) return null;
   return (
-    <Paper className="nz-update-toast" role="status" aria-live="polite" shadow="sm" withBorder p="md">
-      <Group gap="sm" wrap="nowrap" align="flex-start">
-        <IconRefresh size={22} color="var(--field)" aria-hidden style={{ flexShrink: 0, marginTop: 2 }} />
-        <div style={{ minWidth: 0 }}>
-          <Text fw={600}>{t('pwa.updateTitle')}</Text>
-          <Text size="sm" c="dimmed">
-            {t('pwa.updateBody')}
-          </Text>
-          <Group gap="xs" mt="sm">
-            <Button size="compact-md" onClick={() => void update?.()}>
-              {t('pwa.updateNow')}
-            </Button>
-            <Button size="compact-md" variant="subtle" color="slate" onClick={() => set({ needRefresh: false })}>
-              {t('pwa.later')}
-            </Button>
-          </Group>
-        </div>
-      </Group>
-    </Paper>
+    <div className="nz-update" role="status" aria-live="polite" data-testid="update-banner">
+      <span className="nz-update-ic" aria-hidden>
+        {updating ? <Loader size={16} color="currentColor" /> : <IconRefresh size={18} stroke={1.9} />}
+      </span>
+      <span className="nz-update-text">
+        <b>{t('pwa.updateTitle')}</b>
+        <span>{waitingForSync ? t('pwa.waitingForSync') : updating ? t('pwa.updating') : t('pwa.updateBody')}</span>
+      </span>
+      <button type="button" className="nz-update-btn" onClick={() => void update?.()} disabled={updating || !update}>
+        {t('pwa.updateNow')}
+      </button>
+    </div>
   );
 }

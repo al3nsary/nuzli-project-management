@@ -275,9 +275,12 @@ export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onCl
               error={errors.budget}
             />
             ) : null}
-            <Button type="submit" size="md" fullWidth loading={busy}>
-              {t('createProject.submit')}
-            </Button>
+            {/* A12: on phones the primary action sticks to the bottom of the sheet (above the keyboard). */}
+            <div className="nz-sticky-cta">
+              <Button type="submit" size="md" fullWidth loading={busy}>
+                {t('createProject.submit')}
+              </Button>
+            </div>
             <Divider label={t('createProject.or')} labelPosition="center" />
             <Button variant="default" fullWidth leftSection={<IconFileImport size={18} />} onClick={() => navigate('/projects/import', { replace: true })}>
               {t('createProject.importFile')}

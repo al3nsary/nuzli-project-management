@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { RouterProvider, type createBrowserRouter } from 'react-router-dom';
-import { DirectionProvider, MantineProvider, useMantineColorScheme } from '@mantine/core';
+import { DirectionProvider, MantineProvider, useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import { Notifications, notifications } from '@mantine/notifications';
 import { ModalsProvider } from '@mantine/modals';
 import { t } from '../i18n';
@@ -138,6 +138,16 @@ function ColorSchemeSync() {
   return null;
 }
 
+/** A12: the phone status bar and the browser bar take the page colour of the current scheme. */
+function ThemeColorMeta() {
+  const scheme = useComputedColorScheme('light');
+  useEffect(() => {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (meta) meta.content = scheme === 'dark' ? '#0f1115' : '#f6f6f9';
+  }, [scheme]);
+  return null;
+}
+
 export function AppProviders({
   api,
   queryClient,
@@ -160,6 +170,7 @@ export function AppProviders({
         <Notifications position="top-center" zIndex={1000} />
         <DocumentDirection />
         <ColorSchemeSync />
+        <ThemeColorMeta />
         {/* Confirm dialogs (modals.openConfirmModal) need this provider. */}
         <ModalsProvider labels={{ confirm: t('common.yes'), cancel: t('common.cancel') }} modalProps={{ centered: true }}>
         <QueryClientProvider client={qc}>

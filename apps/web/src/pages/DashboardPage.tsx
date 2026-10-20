@@ -31,6 +31,8 @@ import { MyTasksSummary, ProjectsKpi } from './projects/DashboardWidgets';
 import { PageHeader, roleLabel } from '../components/ui';
 import { uiRoleOf } from '../features/workspaces/roles';
 import { GrantsHome } from '../features/workspaces/GrantsHome';
+import { useCompactShell } from '../app/shell/viewport';
+import { CompactHome } from './home/CompactHome';
 import { ForemanLine, useTeamForeman, type ForemanPerson } from '../components/Foreman';
 import type { TeamDto } from '@nuzli/shared';
 
@@ -354,7 +356,10 @@ function ComingSoon({
 
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
+  // A12: phones and portrait tablets get the Figma-style home (greeting, KPI cards, chart, «+»).
+  const compact = useCompactShell();
   if (!user) return null;
+  if (compact) return <CompactHome role={uiRoleOf(user)} />;
   // A12: the home follows the role in the active workspace (owners = admins); an assistant or a
   // project participant gets the pages their grants open and their projects.
   const role = uiRoleOf(user);

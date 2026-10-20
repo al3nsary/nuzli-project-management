@@ -1,24 +1,38 @@
 import { usePwaStore } from './pwaStore';
+import { createUpdater } from './pwa/updates';
+import { useOfflineStore } from '../features/violations/offline/runtime';
 
 /**
- * Registers the service worker (production builds only). Prompt mode: a new version waits
- * until the user taps «تحديث الآن» in the «تحديث متاح» toast, so a form being filled is never
- * reloaded under the user's feet. The outbox is in IndexedDB, so an update never loses it.
+ * Registers the service worker (production builds only) with workbox-window and starts the update
+ * checks of `createUpdater` (A12): on open, on focus/visibility, every 30 minutes. Prompt mode — a
+ * new version waits for «تحديث الآن»; the reload waits for any violation upload in flight; the
+ * outbox (IndexedDB) is never touched by an update.
  */
 export async function registerPwa() {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
-  const { registerSW } = await import('virtual:pwa-register');
-  const updateSW = registerSW({
-    immediate: true,
-    onNeedRefresh() {
-      usePwaStore.getState().set({ needRefresh: true, update: () => updateSW(true) });
-    },
-    onOfflineReady() {
-      usePwaStore.getState().set({ offlineReady: true });
-    },
-    onRegisteredSW(_url, registration) {
-      // Long-lived field sessions still learn about new versions.
-      if (registration) setInterval(() => void registration.update().catch(() => undefined), 60 * 60 * 1000);
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    usePwaStore.getState().set({ status: 'unsupported' });
+    return;
+  }
+  const { Workbox } = await import('workbox-window');
+  const base = import.meta.env.BASE_URL;
+  const wb = new Workbox(`${base}sw.js`, { scope: base, type: 'classic' });
+  const updater = createUpdater({
+    wb,
+    reload: () => window.location.reload(),
+    isSyncing: () => useOfflineStore.getState().running,
+    onSyncIdle: (cb) => {
+      if (!useOfflineStore.getState().running) {
+        queueMicrotask(cb);
+        return () => undefined;
+      }
+      return useOfflineStore.subscribe((s) => {
+        if (!s.running) cb();
+      });
     },
   });
+  try {
+    await updater.start();
+  } catch {
+    usePwaStore.getState().set({ status: 'error' });
+  }
 }

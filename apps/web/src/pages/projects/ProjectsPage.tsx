@@ -7,7 +7,7 @@
 import { useMemo, useState, type MouseEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ActionIcon, Button, Group, Progress, SegmentedControl, Select, SimpleGrid, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
-import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
+import { useDebouncedValue } from '@mantine/hooks';
 import {
   IconCalendarEvent,
   IconChevronRight,
@@ -32,6 +32,8 @@ import { formatDate, formatMoney, formatNumber, t, tCount } from '../../i18n';
 import { useOverlayParam } from '../../lib/useUrlState';
 import { ProgressLine, ProjectStatusBadge, PROJECT_STATUSES, projectStatusLabel } from './parts';
 import { CreateProjectDialog } from './CreateProjectDialog';
+import { PhoneProjectCard, PhoneProjectsTools } from './PhoneProjects';
+import { usePhone } from '../../app/shell/viewport';
 import { ProjectCover } from '../../features/projects/ProjectCover';
 import './projects.css';
 import './a9-projects.css';
@@ -159,7 +161,7 @@ function sortProjects(list: ProjectView[], sort: Sort): ProjectView[] {
 export function ProjectsPage() {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
-  const phone = useMediaQuery('(max-width: 767px)') ?? false;
+  const phone = usePhone();
   const [status, setStatus] = useState<string>('OPEN');
   const [search, setSearch] = useState('');
   const [q] = useDebouncedValue(search, 250);
@@ -189,12 +191,18 @@ export function ProjectsPage() {
   const section = (title: string, list: ProjectView[], key: string) =>
     list.length ? (
       <section key={key} aria-labelledby={`pl-${key}`} className="nz-pl-section">
-        <h2 id={`pl-${key}`} className="nz-pl-heading">
+        <h2 id={`pl-${key}`} className={phone && !favs.length ? 'sr-only' : 'nz-pl-heading'}>
           {key === 'fav' ? <IconStarFilled size={14} style={{ color: '#F5A524' }} aria-hidden /> : <IconFolder size={14} aria-hidden />}
           {title}
           <span className="nz-pl-count num">{formatNumber(list.length)}</span>
         </h2>
-        {layout === 'cards' ? (
+        {phone ? (
+          <div className="nz-pc-list">
+            {list.map((p) => (
+              <PhoneProjectCard key={p.id} project={p} favourite={favSet.has(p.id)} onToggleFavourite={() => toggleFav(p.id)} admin={canCreate} />
+            ))}
+          </div>
+        ) : layout === 'cards' ? (
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
             {list.map((p) => (
               <ProjectCard key={p.id} project={p} favourite={favSet.has(p.id)} onToggleFavourite={() => toggleFav(p.id)} />
@@ -270,6 +278,20 @@ export function ProjectsPage() {
 
   return (
     <>
+      {phone ? (
+        <PhoneProjectsTools
+          search={search}
+          setSearch={setSearch}
+          status={status}
+          setStatus={setStatus}
+          sort={sort}
+          setSort={setSort}
+          sorts={sorts}
+          canCreate={canCreate}
+          onCreate={() => setCreating(true)}
+        />
+      ) : (
+        <>
       <PageHeader
         title={t('projects.allTitle')}
         lead={t('projects.lead')}
@@ -330,6 +352,8 @@ export function ProjectsPage() {
           />
         ) : null}
       </div>
+        </>
+      )}
       {projects.isLoading ? (
         <LoadingBlock variant={layout === 'cards' ? 'cards' : 'table'} />
       ) : projects.isError ? (

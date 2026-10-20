@@ -20,7 +20,7 @@ import { NozolyLogo } from '../../components/Brand';
 import { WorkspaceName } from '../../features/workspaces/WorkspaceName';
 import { useAuthStore } from '../../stores/auth';
 import { useProjects } from '../../api/projectQueries';
-import { useShellStore } from './store';
+import { selectMini, useShellStore } from './store';
 import { sumBadges } from './useNavModel';
 import { dirSign } from '../../lib/direction';
 
@@ -210,7 +210,7 @@ export function Sidebar({
   canCreate?: boolean;
 }) {
   const user = useAuthStore((s) => s.user);
-  const mini = useShellStore((s) => s.mini) && !mobile;
+  const mini = useShellStore(selectMini) && !mobile;
   const drawer = useShellStore((s) => s.drawer);
   const setDrawer = useShellStore((s) => s.setDrawer);
   const toggleMini = useShellStore((s) => s.toggleMini);

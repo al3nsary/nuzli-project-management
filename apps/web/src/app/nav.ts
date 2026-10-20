@@ -5,6 +5,7 @@ import {
   IconBriefcase,
   IconBuildingCommunity,
   IconCrown,
+  IconCategory,
   IconClockHour4,
   IconFileReport,
   IconFolders,
@@ -45,7 +46,7 @@ import { uiRoleOf } from '../features/workspaces/roles';
  */
 
 export type NavGroupId = 'home' | 'projects' | 'collab' | 'teams' | 'violations' | 'admin' | 'system';
-export type BadgeKind = 'registrations' | 'pendingTeams' | 'outbox' | 'overdueTasks' | 'workerRequests';
+export type BadgeKind = 'registrations' | 'pendingTeams' | 'outbox' | 'overdueTasks' | 'workerRequests' | 'hubUnread';
 export type EntityKind = 'team' | 'project' | 'task';
 
 /**
@@ -166,6 +167,8 @@ export const NAV: NavNode[] = [
     icon: IconMessages,
     group: 'collab',
     permission: 'tasks.comment',
+    // A12: unread comments on the tasks this user can open (the phone tab shows the count).
+    badge: 'hubUnread',
   },
   {
     id: 'attachments',
@@ -408,6 +411,8 @@ export const ROUTE_META: RouteMeta[] = [
   // A9: the supervisor's task page (chat-style notes thread) under «مهامي».
   { pattern: '/my-tasks/:id', title: 'nav.myTasks', parent: '/my-tasks', entity: 'task', activeId: 'myTasks' },
   { pattern: '/profile', title: 'nav.profile', icon: IconUserCircle },
+  // A12: «المزيد» of the phone bar — everything the bar does not show, the profile, install and updates.
+  { pattern: '/more', title: 'nav.more', icon: IconCategory },
 ];
 
 // ---------------------------------------------------------------------------- helpers

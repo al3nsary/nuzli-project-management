@@ -34,8 +34,14 @@ export interface RecentItem {
 
 interface ShellState {
   userId: string | null;
-  /** Side navigation folded to the 74px rail (desktop). */
-  mini: boolean;
+  /**
+   * Side navigation folded to the 68px rail (desktop): the user's saved choice, or null when they
+   * never chose — then `autoMini` decides (A12: tablets in landscape open on the rail).
+   */
+  mini: boolean | null;
+  /** A12: the window is a landscape tablet (1024–1279px), where the rail is the default. */
+  autoMini: boolean;
+  setAutoMini(auto: boolean): void;
   /** Phone drawer. */
   drawer: boolean;
   palette: boolean;
@@ -53,7 +59,8 @@ interface ShellState {
 
 export const useShellStore = create<ShellState>((set, get) => ({
   userId: null,
-  mini: false,
+  mini: null,
+  autoMini: false,
   drawer: false,
   palette: false,
   sheet: false,
@@ -69,7 +76,8 @@ export const useShellStore = create<ShellState>((set, get) => ({
         recent = [];
       }
     }
-    set({ userId, mini: userId ? read(foldKey(userId)) === '1' : false, recent, drawer: false, palette: false, sheet: false });
+    const saved = userId ? read(foldKey(userId)) : null;
+    set({ userId, mini: saved === '1' ? true : saved === '0' ? false : null, recent, drawer: false, palette: false, sheet: false });
   },
   setMini(mini) {
     const { userId } = get();
@@ -77,7 +85,10 @@ export const useShellStore = create<ShellState>((set, get) => ({
     set({ mini });
   },
   toggleMini() {
-    get().setMini(!get().mini);
+    get().setMini(!selectMini(get()));
+  },
+  setAutoMini: (autoMini) => {
+    if (get().autoMini !== autoMini) set({ autoMini });
   },
   setDrawer: (drawer) => set({ drawer }),
   setPalette: (palette) => set({ palette, ...(palette ? { sheet: false } : {}) }),
@@ -90,3 +101,8 @@ export const useShellStore = create<ShellState>((set, get) => ({
     set({ recent: next });
   },
 }));
+
+/** The rail as shown: the saved choice, else the device default (rail on landscape tablets). */
+export function selectMini(s: Pick<ShellState, 'mini' | 'autoMini'>): boolean {
+  return s.mini ?? s.autoMini;
+}

@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { uiRoleOf } from '../features/workspaces/roles';
 import { Outlet, useLocation, useMatches, useNavigationType } from 'react-router-dom';
-import { useMediaQuery } from '@mantine/hooks';
 import { can } from '@nuzli/shared';
 import { IS_DEMO } from '../api';
 import { t } from '../i18n';
@@ -10,9 +9,10 @@ import { Sidebar } from './shell/Sidebar';
 import { OfflineBanner, TopBar } from './shell/TopBar';
 import { CommandPalette } from './shell/CommandPalette';
 import { ShortcutSheet, useShortcuts } from './shell/shortcuts';
-import { useShellStore } from './shell/store';
+import { selectMini, useShellStore } from './shell/store';
 import { useNavBadges, useNavModel } from './shell/useNavModel';
-import { RoleBottomBar, hasBottomBar } from './MonitorBottomBar';
+import { TabBar } from './shell/TabBar';
+import { useCompactShell, useKeyboardInset, usePhone, useTabletLandscape } from './shell/viewport';
 
 /** Scroll positions per history entry (rule 6): restored on back/forward, top on a new page. */
 const scrollPositions = new Map<string, number>();
@@ -118,8 +118,15 @@ function usePageLifecycle(title: string, recent: { kind: 'team' | 'project'; id:
 export function Layout() {
   const { user, tree, chain, trail, resolved, entityName } = useNavModel();
   const badges = useNavBadges();
-  const mobile = useMediaQuery('(max-width: 47.99em)', false, { getInitialValueInEffect: false }) ?? false;
-  const mini = useShellStore((s) => s.mini) && !mobile;
+  // A12: phones and portrait tablets get the compact shell (bottom bar, drawer side, light top
+  // bar); landscape tablets open on the rail. Pages keep their own phone checks.
+  const phone = usePhone();
+  const mobile = useCompactShell();
+  const tabletLandscape = useTabletLandscape();
+  const setAutoMini = useShellStore((s) => s.setAutoMini);
+  useEffect(() => setAutoMini(tabletLandscape), [tabletLandscape, setAutoMini]);
+  useKeyboardInset();
+  const mini = useShellStore(selectMini) && !mobile;
   const drawer = useShellStore((s) => s.drawer);
   const setDrawer = useShellStore((s) => s.setDrawer);
   const bindUser = useShellStore((s) => s.bindUser);
@@ -144,10 +151,15 @@ export function Layout() {
   const matches = useMatches();
   const fullWidth = matches.some((m) => (m.handle as { fullWidth?: boolean } | undefined)?.fullWidth === true);
   const uiRole = uiRoleOf(user);
-  const bottomBar = hasBottomBar(uiRole ?? undefined);
+  const bottomBar = mobile && Boolean(user);
 
   return (
-    <div className={['nz-room', mini ? 'is-mini' : '', bottomBar ? 'nz-has-bottombar' : ''].filter(Boolean).join(' ')}>
+    <div
+      className={['nz-room', mini ? 'is-mini' : '', bottomBar ? 'nz-has-bottombar' : '', mobile ? 'is-compact' : '', phone ? 'is-phone' : '']
+        .filter(Boolean)
+        .join(' ')}
+      data-home={location.pathname === '/' || undefined}
+    >
       <a href="#main" className="nz-skip">
         {t('app.skipToContent')}
       </a>
@@ -159,7 +171,7 @@ export function Layout() {
             {t('shell.demoStrip')}
           </div>
         ) : null}
-        <TopBar trail={trail} mobile={mobile} />
+        <TopBar trail={trail} mobile={mobile} home={location.pathname === '/'} />
         <OfflineBanner />
         <main id="main" tabIndex={-1} className="nz-main">
           <div className={fullWidth ? 'nz-page nz-page--wide' : 'nz-page'} key={location.pathname}>
@@ -167,7 +179,7 @@ export function Layout() {
           </div>
         </main>
       </div>
-      {bottomBar && user && uiRole ? <RoleBottomBar role={uiRole} tree={tree} chain={chain} badges={badges} /> : null}
+      {bottomBar ? <TabBar role={uiRole} tree={tree} chain={chain} badges={badges} /> : null}
       <CommandPalette user={user} tree={tree} />
       <ShortcutSheet tree={tree} />
     </div>
