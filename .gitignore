@@ -13,3 +13,12 @@ infra/certs/*.pem
 apps/web/dev-dist/
 .turbo/
 .publish/
+
+# A12 final step: never commit real environment files, certificates or backups.
+env/*.env
+!env/*.env.example
+infra/certs/*.key
+infra/certs/*.crt
+backups/
+*.dump
+*.sql.gpg

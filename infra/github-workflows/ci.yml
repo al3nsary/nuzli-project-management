@@ -1,5 +1,8 @@
 name: CI
 
+# Inactive until moved to .github/workflows/ (infra/github-workflows/README.md).
+# Installs are `npm ci` from the committed package-lock.json (ADR-168), exactly like the Dockerfiles.
+
 on:
   push:
     branches: [main]
@@ -18,18 +21,83 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: shared — build, typecheck, test
+      - name: packages — build (dependency order), typecheck, test
         run: |
           npm run build -w @nuzli/shared
+          npm run build -w @nuzli/scheduling
+          npm run build -w @nuzli/ui-print
           npm run typecheck -w @nuzli/shared
           npm run test -w @nuzli/shared
-      - name: web — typecheck, i18n check, test, build (real + demo)
+          npm run test -w @nuzli/scheduling
+          npm run test -w @nuzli/ui-print
+      - name: web — typecheck, i18n check, test, build (real + demo), demo isolation mutation gate
         run: |
           npm run typecheck -w @nuzli/web
           npm run check:i18n -w @nuzli/web
           npm run test -w @nuzli/web
           npm run build -w @nuzli/web
           npm run build:demo -w @nuzli/web
+          npm run test:isolation:mutation -w @nuzli/web
 
-  # TODO(backend-nest): add the `api` job (typecheck, Jest, Testcontainers integration
-  # tests, Docker build) once apps/api lands.
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: build the packages the API imports
+        run: |
+          npm run build -w @nuzli/shared
+          npm run build -w @nuzli/scheduling
+      - name: api — prisma generate, typecheck, unit + PGlite suites, build
+        working-directory: apps/api
+        run: |
+          npx prisma generate
+          npx tsc --noEmit -p tsconfig.json
+          npx jest
+          npx nest build
+      - name: api — fresh production install on an empty database (ADR-170)
+        working-directory: apps/api
+        run: npm run verify:fresh-install
+      - name: api — isolation mutation gate (ADR-166)
+        working-directory: apps/api
+        run: npm run test:isolation:mutation
+      - name: api — Testcontainers integration tests (Postgres + MinIO)
+        working-directory: apps/api
+        run: npm run test:int
+
+  deploy-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: compose files — structure and env cross-check
+        run: node scripts/check-compose.mjs
+      - name: preflight — the examples must FAIL, a generated sample must PASS
+        run: |
+          if node scripts/preflight.mjs --examples; then echo "the examples passed the preflight" >&2; exit 1; fi
+          node scripts/preflight.mjs --make-sample "$RUNNER_TEMP/sample"
+          node scripts/preflight.mjs --root "$RUNNER_TEMP/sample"
+      - name: docker compose config (real Docker on the runner)
+        run: |
+          cp .env.example .env
+          for f in api db backup converter minio; do cp env/$f.env.example env/$f.env; done
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+      - name: build the production images
+        run: |
+          docker build -f apps/api/Dockerfile --target runtime -t nuzli/api:ci .
+          docker build -f apps/web/Dockerfile -t nuzli/proxy:ci .
+          docker build -t nuzli/backup:ci infra/backup
+          docker build -t nuzli/converter:ci infra/converter
+      - name: the API image is non-root, has no demo seed, and carries the Prisma engines
+        run: |
+          test "$(docker run --rm --entrypoint id nuzli/api:ci -u)" != "0"
+          docker run --rm --entrypoint sh nuzli/api:ci -c 'test ! -e dist/seed/seed-demo.js && test ! -e /repo/seed && ls /repo/node_modules/.prisma/client/libquery_engine-* && prisma --version'

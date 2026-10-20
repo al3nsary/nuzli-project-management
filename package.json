@@ -3,24 +3,32 @@
   "private": true,
   "version": "0.1.0",
   "description": "نزلي — إدارة المشاريع والفرق الميدانية",
-  "packageManager": "pnpm@9.12.0",
-  "engines": { "node": ">=20" },
-  "workspaces": ["apps/*", "packages/*"],
+  "packageManager": "npm@10.8.2",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "build": "npm run build -w @nuzli/shared && npm run build -w @nuzli/scheduling && npm run build -w @nuzli/ui-print && npm run build -w @nuzli/api && npm run build -w @nuzli/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "dev:web": "pnpm --filter @nuzli/web dev",
-    "dev:api": "pnpm --filter @nuzli/api start:dev",
-    "build:pages": "pnpm --filter @nuzli/web build:demo"
+    "dev:web": "npm run dev -w @nuzli/web",
+    "dev:api": "npm run start:dev -w @nuzli/api",
+    "build:pages": "npm run build:demo -w @nuzli/web",
+    "check:compose": "node scripts/check-compose.mjs",
+    "preflight": "node scripts/preflight.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.12.0",
     "eslint": "^9.12.0",
     "prettier": "^3.3.3",
     "typescript": "~5.6.3",
-    "typescript-eslint": "^8.8.1"
+    "typescript-eslint": "^8.8.1",
+    "yaml": "^2.9.1"
   }
 }

@@ -5,31 +5,37 @@
 # and proxies /api to the API (infra/nginx/nginx.conf).
 
 ARG NODE_VERSION=20.18.0
-ARG PNPM_VERSION=9.12.0
 
 FROM node:${NODE_VERSION}-bookworm-slim AS build
-ARG PNPM_VERSION
-ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
-RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+ENV CI=true \
+    NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_UPDATE_NOTIFIER=false
 WORKDIR /repo
 
-COPY package.json pnpm-workspace.yaml .npmrc ./
-COPY pnpm-lock.yaml* ./
+# Reproducible (ADR-168): npm ci from the committed package-lock.json. npm ci checks the lockfile
+# against every workspace manifest, so all five are copied.
+COPY package.json package-lock.json .npmrc ./
+COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
 COPY packages/scheduling/package.json packages/scheduling/
 COPY packages/ui-print/package.json packages/ui-print/
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    if [ -f pnpm-lock.yaml ]; then LOCK=--frozen-lockfile; else LOCK=--no-frozen-lockfile; fi; \
-    pnpm install $LOCK --filter "@nuzli/web..."
+RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
+    npm ci -w @nuzli/web -w @nuzli/shared -w @nuzli/scheduling -w @nuzli/ui-print
 
 COPY tsconfig.base.json ./
 COPY packages packages
-# Demo fixtures (ADR-020) live outside the app; the regular build may still reference them.
+# Demo fixtures (ADR-020) are type-checked with the app; the production bundle never includes
+# the demo data (ADR-027, the DemoApi is behind VITE_DEMO) — checked below.
 COPY seed seed
 COPY apps/web apps/web
-# Builds shared → scheduling → ui-print → web in topological order. Output: apps/web/dist.
-RUN pnpm --filter "@nuzli/web..." run build
+# shared → scheduling → ui-print → web, in dependency order. Output: apps/web/dist.
+RUN npm run build -w @nuzli/shared \
+ && npm run build -w @nuzli/scheduling \
+ && npm run build -w @nuzli/ui-print \
+ && npm run build -w @nuzli/web \
+ && if grep -rq "NuzliDemo2026" apps/web/dist; then echo "demo data found in the production bundle" >&2; exit 1; fi
 
 # ─────────────────────────────────────────────────────────── runtime (nginx, non-root, uid 101)
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime

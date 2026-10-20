@@ -24,9 +24,12 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      # The repo currently carries an npm package-lock.json (ADR-022).
+      # npm ci from the committed package-lock.json (ADR-168).
       - run: npm ci
-      - run: npm run build -w @nuzli/shared
+      - run: |
+          npm run build -w @nuzli/shared
+          npm run build -w @nuzli/scheduling
+          npm run build -w @nuzli/ui-print
       - run: npm run check:i18n -w @nuzli/web
       - run: npm run build:demo -w @nuzli/web
       # SPA fallback: GitHub Pages serves 404.html for unknown paths.
