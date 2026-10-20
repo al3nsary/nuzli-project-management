@@ -1,0 +1,1 @@
+import{k as i}from"./index-lqX7NYNM.js";function m({color:s,children:t,className:e,style:a,component:o="div"}){const n=o,r={"--team":s??"var(--field)"};return i.jsx(n,{className:["vest",e].filter(Boolean).join(" "),style:{...r,...a},children:t})}export{m as V};

@@ -1,0 +1,1 @@
+const a={flip:{padding:8,fallbackPlacements:["bottom-start","top-end","top-start"]},shift:{padding:8,crossAxis:!0,limiter:{fn:({x:t,y:e})=>({x:t,y:e})}}};function n(t){t?.scrollIntoView?.({block:"nearest",inline:"nearest"})}export{a as E,n as r};
