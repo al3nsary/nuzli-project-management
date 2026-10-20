@@ -173,8 +173,9 @@ describe('workspaces (owners)', () => {
     expect(counts[0]!.settings).toBeGreaterThan(0);
     const cal = await sql<{ weekend_days: number[] }>(`SELECT weekend_days FROM calendars WHERE workspace_id = $1`, [wsC]);
     expect([...cal[0]!.weekend_days].sort()).toEqual([5, 6]);
-    const audit = await sql(`SELECT 1 FROM audit_log WHERE workspace_id = $1 AND action = 'workspace.created'`, [wsC]);
-    expect(audit).toHaveLength(1);
+    // Security review A12 M1: workspace lifecycle is an account-level entry (workspace NULL, owners only).
+    expect(await sql(`SELECT 1 FROM audit_log WHERE workspace_id = $1 AND action = 'workspace.created'`, [wsC])).toHaveLength(0);
+    expect(await sql(`SELECT 1 FROM audit_log WHERE workspace_id IS NULL AND action = 'workspace.created' AND entity_id = $1`, [wsC])).toHaveLength(1);
   });
 
   it('rename, summary (counts only), archive (soft; sessions end; never the last active), restore', async () => {
@@ -226,8 +227,8 @@ describe('user management', () => {
     expect([forbidden.status, forbidden.body.code]).toEqual([403, 'WORKSPACE_FORBIDDEN']);
     const needs = await http(admin).post(`/workspaces/${wsA}/members`, { identifier: `${outsider.username}@nuzli.test`, role: 'SUPERVISOR', title: 'مشرف موقع' });
     expect([needs.status, needs.body.code]).toEqual([409, 'DUAL_ROLE_CONFIRM_REQUIRED']);
-    // the admin of A sees that another role exists, not where
-    expect(needs.body.details.roles).toEqual([{ workspaceId: null, workspaceName: null, role: 'MONITOR', title: null, status: 'ACTIVE' }]);
+    // the admin of A sees THAT another role exists — not where, which role or its status (security review L1)
+    expect(needs.body.details).toEqual({ roles: [], otherWorkspaces: true });
     const added = await http(admin).post(`/workspaces/${wsA}/members`, { identifier: outsider.username, role: 'SUPERVISOR', title: 'مشرف موقع', confirmDualRole: true }).expect(201);
     expect(added.body).toMatchObject({ role: 'SUPERVISOR', title: 'مشرف موقع', dualRole: true });
     const again = await http(admin).post(`/workspaces/${wsA}/members`, { userId: outsider.id, role: 'SUPERVISOR', confirmDualRole: true });

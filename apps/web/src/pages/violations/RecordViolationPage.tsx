@@ -525,6 +525,8 @@ type Phase = { kind: 'form' } | { kind: 'saved'; id: string };
 export function RecordViolationPage() {
   const api = useApi();
   const user = useAuthStore((s) => s.user);
+  // A12 security review H3: the item is tagged with the workspace it is recorded in.
+  const activeWorkspace = useAuthStore((s) => s.activeWorkspace);
   const geo = useGeo();
   const now = useNow(1000);
   const online = useOnline();
@@ -647,6 +649,7 @@ export function RecordViolationPage() {
       // Always to the outbox first, online or not (brief §7.4).
       const item = await enqueueViolation(offlineDb(), {
         userId: user.id,
+        workspace: activeWorkspace ? { id: activeWorkspace.id, name: activeWorkspace.name } : null,
         payload,
         display: chosen
           ? {

@@ -204,6 +204,9 @@ model User {
   requestedRole        Role?       @map("requested_role")
   requestedTeamName    String?     @map("requested_team_name")
   status               UserStatus  @default(PENDING)
+  /// A12 security review H2: the account was suspended by an OWNER in every workspace; only an
+  /// owner may lift it (a workspace admin can only lift their own workspace's suspension).
+  suspendedGlobally    Boolean     @default(false) @map("suspended_globally")
   rejectionReason      String?     @map("rejection_reason")
   mustChangePassword   Boolean     @default(false) @map("must_change_password")
   failedLoginCount     Int         @default(0) @map("failed_login_count")

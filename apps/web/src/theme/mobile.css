@@ -1697,6 +1697,8 @@ label.nz-more-row:hover {
 .nz-pc-cover-link {
   display: block;
   border-radius: 16px;
+  /* Owner QA A12: the link's underline would be painted under the cover's initials. */
+  text-decoration: none;
 }
 .nz-pc-cover .nz-cover {
   aspect-ratio: 16 / 9;

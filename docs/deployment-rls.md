@@ -43,8 +43,12 @@ ALTER ROLE nuzli_app LOGIN PASSWORD '<app password>';
 The seed then only logs that it could not configure the role; everything else works.
 
 **What RLS is (and is not):** a second line of defence under the application's own workspace filter:
-a forgotten filter in the API cannot return or change another workspace's rows. It does not protect
-against a compromised API process. Backups (`docs/backup-restore.md`) are taken as the migrator.
+a forgotten filter in the API cannot return or change another workspace's rows. Since the A12 security
+review (L2, ADR-165) `nuzli_app` cannot bypass it either: the maintenance bypass (`app.bypass_rls = on`)
+is honoured only for roles that are not `nuzli_app` (or a member of it), so even an injected statement
+that sets the setting itself stays inside the request's workspace. Operator CLIs that must span
+workspaces (national-ID key rotation, owner recovery) connect as the migrator (`DATABASE_URL`, which is
+what `docker compose exec api …` gets). Backups (`docs/backup-restore.md`) are taken as the migrator.
 
 ## First owner
 
@@ -52,3 +56,24 @@ against a compromised API process. Backups (`docs/backup-restore.md`) are taken 
 `BOOTSTRAP_OWNER_PASSWORD` empty to get a random temporary password printed **once** in the API log of
 the first start (`docker compose logs api | grep "Temporary password"`); only its hash is stored and the
 owner must change it at first login. Remove any password from env/api.env after the first start.
+
+**First boot only (security review H1, ADR-163).** `BOOTSTRAP_OWNER_USERNAME` / `BOOTSTRAP_OWNER_EMAIL` act only
+while the system has no owner. Restarting never promotes anyone again: a removed owner stays removed, and an
+account that later takes a listed username or e-mail is not promoted (the seed logs a warning that the list is
+ignored). You may leave the variables in place.
+
+## Recovering an owner
+
+When no owner can sign in (every owner removed or suspended, a lost password), an operator with server access
+restores one explicitly — never by restarting:
+
+```sh
+docker compose exec api npm run owner:recover -- --username mmansary --dry-run          # shows what would change
+docker compose exec api npm run owner:recover -- --username mmansary                    # makes the account an OWNER
+docker compose exec api npm run owner:recover -- --username mmansary --reset-password   # + a one-time password, printed once
+```
+
+The account must have been approved (ACTIVE or SUSPENDED; a suspended one is reactivated and any login lock is
+lifted). With `--reset-password` the temporary password must be changed at the next sign-in and every session
+of the account ends. The action is audited as `owner.recovered` at account level (owners see it under
+«سجل الحسابات والأقسام»). The script connects with `DATABASE_URL` (the migrator) inside the container.

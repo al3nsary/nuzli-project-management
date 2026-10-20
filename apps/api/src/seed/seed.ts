@@ -7,7 +7,10 @@
  *    no admin exist at all — with mustChangePassword = true (brief §4.4) and an ADMIN membership
  *    of «إدارة المشاريع»;
  *  - A12: accounts named in BOOTSTRAP_OWNER_EMAIL / BOOTSTRAP_OWNER_USERNAME (comma-separated)
- *    are promoted to OWNER (audited).
+ *    are promoted to OWNER (audited) — security review A12 H1: ONLY while the system has no owner
+ *    at all. Once an owner exists the list is never acted on again: a removed owner stays removed,
+ *    and an account that later takes a listed username or e-mail is never promoted. A lost owner
+ *    is restored by an operator with `npm run owner:recover -- --username <name>`.
  * Demo/business data never comes from here (see seed/demo).
  */
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -300,12 +303,26 @@ export function placeholderIdentity(username: string): { email: string; mobile: 
   };
 }
 
-/** A12: promotes the accounts named in BOOTSTRAP_OWNER_EMAIL / BOOTSTRAP_OWNER_USERNAME to OWNER. */
+/**
+ * A12: promotes the accounts named in BOOTSTRAP_OWNER_EMAIL / BOOTSTRAP_OWNER_USERNAME to OWNER —
+ * a FIRST-BOOT bootstrap only (security review A12 H1, ADR-163): it does nothing as soon as one
+ * owner exists, so it can never re-promote a removed owner nor promote a different account that
+ * took a listed identifier later. It logs a warning when a listed identifier is not an owner.
+ */
 export async function promoteOwnersFromEnv(prisma: PrismaClient, env: SeedEnv, log: Log): Promise<number> {
   const list = (v?: string) => (v ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   const emails = list(env.BOOTSTRAP_OWNER_EMAIL);
   const usernames = list(env.BOOTSTRAP_OWNER_USERNAME);
   if (!emails.length && !usernames.length) return 0;
+  const owners = await prisma.user.findMany({ where: { accountRole: 'OWNER' }, select: { email: true, username: true } });
+  if (owners.length > 0) {
+    const known = new Set(owners.flatMap((o) => [o.email.toLowerCase(), o.username.toLowerCase()]));
+    const stray = [...emails, ...usernames].filter((x) => !known.has(x));
+    if (stray.length) {
+      log(`[seed] WARNING: ${stray.length} BOOTSTRAP_OWNER_* identifier(s) do not match an owner; they are ignored once an owner exists (first boot only). Restore an owner with "npm run owner:recover -- --username <name>".`);
+    }
+    return 0;
+  }
   const users = await prisma.user.findMany({
     where: { accountRole: 'USER', status: 'ACTIVE', OR: [{ email: { in: emails } }, { username: { in: usernames } }] },
     select: { id: true, email: true, username: true },

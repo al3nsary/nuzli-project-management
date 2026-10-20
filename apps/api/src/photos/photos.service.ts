@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { assertAccountWithinReach } from '../users/account-reach';
 import type { File as FileRow, Prisma } from '@prisma/client';
 import {
   ALLOWED_IMAGE_TYPES,
@@ -98,10 +99,14 @@ export class PhotosService implements OnModuleInit {
       // A12: yourself, or a user of the active workspace (other workspaces' users answer 404).
       const u = await db.user.findFirst({
         where: { id, ...(id === viewer.id ? {} : workspaceUsersWhere(activeWorkspaceId())) },
-        select: { archivedAt: true, photoFileId: true },
+        select: { archivedAt: true, photoFileId: true, accountRole: true, memberships: { where: { archivedAt: null }, select: { workspaceId: true } } },
       });
       if (!u || u.archivedAt) throw new AppError('NOT_FOUND');
       enforce(userPhotoWrite(viewer, id));
+      // Security review A12 M2: the profile photo is part of the GLOBAL account — someone else's
+      // photo follows the account-edit rule (owners only for an owner or a person who belongs to
+      // another workspace; USER_IN_OTHER_WORKSPACES).
+      if (id !== viewer.id) await assertAccountWithinReach(db, u, viewer as Viewer & { accountRole?: string | null });
       return u.photoFileId;
     }
     const m = await this.memberScope(db, id);

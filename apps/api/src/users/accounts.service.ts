@@ -19,7 +19,8 @@ import { withPrismaErrors } from '../common/prisma-errors';
 import type { AuthUser, RequestContext } from '../common/request';
 import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { activeWorkspaceIdOrNull } from '../prisma/workspace-context';
+import { activeWorkspaceIdOrNull, runWithoutWorkspace } from '../prisma/workspace-context';
+import { assertAccountWithinReach } from './account-reach';
 import { guardLastAdmin } from './last-admin';
 import { inTargetWorkspace, MembershipsService } from './memberships.service';
 import { auditUser, toUserDto, USER_DTO_SELECT, workspaceUsersWhere, type UserRow } from './user-dto';
@@ -65,6 +66,11 @@ export interface UpdateAccountData {
  *    and national ID; nobody can read a password — `setPassword` sets a new one, ends every
  *    session of the user and is audited `user.password_set` (never the value);
  *  - every change is audited with before/after (masked national ID, no secrets).
+ *  - security review A12 M1 (ADR-164): an OWNER's account changes (edit, username, password,
+ *    global suspension, account creation) are ACCOUNT-LEVEL audit entries (workspace NULL, owners
+ *    only, `GET /audit?scope=account`) — never in the workspace the owner happens to work in, where
+ *    that workspace's admins would read another workspace's person. Membership changes stay in the
+ *    workspace concerned. An admin's change of their own workspace's user stays in that workspace.
  */
 @Injectable()
 export class AccountsService {
@@ -86,6 +92,14 @@ export class AccountsService {
     });
   }
 
+  /**
+   * M1: runs an owner's account change outside any workspace, so its audit entry (written in the
+   * same transaction) is account-level. Admins act inside their workspace as before.
+   */
+  private accountLevel<T>(viewer: AuthUser, fn: () => Promise<T>): Promise<T> {
+    return viewer.accountRole === 'OWNER' ? runWithoutWorkspace(fn, 'account-admin') : fn();
+  }
+
   // ─────────────────────────────────────────── who may edit whom
 
   /** The target as the caller may see it: owners any account; others a user of their workspace (404 otherwise). */
@@ -102,12 +116,7 @@ export class AccountsService {
   async assertMayEdit(db: Tx | PrismaService, target: Pick<UserRow, 'id' | 'accountRole' | 'memberships'>, viewer: AuthUser): Promise<void> {
     if (viewer.accountRole === 'OWNER') return;
     if (target.accountRole === 'OWNER' || !can(viewer, 'users.edit')) throw new AppError('FORBIDDEN');
-    const adminOf = await db.workspaceMembership.findMany({
-      where: { userId: viewer.id, role: 'ADMIN', status: 'ACTIVE', archivedAt: null },
-      select: { workspaceId: true },
-    });
-    const mine = new Set(adminOf.map((m) => m.workspaceId));
-    if (target.memberships.some((m) => !mine.has(m.workspaceId))) throw new AppError('USER_IN_OTHER_WORKSPACES');
+    await assertAccountWithinReach(db, target, viewer);
   }
 
   // ─────────────────────────────────────────── create (POST /users)
@@ -137,9 +146,12 @@ export class AccountsService {
     }
     const passwordHash = input.password ? await this.passwords.hash(input.password) : null;
     const nid = this.crypto.protectNationalId(input.nationalId);
-    const here = wanted.filter((m) => m.workspaceId === active);
-    const elsewhere = wanted.filter((m) => m.workspaceId !== active);
-    const { user, token } = await withPrismaErrors(() =>
+    // M1: an owner creates the ACCOUNT at account level (its `user.created` entry has workspace
+    // NULL); each membership is then created and audited inside its own workspace.
+    const ownerCreates = viewer.accountRole === 'OWNER';
+    const here = ownerCreates ? [] : wanted.filter((m) => m.workspaceId === active);
+    const elsewhere = ownerCreates ? wanted : wanted.filter((m) => m.workspaceId !== active);
+    const { user, token } = await this.accountLevel(viewer, () => withPrismaErrors(() =>
       this.prisma.$transaction(async (tx) => {
         const created = await tx.user.create({
           data: {
@@ -170,7 +182,7 @@ export class AccountsService {
         const raw = passwordHash ? null : await this.auth.createActionToken(created.id, ActionPurpose.SET_PASSWORD, tx);
         return { user: row, token: raw };
       }),
-    );
+    ));
     for (const m of elsewhere) {
       await inTargetWorkspace(this.prisma, viewer, m.workspaceId!, () =>
         this.prisma.$transaction((tx) => this.memberships.createInTx(tx, m.workspaceId!, user.id, m, viewer, ctx)),
@@ -185,7 +197,7 @@ export class AccountsService {
 
   /** `PATCH /users/:id` — username, name, e-mail, mobile, national ID. */
   async update(id: string, patch: UpdateAccountData, viewer: AuthUser, ctx: RequestContext): Promise<UserDto> {
-    const row = await withPrismaErrors(() =>
+    const row = await this.accountLevel(viewer, () => withPrismaErrors(() =>
       this.prisma.$transaction(async (tx) => {
         const before = await this.target(tx, id, viewer);
         await this.assertMayEdit(tx, before, viewer);
@@ -215,14 +227,14 @@ export class AccountsService {
         await this.audit.logCtx(ctx, { action: AccountAction.USER_UPDATED, entityType: 'user', entityId: id, before: b, after: a }, tx);
         return after;
       }),
-    );
+    ));
     return this.dto(row, viewer, true);
   }
 
   /** `POST /users/:id/username`. */
   async changeUsername(id: string, username: string, viewer: AuthUser, ctx: RequestContext): Promise<UserDto> {
     const name = username.trim().toLowerCase();
-    const row = await withPrismaErrors(() =>
+    const row = await this.accountLevel(viewer, () => withPrismaErrors(() =>
       this.prisma.$transaction(async (tx) => {
         const before = await this.target(tx, id, viewer);
         await this.assertMayEdit(tx, before, viewer);
@@ -237,7 +249,7 @@ export class AccountsService {
         );
         return after;
       }),
-    );
+    ));
     return this.dto(row, viewer, true);
   }
 
@@ -248,7 +260,7 @@ export class AccountsService {
    */
   async setPassword(id: string, input: { password: string; mustChangePassword: boolean }, viewer: AuthUser, ctx: RequestContext): Promise<UserDto> {
     const passwordHash = await this.passwords.hash(input.password);
-    const row = await this.prisma.$transaction(async (tx) => {
+    const row = await this.accountLevel(viewer, () => this.prisma.$transaction(async (tx) => {
       const before = await this.target(tx, id, viewer);
       await this.assertMayEdit(tx, before, viewer);
       const after = await tx.user.update({
@@ -264,7 +276,7 @@ export class AccountsService {
         tx,
       );
       return after;
-    });
+    }));
     return this.dto(row, viewer, true);
   }
 
@@ -311,15 +323,28 @@ export class AccountsService {
   /** Owners: suspend the ACCOUNT everywhere (every session ends). Never the last owner; never a workspace's last admin. */
   async suspendGlobal(id: string, reason: string | undefined, viewer: AuthUser, ctx: RequestContext): Promise<UserDto> {
     if (viewer.accountRole !== 'OWNER') throw new AppError('FORBIDDEN');
-    const row = await this.prisma.$transaction(async (tx) => {
+    const row = await this.accountLevel(viewer, () => this.prisma.$transaction(async (tx) => {
       const before = await this.target(tx, id, viewer);
-      if (before.status === 'SUSPENDED') return before;
+      if (before.status === 'SUSPENDED') {
+        // Already suspended by the cascade of a workspace suspension: the owner now makes it a
+        // global suspension (H2: only an owner may lift it).
+        const flag = await tx.user.findUniqueOrThrow({ where: { id }, select: { suspendedGlobally: true } });
+        if (flag.suspendedGlobally) return before;
+        const after = await tx.user.update({ where: { id }, data: { suspendedGlobally: true }, select: USER_DTO_SELECT });
+        await this.audit.logCtx(
+          ctx,
+          { action: 'user.suspended', entityType: 'user', entityId: id, before: { status: 'SUSPENDED' }, after: { status: 'SUSPENDED', scope: 'global', reason: reason ?? null } },
+          tx,
+        );
+        return after;
+      }
       if (before.status !== 'ACTIVE') throw new AppError('INVALID_STATE');
       if (before.accountRole === 'OWNER') await assertNotLastOwner(tx, id);
       for (const m of before.memberships.filter((x) => x.role === 'ADMIN' && x.status === 'ACTIVE')) {
         await guardLastAdmin(tx, id, { role: 'ADMIN', status: 'ACTIVE' }, { role: 'ADMIN', status: 'SUSPENDED' }, m.workspaceId);
       }
-      const after = await tx.user.update({ where: { id }, data: { status: 'SUSPENDED' }, select: USER_DTO_SELECT });
+      // H2: remembered, so only an owner can lift it (UsersService.reactivate answers SUSPENDED_BY_OWNER).
+      const after = await tx.user.update({ where: { id }, data: { status: 'SUSPENDED', suspendedGlobally: true }, select: USER_DTO_SELECT });
       await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
       await this.audit.logCtx(
         ctx,
@@ -327,19 +352,19 @@ export class AccountsService {
         tx,
       );
       return after;
-    });
+    }));
     return this.dto(row, viewer, true);
   }
 
   async reactivateGlobal(id: string, viewer: AuthUser, ctx: RequestContext): Promise<UserDto> {
     if (viewer.accountRole !== 'OWNER') throw new AppError('FORBIDDEN');
-    const row = await this.prisma.$transaction(async (tx) => {
+    const row = await this.accountLevel(viewer, () => this.prisma.$transaction(async (tx) => {
       const before = await this.target(tx, id, viewer);
       if (before.status === 'ACTIVE') return before;
       if (before.status !== 'SUSPENDED') throw new AppError('INVALID_STATE');
       const after = await tx.user.update({
         where: { id },
-        data: { status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null },
+        data: { status: 'ACTIVE', suspendedGlobally: false, failedLoginCount: 0, lockedUntil: null },
         select: USER_DTO_SELECT,
       });
       await this.audit.logCtx(
@@ -348,7 +373,7 @@ export class AccountsService {
         tx,
       );
       return after;
-    });
+    }));
     return this.dto(row, viewer, true);
   }
 }

@@ -238,3 +238,71 @@ export async function insertWorkspace(db: PGlite, code: string, name: string): P
   await db.query(`INSERT INTO workspaces (id, name, code, updated_at) VALUES ($1, $2, $3, now())`, [wsId, name, code]);
   return wsId;
 }
+
+/**
+ * Security review A12 M5: a person with roles in BOTH workspaces — SUPERVISOR in A, ADMIN and
+ * SUPERVISOR in B —
+ * with rows in B keyed by their user id (a notification, a project participation, a team
+ * supervision, a time entry, project access, a comment read, a view preference, an assigned task).
+ * Every query of the API keyed by the CALLER's id (notifications, participations, my tasks, my
+ * teams, view preferences…) is probed from A with this identity: a missing workspace filter on
+ * such a model returns B's row to them and the leak check names it.
+ */
+export async function insertDualMember(
+  db: PGlite,
+  opts: { A: WorkspaceFixture; B: WorkspaceFixture; passwordHash: string; encrypt?: Encrypt; username?: string },
+): Promise<{ id: string; username: string }> {
+  const id = randomUUID();
+  const n = ++seq;
+  const username = opts.username ?? `dual.member${n}`;
+  const T = opts.B.tag;
+  await insert(db, 'users', {
+    id,
+    full_name: `${opts.A.tag} dual member`,
+    email: `dual.${n}@nuzli.test`,
+    mobile: `+9665${String(30000000 + n).slice(-8)}`,
+    national_id_enc: opts.encrypt ? opts.encrypt(nid()) : Buffer.from([4, 4, n % 255]),
+    national_id_hash: `hash-dual-${n}`,
+    national_id_last2: '23',
+    national_id_first: '1',
+    password_hash: opts.passwordHash,
+    status: 'ACTIVE',
+    username,
+    updated_at: new Date(),
+  });
+  await insert(db, 'workspace_memberships', { workspace_id: opts.A.workspaceId, user_id: id, role: 'SUPERVISOR' });
+  await insert(db, 'workspace_memberships', { workspace_id: opts.B.workspaceId, user_id: id, role: 'ADMIN' });
+  await insert(db, 'workspace_memberships', { workspace_id: opts.B.workspaceId, user_id: id, role: 'SUPERVISOR' });
+  const B = opts.B.ids;
+  const ws = opts.B.workspaceId;
+  const now = new Date();
+  const rows: Array<[string, Row]> = [
+    ['notifications', { id: randomUUID(), user_id: id, type: 'TASK_ASSIGNED', payload: { taskName: `${T} مهمة المزدوج` } }],
+    ['project_participants', { project_id: B.project, user_id: id, title: `${T} منصب المزدوج`, level: 'EDITOR', added_by: opts.B.users.admin, updated_at: now }],
+    ['team_supervisors', { id: randomUUID(), team_id: B.team, user_id: id, is_primary: false }],
+    ['time_entries', { id: randomUUID(), task_id: B.task, user_id: id, date: '2026-10-03', minutes: 30, note: `${T} وقت المزدوج`, updated_at: now }],
+    ['project_access', { project_id: B.project, user_id: id, level: 'VIEW' }],
+    ['task_comment_reads', { user_id: id, task_id: B.task, last_read_at: now }],
+    ['user_view_prefs', { id: randomUUID(), user_id: id, project_id: B.project, key: 'gantt', value: { tag: T } , updated_at: now }],
+    ['org_positions', { id: randomUUID(), unit_id: B.unit, title: `${T} منصب تنظيمي للمزدوج`, holder_user_id: id, updated_at: now }],
+  ];
+  for (const [table, row] of rows) await insert(db, table, { ...row, workspace_id: ws });
+  await db.query(`UPDATE tasks SET assignee_id = $1 WHERE id = $2`, [id, B.task2]);
+  return { id, username };
+}
+
+/**
+ * Security review A12 M5: real setting keys the API reads, with values that differ between the two
+ * workspaces — a missing workspace filter on `settings` would let B's value override A's. A has
+ * no row for `VIOLATION_REGISTER_MAX_AGE_DAYS` (so it uses the default, 30); B has 97.
+ */
+export const SETTING_PROBE = { key: 'VIOLATION_REGISTER_MAX_AGE_DAYS', defaultValue: 30, bValue: 97 } as const;
+
+export async function insertProbeSettings(db: PGlite, A: WorkspaceFixture, B: WorkspaceFixture): Promise<void> {
+  await db.query(`DELETE FROM settings WHERE workspace_id = $1 AND key = $2`, [A.workspaceId, SETTING_PROBE.key]);
+  await db.query(
+    `INSERT INTO settings (workspace_id, key, value, updated_at) VALUES ($1, $2, $3, now())
+     ON CONFLICT (workspace_id, key) DO UPDATE SET value = EXCLUDED.value`,
+    [B.workspaceId, SETTING_PROBE.key, JSON.stringify(SETTING_PROBE.bValue)],
+  );
+}

@@ -21,7 +21,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { activeWorkspaceIdOrNull, runInWorkspace } from '../prisma/workspace-context';
 import { USER_DTO_SELECT, auditUser, matrixRole, rolesIn, toUserDto, type UserRow } from '../users/user-dto';
-import { allocateUsername } from '../users/usernames';
+import { allocateUsername, freeUsernameLike } from '../users/usernames';
 import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { AccessTokenService } from './access-token.service';
 import { LoginThrottleService } from './login-throttle';
@@ -323,13 +323,20 @@ export class AuthService {
       this.duplicateRegistration(existing, ctx);
       return { status: 'PENDING' };
     }
-    if (input.username && (await this.prisma.user.findUnique({ where: { username: input.username }, select: { id: true } }))) {
-      // A taken username is the one duplicate the applicant is told about: it is not personal data.
-      throw new AppError('USERNAME_TAKEN');
-    }
+    // Security review A12 L1: a taken username is NOT revealed to an anonymous caller any more —
+    // the request gets the nearest free name (the approval e-mail says which), and the answer is
+    // the same `{ status: 'PENDING' }` as always. The route is rate limited like sign-in.
+    const pick = async () => (input.username ? await freeUsernameLike(this.prisma, input.username) : undefined);
     let user: UserRow;
     try {
-      user = await this.createRegistration(input, nid, passwordHash, ctx, workspaceId);
+      try {
+        user = await this.createRegistration({ ...input, username: await pick() }, nid, passwordHash, ctx, workspaceId);
+      } catch (err) {
+        // A concurrent registration took the same name between the check and the insert: once more.
+        const first = err instanceof AppError ? err : mapPrismaError(err);
+        if (first?.code !== 'USERNAME_TAKEN') throw err;
+        user = await this.createRegistration({ ...input, username: await pick() }, nid, passwordHash, ctx, workspaceId);
+      }
     } catch (err) {
       const mapped = err instanceof AppError ? err : mapPrismaError(err);
       if (mapped && DUPLICATE_CODES.has(mapped.code)) {

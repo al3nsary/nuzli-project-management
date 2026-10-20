@@ -8,19 +8,37 @@
 import { useId, useState, type CSSProperties } from 'react';
 import { projectColor } from '@nuzli/shared';
 import { useProjectCoverUrl } from '../../api/a12Queries';
-import { initials } from '../../components/UserAvatar';
 import { t } from '../../i18n';
 import './cover.css';
 
 /** Words that say nothing about a project («مشروع صيانة الحديقة» → «ص‌ح»). */
 const FILLER = new Set(['مشروع', 'مشاريع', 'خطة', 'برنامج']);
+/** Particles and conjunctions that are never an initial («تطوير في الحي» → «ت‌ح»). */
+const PARTICLES = new Set(['في', 'من', 'إلى', 'الى', 'على', 'عن', 'مع', 'و', 'أو', 'ثم', 'بن', 'بنت', 'لل', 'ل', 'ب']);
+/** Zero-width non-joiner: the two letters stay apart, each in its isolated Arabic form. */
+const ZWNJ = '‌';
 
-/** Two letters, Arabic-aware (the article «ال» skipped, «بن» ignored, like person initials). */
+/**
+ * The first letters of the first two meaningful words of the name (owner QA A12: «تركيب نظام ري
+ * ذكي — مبنى الإدارة (تجريبي)» → «ت‌ن», never «تإ»). A parenthetical, dashes and punctuation are
+ * not words; filler words («مشروع»), particles («في»، «و») and numbers are skipped; the article «ال» is
+ * dropped from the start of a word. The letters are joined with a ZWNJ so Arabic never shapes
+ * them into a ligature.
+ */
 export function projectInitials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const kept = words.filter((w) => !FILLER.has(w));
-  const base = (kept.length ? kept : words).join(' ');
-  return initials(base) || '؟';
+  const clean = name.replace(/\([^)]*\)?/g, ' ');
+  const words = clean
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ''))
+    .filter(Boolean);
+  // Numbers («2000 مهمة») are not initials either, unless the name has nothing else.
+  const meaningful = words.filter((w) => !FILLER.has(w) && !PARTICLES.has(w) && !/^\p{N}+$/u.test(w));
+  const pool = meaningful.length ? meaningful : words;
+  const letters = pool
+    .slice(0, 2)
+    .map((w) => (w.length > 2 ? w.replace(/^(?:وال|بال|فال|كال|ال)(?=.)/, '') : w)[0] ?? '')
+    .filter(Boolean);
+  return letters.join(ZWNJ) || '؟';
 }
 
 export interface CoverProject {

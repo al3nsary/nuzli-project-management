@@ -37,7 +37,7 @@ export function normalizeArabic(s: string): string {
  * Downloads the roster, the active violation types and the form settings, and replaces the
  * device copy in one transaction. Only masked IDs and the last four digits are ever stored.
  */
-export async function refreshRoster(api: ApiClient, db: OfflineDb, userId: string) {
+export async function refreshRoster(api: ApiClient, db: OfflineDb, userId: string, workspaceId: string | null = null) {
   const [roster, types, settings] = await Promise.all([
     api.violations.roster(),
     api.violationTypes.list({ active: true }),
@@ -64,6 +64,8 @@ export async function refreshRoster(api: ApiClient, db: OfflineDb, userId: strin
     await db.roster.bulkPut(rows);
     await setMeta(db, 'lastRosterAt', roster.generatedAt);
     await setMeta(db, 'rosterUserId', userId);
+    // A12 (L4): the roster belongs to this workspace; another workspace drops it before use.
+    await setMeta(db, 'rosterWorkspaceId', workspaceId);
     await setMeta(
       db,
       'types',

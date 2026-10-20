@@ -222,7 +222,7 @@ describe('several workspaces', () => {
     expect(JSON.stringify(inB)).not.toContain(A.tag);
   });
 
-  it('the owner escape hatch: owners only, a reason, an audit entry first — then both workspaces', async () => {
+  it('the owner escape hatch: owners only, a reason, an audit entry first — and (security review L2) never past RLS on the API role', async () => {
     const prisma = ctx.app.get(PrismaService);
     const ownerId = (await superuser(() => ctx.db.query<{ id: string }>(`SELECT id FROM users WHERE username = 'mmansary'`))).rows[0]!.id;
     await expect(prisma.crossWorkspace({ id: ua.admin, accountRole: 'USER' }, 'test', async () => 1)).rejects.toBeInstanceOf(WorkspaceScopeError);
@@ -230,7 +230,11 @@ describe('several workspaces', () => {
     const names = await runInWorkspace(wsA, () =>
       prisma.crossWorkspace({ id: ownerId, accountRole: 'OWNER' }, 'تقرير المالك الشامل', () => prisma.team.findMany({ select: { name: true } })),
     );
-    expect(names.map((t) => t.name)).toEqual(expect.arrayContaining(['WSA-SECRET فريق', 'WSB-SECRET فريق']));
+    // The app-layer filter is off inside the hatch, but the API connects as nuzli_app, which can no
+    // longer bypass RLS (ADR-165): B stays invisible. Spanning workspaces needs the operator's
+    // maintenance connection (the migrator role), e.g. the key-rotation CLI.
+    expect(names.map((t) => t.name)).toContain('WSA-SECRET فريق');
+    expect(JSON.stringify(names)).not.toContain(B.tag);
     const audit = await superuser(() =>
       ctx.db.query<{ workspace_id: string | null; actor_id: string }>(`SELECT workspace_id, actor_id FROM audit_log WHERE action = 'owner.cross_workspace_access'`),
     );

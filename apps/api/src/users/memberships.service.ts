@@ -134,8 +134,12 @@ export class MembershipsService {
     private readonly crypto: CryptoService,
   ) {}
 
-  /** An ACTIVE account by id, or by username / e-mail / mobile / national ID. */
-  async findAccount(db: Tx | PrismaService, ref: { userId?: string; identifier?: string }) {
+  /**
+   * An ACTIVE account by id, or by username / e-mail / mobile / national ID.
+   * Security review A12 L1: to anyone but an owner an account that is not ACTIVE answers exactly
+   * like one that does not exist (404 NOT_FOUND, no status), so the lookup is not an oracle.
+   */
+  async findAccount(db: Tx | PrismaService, ref: { userId?: string; identifier?: string }, viewer?: Pick<AuthUser, 'accountRole'>) {
     const select = {
       id: true,
       status: true,
@@ -156,7 +160,10 @@ export class MembershipsService {
     }
     const user = where ? await db.user.findUnique({ where, select }) : null;
     if (!user) throw new AppError('NOT_FOUND', { field: ref.userId ? 'userId' : 'identifier' });
-    if (user.status !== 'ACTIVE') throw new AppError('INVALID_STATE', { status: user.status });
+    if (user.status !== 'ACTIVE') {
+      if (viewer && viewer.accountRole !== 'OWNER') throw new AppError('NOT_FOUND', { field: ref.userId ? 'userId' : 'identifier' });
+      throw new AppError('INVALID_STATE', { status: user.status });
+    }
     return user;
   }
 
@@ -167,8 +174,15 @@ export class MembershipsService {
     viewer: Pick<AuthUser, 'accountRole' | 'workspaceId'>,
   ): void {
     if (!user.memberships.length || confirm) return;
+    if (viewer.accountRole === 'OWNER') {
+      throw new AppError('DUAL_ROLE_CONFIRM_REQUIRED', { roles: roleEntries(user, viewer.workspaceId, true) });
+    }
+    // Security review A12 L1: an admin learns only that the person holds another role — the roles
+    // of THIS workspace, and nothing (no role, status or workspace) about the others.
+    const here = user.memberships.filter((m) => m.workspaceId === viewer.workspaceId);
     throw new AppError('DUAL_ROLE_CONFIRM_REQUIRED', {
-      roles: roleEntries(user, viewer.workspaceId, viewer.accountRole === 'OWNER'),
+      roles: roleEntries({ memberships: here }, viewer.workspaceId, false),
+      otherWorkspaces: user.memberships.length > here.length,
     });
   }
 
@@ -251,7 +265,7 @@ export class MembershipsService {
     return inTargetWorkspace(this.prisma, viewer, workspaceId, () =>
       withPrismaErrors(() =>
         this.prisma.$transaction(async (tx) => {
-          const user = await this.findAccount(tx, input);
+          const user = await this.findAccount(tx, input, viewer);
           if (user.memberships.some((m) => m.workspaceId === workspaceId && m.role === input.role)) throw new AppError('MEMBERSHIP_EXISTS');
           this.assertDualRoleConfirmed(user, input.confirmDualRole, viewer);
           const id = await this.createInTx(tx, workspaceId, user.id, input, viewer, ctx);

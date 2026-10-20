@@ -1,4 +1,4 @@
-import { can, type UserDto } from '@nuzli/shared';
+import { can, type UserDto, type WorkspaceSummaryDto } from '@nuzli/shared';
 import { getMeta, setMeta, type OfflineDb } from './db';
 
 /**
@@ -19,6 +19,16 @@ export async function rememberOfflineUser(db: OfflineDb, user: UserDto) {
     lastLoginAt: null,
   };
   await setMeta(db, 'offlineUser', profile);
+}
+
+/** A12 (H3): the workspace of that profile, so an airplane-mode reopen records into the right one. */
+export async function rememberOfflineWorkspace(db: OfflineDb, ws: WorkspaceSummaryDto) {
+  await setMeta(db, 'offlineWorkspace', { id: ws.id, name: ws.name, code: ws.code, roles: [...(ws.roles ?? [])] });
+}
+
+export async function loadOfflineWorkspace(db: OfflineDb): Promise<WorkspaceSummaryDto | null> {
+  const w = await getMeta<WorkspaceSummaryDto>(db, 'offlineWorkspace');
+  return w?.id ? w : null;
 }
 
 export async function loadOfflineUser(db: OfflineDb): Promise<UserDto | null> {

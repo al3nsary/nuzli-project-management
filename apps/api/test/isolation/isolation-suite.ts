@@ -7,17 +7,31 @@
  * query and the body. It runs twice:
  *   - `rls: true`  — as the application role: the scoping layer AND PostgreSQL RLS;
  *   - `rls: false` — as a superuser (RLS bypassed): the application scoping layer ALONE must hold.
+ *
+ * Security review A12 M5 (ADR-166) made the suite a gate that fails when the app-layer filter of
+ * ANY one of the 47 scoped models is removed (`npm run test:isolation:mutation` proves it, 47/47):
+ *   - a sixth identity, a person with roles in BOTH workspaces (SUPERVISOR in A, ADMIN in B) with
+ *     B rows keyed by their id, probes every route from A;
+ *   - parameterised routes are probed with every value (`/reference/:kind` for every kind);
+ *   - B's settings use real keys the API reads, and A must read its own values;
+ *   - every scoped model is read directly through the API's own Prisma client in A's context: a
+ *     model whose filter is gone returns B's rows (this reaches the child models that HTTP only
+ *     loads through an already-scoped parent id).
  */
 import argon2 from 'argon2';
 import ExcelJS from 'exceljs';
 import { randomUUID } from 'node:crypto';
 import { ASSISTANT_MODULES, VIEW_ONLY_MODULES } from '@nuzli/shared';
 import { CryptoService } from '../../src/crypto/crypto.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { SCOPED_MODELS } from '../../src/prisma/scoping';
+import { runInWorkspace } from '../../src/prisma/workspace-context';
+import { REFERENCE_KINDS } from '../../src/reference/reference.service';
 import { unitWorkspaceFallback } from '../unit/workspace-setup';
 import { bearer, login, ownerSession, startPgApp, type PgApp, type Session } from '../support/pglite-app';
 import { asAppRole, asSuperuser, scopedTables } from '../support/pglite';
 import { listRoutes, type RouteInfo } from '../support/routes';
-import { insertUsers, insertWorkspace, insertWorkspaceRows, type WorkspaceFixture } from '../support/workspace-fixture';
+import { insertDualMember, insertProbeSettings, insertUsers, insertWorkspace, insertWorkspaceRows, SETTING_PROBE, type WorkspaceFixture } from '../support/workspace-fixture';
 import { CASES, paramId, type Case, type Fx } from './cases';
 
 const PASSWORD = 'Isolation-Pass-1';
@@ -49,8 +63,17 @@ const MUST_SHOW_A = [
   'GET /member-requests',
 ];
 
-/** The identities of A that probe B (A12 round 2 adds the assistant). */
-const ROLES = ['admin', 'supervisor', 'monitor', 'assistant', 'owner'] as const;
+/**
+ * The identities of A that probe B (A12 round 2 adds the assistant; security review M5 the person
+ * with roles in both workspaces, working in A).
+ */
+const ROLES = ['admin', 'supervisor', 'monitor', 'assistant', 'owner', 'dual'] as const;
+
+/** M5: every value of `/reference/:kind` → the fixture id of an item of that kind. */
+const REFERENCE_KIND_IDS: Record<string, string> = { departments: 'department', 'job-titles': 'jobTitle' };
+
+/** Prisma delegate name of a model (`TeamColor` → `teamColor`). */
+const delegateOf = (model: string) => model[0]!.toLowerCase() + model.slice(1);
 
 function idsOf(f: WorkspaceFixture): string[] {
   return [...Object.values(f.ids), ...Object.values(f.users)];
@@ -73,7 +96,7 @@ async function responseText(res: { headers: Record<string, string>; body: unknow
   return buf.toString('utf8');
 }
 
-export function defineIsolationSuite(opts: { rls: boolean }): void {
+export function defineIsolationSuite(opts: { rls: boolean; skipModelProbe?: boolean }): void {
   const mode = opts.rls ? 'application scoping + PostgreSQL RLS (nuzli_app)' : 'application scoping alone (RLS bypassed)';
 
   describe(`A12 isolation — every route, workspace A against workspace B — ${mode}`, () => {
@@ -83,6 +106,7 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
     let routes: RouteInfo[];
     const sessions: Record<string, Session> = {};
     let snapshotBefore: Record<string, string>;
+    let dual: { id: string; username: string };
     const failures: string[] = [];
     const stats = { probes: 0, byRole: {} as Record<string, number>, byStatus: {} as Record<string, number>, validation400: [] as string[] };
 
@@ -107,8 +131,9 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
           out[t] = `${r.rows[0]!.n}:${r.rows[0]!.h}`;
         }
         const users = await ctx.db.query<{ h: string }>(
-          `SELECT md5(string_agg(x::text, '|' ORDER BY x.id)) AS h FROM (SELECT id, status, account_role, full_name, email, username, password_hash, failed_login_count, locked_until FROM users WHERE id = ANY($1)) x`,
-          [Object.values(B.users)],
+          `SELECT md5(string_agg(x::text, '|' ORDER BY x.id)) AS h FROM (SELECT id, status, account_role, full_name, email, mobile, username, password_hash, failed_login_count, locked_until, photo_file_id, suspended_globally FROM users WHERE id = ANY($1)) x`,
+          // M5: the dual member is a B account too (account-level side effects are caught).
+          [[...Object.values(B.users), dual.id]],
         );
         out.users = users.rows[0]!.h;
         const m = await ctx.db.query<{ h: string }>(
@@ -166,6 +191,9 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
         );
         const perms = Object.fromEntries(ASSISTANT_MODULES.map((m) => [m, VIEW_ONLY_MODULES.has(m) ? 'view' : 'edit']));
         await ctx.db.query(`INSERT INTO workspace_memberships (workspace_id, user_id, role, permissions) VALUES ($1, $2, 'ASSISTANT', $3)`, [wsA, assistantId, JSON.stringify(perms)]);
+        // Security review M5: the person with roles in both workspaces, and real setting keys.
+        dual = await insertDualMember(ctx.db, { A, B, passwordHash: hash, encrypt });
+        await insertProbeSettings(ctx.db, A, B);
       });
       const usernames = await asSuper(async () => {
         const r = await ctx.db.query<{ id: string; username: string }>(`SELECT id, username FROM users`);
@@ -177,6 +205,12 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
       }
       sessions.assistant = await login(ctx, 'assistant.wsa', PASSWORD);
       expect((sessions.assistant!.body.activeWorkspace as { id: string }).id).toBe(A.workspaceId);
+      // The dual member has two workspaces (no automatic choice) and works in A.
+      const d = await login(ctx, dual.username, PASSWORD);
+      expect(d.body.activeWorkspace).toBeNull();
+      const dsw = await ctx.http().post('/api/v1/auth/switch-workspace').set(bearer(d)).set('Cookie', d.cookie).send({ workspaceId: A.workspaceId });
+      expect(dsw.status).toBe(200);
+      sessions.dual = { accessToken: dsw.body.accessToken, cookie: d.cookie, csrf: d.csrf, body: dsw.body };
       // The owner sees two workspaces (no automatic choice) and works in A.
       const owner = await ownerSession(ctx);
       expect(owner.body.activeWorkspace).toBeNull();
@@ -210,6 +244,11 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
         const out = await call(sessions.admin!, r.method, r.path);
         if (out.status >= 400 || !out.text.includes(A.tag)) missingA.push(`${key} → ${out.status} ${out.code ?? ''}`);
       }
+      // M5: every kind of /reference/:kind lists A's own items.
+      for (const kind of Object.keys(REFERENCE_KINDS)) {
+        const out = await call(sessions.admin!, 'GET', `/reference/${kind}`);
+        if (out.status >= 400 || !out.text.includes(A.tag)) missingA.push(`GET /reference/${kind} → ${out.status} ${out.code ?? ''}`);
+      }
       // Every GET with ids, aimed at A's own rows, answers (no 4xx/5xx) unless documented.
       for (const r of routes.filter((x) => x.method === 'GET' && x.path.includes(':'))) {
         const c = CASES[r.key]!;
@@ -230,12 +269,20 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
         if (!c || c.skip) continue;
         const variants: Array<{ label: string; path: string; targetsB: boolean }> = [];
         const params = [...r.path.matchAll(/:([A-Za-z]+)/g)].map((m) => m[1]!);
-        if (params.length === 0) variants.push({ label: 'no path ids', path: r.path, targetsB: false });
-        else {
-          variants.push({ label: 'B ids', path: fill(r, (p) => paramId(r.path, p, B)), targetsB: !r.path.startsWith('/reference/:kind') || params.length > 1 });
-          if (params.length > 1) {
-            const first = params[0]!;
-            variants.push({ label: 'A parent, B child', path: fill(r, (p) => (p === first ? paramId(r.path, p, A) : paramId(r.path, p, B))), targetsB: true });
+        // M5: a route parameter that is an enumeration is probed with EVERY value.
+        const kinds = params.includes('kind') ? Object.keys(REFERENCE_KINDS) : [null];
+        for (const kind of kinds) {
+          if (kind && !REFERENCE_KIND_IDS[kind]) throw new Error(`no fixture row for /reference/${kind} — add it to REFERENCE_KIND_IDS`);
+          const idOf = (F: WorkspaceFixture) => (p: string) =>
+            p === 'kind' && kind ? kind : p === 'id' && kind ? F.ids[REFERENCE_KIND_IDS[kind]!]! : paramId(r.path, p, F);
+          const tagKind = kind ? ` ${kind}` : '';
+          if (params.length === 0) variants.push({ label: 'no path ids', path: r.path, targetsB: false });
+          else {
+            variants.push({ label: `B ids${tagKind}`, path: fill(r, idOf(B)), targetsB: !r.path.startsWith('/reference/:kind') || params.length > 1 });
+            if (params.length > 1) {
+              const first = params[0]!;
+              variants.push({ label: `A parent, B child${tagKind}`, path: fill(r, (p) => (p === first ? idOf(A)(p) : idOf(B)(p))), targetsB: true });
+            }
           }
         }
         const bodies: Array<{ label: string; body?: Case['body']; query?: Case['query']; allow2xx?: string }> = [
@@ -292,6 +339,45 @@ export function defineIsolationSuite(opts: { rls: boolean }): void {
       expect(failures).toEqual([]);
       expect(stats.probes).toBeGreaterThan(1000);
       expect(Object.keys(stats.byRole).sort()).toEqual([...ROLES].sort());
+    });
+
+    it('M5: A reads its OWN settings — B’s value of a real key never overrides A’s', async () => {
+      for (const role of ['admin', 'dual'] as const) {
+        const out = await call(sessions[role]!, 'GET', '/settings');
+        expect(out.status).toBe(200);
+        expect((JSON.parse(out.text) as Record<string, unknown>)[SETTING_PROBE.key]).toBe(SETTING_PROBE.defaultValue);
+      }
+    });
+
+    it('M5: the dual member, working in A, sees A’s side of their account only (notifications, participations, my teams, my time)', async () => {
+      const leaks: string[] = [];
+      for (const path of ['/notifications', '/notifications/unread-count', '/me/participations', '/teams', '/tasks/mine', '/hub', '/me/view-prefs', '/me/time-entries?from=2026-09-01&to=2026-11-30', '/org']) {
+        const [p, qs] = path.split('?');
+        const query = qs ? Object.fromEntries(new URLSearchParams(qs)) : undefined;
+        const out = await call(sessions.dual!, 'GET', p!, query);
+        if (out.text.includes(B.tag)) leaks.push(`${path} → ${out.status}`);
+      }
+      const n = await call(sessions.dual!, 'GET', '/notifications/unread-count');
+      expect(JSON.parse(n.text)).toEqual({ count: 0 });
+      expect(leaks).toEqual([]);
+    });
+
+    (opts.skipModelProbe ? it.skip : it)('M5: APP LAYER, model by model — every one of the 47 scoped models read in A’s context returns no row of B', async () => {
+      const prisma = ctx.app.get(PrismaService) as unknown as Record<string, { findMany(a?: unknown): Promise<Array<{ workspaceId?: string | null }>>; count(a?: unknown): Promise<number>; findFirst(a?: unknown): Promise<unknown> }>;
+      const leaks: string[] = [];
+      expect(SCOPED_MODELS.size).toBe(47);
+      for (const model of SCOPED_MODELS) {
+        const d = prisma[delegateOf(model)];
+        if (!d) throw new Error(`no Prisma delegate for ${model}`);
+        const rows = await runInWorkspace(A.workspaceId!, () => d.findMany({}), 'isolation-probe');
+        const foreign = rows.filter((r) => r.workspaceId !== A.workspaceId && !(model === 'File' && r.workspaceId === null));
+        if (foreign.length) leaks.push(`${model}.findMany → ${foreign.length} row(s) of another workspace`);
+        const inB = await runInWorkspace(A.workspaceId!, () => d.count({ where: { workspaceId: B.workspaceId } }), 'isolation-probe');
+        if (inB) leaks.push(`${model}.count(workspaceId = B) → ${inB}`);
+        const first = await runInWorkspace(A.workspaceId!, () => d.findFirst({ where: { workspaceId: B.workspaceId } }), 'isolation-probe');
+        if (first) leaks.push(`${model}.findFirst(workspaceId = B) → a row`);
+      }
+      expect(leaks).toEqual([]);
     });
 
     it('NOTHING CHANGED IN B: every B row (47 tables), B accounts and memberships are byte-for-byte identical after all probes', async () => {

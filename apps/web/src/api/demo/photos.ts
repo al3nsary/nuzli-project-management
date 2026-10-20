@@ -32,6 +32,8 @@ export interface PhotoInternals {
   readSettings(): ReturnType<ApiClient['settings']['get']>;
   isOffline(): boolean;
   files: ApiClient['files'];
+  /** Security review A12 M2: the account rule for someone else's profile photo (see DemoApi). */
+  assertPhotoAccountReach(viewer: DemoUser, targetId: string): Promise<DemoUser>;
 }
 
 type Decision = 'ALLOW' | 'FORBIDDEN' | 'NOT_FOUND';
@@ -126,9 +128,10 @@ export function createPhotos(api: PhotoInternals): PhotoHooks {
   /** NOT_FOUND / FORBIDDEN unless `viewer` may change the photo; answers the current file id. */
   async function assertCanWrite(type: PhotoEntityType, id: string, viewer: DemoUser): Promise<string | null> {
     if (type === 'user_photo') {
-      const u = await db.users.get(id);
-      if (!u) fail('NOT_FOUND');
+      // Security review A12 M2: resolved through the LIVE memberships (never the users view, which
+      // also shows former members and owners), then the account-edit rule.
       enforce(userPhotoWrite(viewer, id));
+      const u = await api.assertPhotoAccountReach(viewer, id);
       return u.photoFileId ?? null;
     }
     const s = await memberScope(id);

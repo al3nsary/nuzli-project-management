@@ -32,7 +32,7 @@ async function expectCode(p: Promise<unknown>, code: string) {
   expect((err as AppError).code).toBe(code);
 }
 
-function setup(opts: { userPhoto?: string | null; memberPhoto?: string | null } = {}) {
+function setup(opts: { userPhoto?: string | null; memberPhoto?: string | null; targetMemberships?: string[]; targetAccountRole?: 'OWNER' | 'USER' } = {}) {
   const userPhoto = opts.userPhoto ?? null;
   const memberPhoto = opts.memberPhoto ?? null;
   const users: Record<string, { status: string }> = {
@@ -54,13 +54,24 @@ function setup(opts: { userPhoto?: string | null; memberPhoto?: string | null } 
     user: {
       findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
         users[where.id]
-          ? { id: where.id, status: users[where.id]!.status, archivedAt: null, photoFileId: userPhoto, photo: photoRow(userPhoto) }
+          ? {
+              id: where.id,
+              status: users[where.id]!.status,
+              archivedAt: null,
+              photoFileId: userPhoto,
+              photo: photoRow(userPhoto),
+              // Security review A12 M2: the account's live memberships decide who may change its photo.
+              accountRole: opts.targetAccountRole ?? 'USER',
+              memberships: (opts.targetMemberships ?? ['ws-test']).map((workspaceId) => ({ workspaceId })),
+            }
           : null,
       ),
       update: jest.fn().mockResolvedValue({}),
       // A12: user lookups are workspace-filtered (findFirst); the fixture users are all in it.
       findFirst: jest.fn((args: { where: { id: string } }): Promise<unknown> => (prisma.user.findUnique as jest.Mock)(args) as Promise<unknown>),
     },
+    // The workspaces the viewer administers (the ADMIN fixture administers ws-test).
+    workspaceMembership: { findMany: jest.fn().mockResolvedValue([{ workspaceId: 'ws-test' }]) },
     teamMember: {
       findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
         members[where.id]
@@ -299,5 +310,21 @@ describe('remove and read (owner request A8)', () => {
     const s = setup();
     await expectCode(s.photos.photoUrl('user_photo', SUP.id, SUP), 'NOT_FOUND');
     expect(s.storage.presignGet).not.toHaveBeenCalled();
+  });
+});
+
+const OLD_FILE_FOR_M2 = 'cccccccc-0000-4000-8000-0000000000aa';
+
+describe('security review A12 M2 — the profile photo is part of the GLOBAL account', () => {
+  it('an admin may not replace or remove the photo of a person who also belongs to another workspace, nor an owner’s', async () => {
+    const dual = setup({ userPhoto: OLD_FILE_FOR_M2, targetMemberships: ['ws-test', 'ws-other'] });
+    await expectCode(dual.files.presign(presign('user_photo', SUP.id), ADMIN), 'USER_IN_OTHER_WORKSPACES');
+    await expectCode(dual.photos.remove('user_photo', SUP.id, ADMIN, ctx), 'USER_IN_OTHER_WORKSPACES');
+    expect(dual.prisma.user.update).not.toHaveBeenCalled();
+    const owner = setup({ userPhoto: OLD_FILE_FOR_M2, targetAccountRole: 'OWNER' });
+    await expectCode(owner.files.presign(presign('user_photo', SUP.id), ADMIN), 'FORBIDDEN');
+    // The person themselves, and an owner, still may.
+    await expect(dual.files.presign(presign('user_photo', SUP.id), SUP)).resolves.toMatchObject({ method: 'PUT' });
+    await expect(dual.files.presign(presign('user_photo', SUP.id), { ...ADMIN, accountRole: 'OWNER' })).resolves.toMatchObject({ method: 'PUT' });
   });
 });

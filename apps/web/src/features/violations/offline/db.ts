@@ -14,6 +14,11 @@ import type {
  *                and the signed-in user's display profile for an offline reload
  *   outbox       violations waiting to sync, keyed by their client UUID, with step progress
  *   outboxFiles  the compressed photos (bytes), deleted as soon as the violation has synced
+ *
+ * A12 security review H3/L4 (ADR-162): every outbox item carries the workspace (قسم) it was
+ * recorded in and is sent only while a session of THAT workspace is active; changing workspace
+ * never deletes it. The roster, the violation types and the form settings belong to one workspace
+ * (meta `rosterWorkspaceId`) and are dropped when another workspace is entered.
  */
 export const OFFLINE_DB_NAME = 'nuzli-offline';
 
@@ -33,6 +38,10 @@ export type MetaKey =
   | 'types'
   | 'formSettings'
   | 'offlineUser'
+  /** A12 (L4): the workspace the cached roster, types and form settings belong to. */
+  | 'rosterWorkspaceId'
+  /** A12 (H3): the workspace of the remembered offline profile (reopened in airplane mode). */
+  | 'offlineWorkspace'
   | 'persisted';
 
 export type OutboxStatus = 'pending' | 'uploading' | 'synced' | 'failed';
@@ -70,6 +79,14 @@ export interface OutboxItem {
   id: string;
   /** Only the user who recorded it syncs it. */
   userId: string;
+  /**
+   * A12 (H3): the workspace it was recorded in — it is sent only by a session of that workspace
+   * and survives every workspace change. Null for items recorded before A12 (adopted by the first
+   * workspace that syncs them).
+   */
+  workspaceId: string | null;
+  /** The workspace's name at recording time (the «other workspace» notice). */
+  workspaceName: string | null;
   createdAt: string;
   updatedAt: string;
   payload: OutboxPayload;
@@ -115,6 +132,18 @@ export class OfflineDb extends Dexie {
       outbox: 'id, userId, status, createdAt',
       outboxFiles: 'key, itemId',
     });
+    // A12 (H3): items carry their workspace. Older items keep null (adopted on first sync).
+    this.version(2)
+      .stores({ outbox: 'id, userId, status, createdAt, workspaceId' })
+      .upgrade((tx) =>
+        tx
+          .table('outbox')
+          .toCollection()
+          .modify((i: Partial<OutboxItem>) => {
+            if (i.workspaceId === undefined) i.workspaceId = null;
+            if (i.workspaceName === undefined) i.workspaceName = null;
+          }),
+      );
   }
 }
 

@@ -13,8 +13,10 @@ import { cssVariablesResolver, theme } from '../theme/theme';
 import { effectiveScheme, nzColorSchemeManager } from '../theme/colorScheme';
 import { OfflineRuntime } from '../features/violations/offline/OfflineRuntime';
 import { offlineDb } from '../features/violations/offline/db';
-import { loadOfflineUser } from '../features/violations/offline/session';
+import { loadOfflineUser, loadOfflineWorkspace } from '../features/violations/offline/session';
 import { useOfflineStore } from '../features/violations/offline/runtime';
+import { clearWorkspaceCache } from '../features/violations/offline/outbox';
+import { getMeta } from '../features/violations/offline/db';
 import { UpdatePrompt } from './UpdatePrompt';
 import { dropPrintRun } from '../features/cards/printRun';
 
@@ -73,9 +75,11 @@ function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode 
         upgradeNotice();
         if (err instanceof ApiError && err.code === 'NETWORK_ERROR') {
           const user = await loadOfflineUser(offlineDb()).catch(() => null);
+          // A12 (H3): the workspace of that profile, so what is recorded offline is tagged with it.
+          const ws = user ? await loadOfflineWorkspace(offlineDb()).catch(() => null) : null;
           if (alive && user) {
             useOfflineStore.getState().set({ offlineSession: true });
-            setSession({ accessToken: '', expiresIn: 0, user });
+            setSession({ accessToken: '', expiresIn: 0, user, ...(ws ? { activeWorkspace: ws, workspaces: [ws] } : {}) });
             return;
           }
         }
@@ -99,9 +103,14 @@ function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode 
       inFlight = true;
       void api.auth
         .refresh()
-        .then((session) => {
+        .then(async (session) => {
           qc.clear();
           dropPrintRun();
+          // A12 (L4): bound to another workspace now → the previous workspace's roster leaves the
+          // device. The unsynced outbox stays (H3): it is sent when that workspace is active again.
+          const db = offlineDb();
+          const rosterWs = await getMeta<string>(db, 'rosterWorkspaceId').catch(() => undefined);
+          if (rosterWs && rosterWs !== session?.activeWorkspace?.id) await clearWorkspaceCache(db).catch(() => undefined);
           api.setAccessToken(session?.accessToken ?? null);
           setSession(session);
         })

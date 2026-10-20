@@ -33,6 +33,7 @@ import { useShellStore } from '../../app/shell/store';
 import { NotificationBell } from '../../app/NotificationBell';
 import { InstallCard } from '../../app/pwa/InstallCard';
 import { useRosterInfo, useUnsyncedCount } from '../../features/violations/offline/runtime';
+import { OutboxElsewhereNotice } from '../violations/MyViolationsPage';
 import { ProjectCover } from '../../features/projects/ProjectCover';
 import { UserPhotoAvatar } from '../../components/UserAvatar';
 import { useActiveWorkspace } from '../../stores/auth';
@@ -378,6 +379,8 @@ function MonitorHomeCompact() {
   ];
   return (
     <>
+      {/* A12 security review H3: unsynced violations of another workspace wait on the device. */}
+      <OutboxElsewhereNotice />
       <KpiGrid kpis={kpis} />
       <div className="nz-hgrid">
         <ChartCard title={t('mhome.chart.violations')} loading={online && mine.isLoading}>

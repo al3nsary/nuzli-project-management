@@ -6,6 +6,7 @@ import { useOnline } from '../../lib/useOnline';
 import { useAuthStore } from '../../stores/auth';
 import { formatDateTime, formatNumber, t } from '../../i18n';
 import { useRosterInfo, useUnsyncedCount } from '../../features/violations/offline/runtime';
+import { OutboxElsewhereNotice } from './MyViolationsPage';
 
 /** The monitor's home: one big action, the outbox and the roster status. */
 export function MonitorHome() {
@@ -21,6 +22,7 @@ export function MonitorHome() {
       <Button component={Link} to="/violations/new" size="lg" color="breach" leftSection={<IconCamera size={22} />} h={64}>
         {t('nav.recordViolation')}
       </Button>
+      <OutboxElsewhereNotice />
       <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="md">
         <Card padding="md">
           <Group gap="sm" wrap="nowrap" align="flex-start">

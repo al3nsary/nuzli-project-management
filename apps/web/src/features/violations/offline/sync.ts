@@ -3,7 +3,7 @@ import { ApiError } from '../../../api/errors';
 import { t } from '../../../i18n';
 import { backoffDelay } from './backoff';
 import type { OfflineDb, OutboxItem, OutboxPhoto } from './db';
-import { pruneSynced } from './outbox';
+import { inWorkspace, pruneSynced } from './outbox';
 
 /** Re-presign when the stored URL has less than this left. */
 const PRESIGN_MARGIN_MS = 30_000;
@@ -27,6 +27,12 @@ export interface SyncEngineOptions {
   db: OfflineDb;
   /** The signed-in user; only their items are sent. */
   getUserId(): string | null;
+  /**
+   * A12 (H3): the session's workspace; only items recorded in it are sent (the others wait on the
+   * device for a session of their workspace). `null` = no workspace chosen yet → nothing is sent;
+   * `undefined` (or no getter) = a server without workspaces → every item of the user.
+   */
+  getWorkspaceId?(): string | null | undefined;
   now?: () => number;
   /** Called with every state change (for the UI store). */
   onState?: (state: SyncState) => void;
@@ -49,6 +55,11 @@ function classify(err: unknown): { kind: 'offline' | 'auth' | 'transient' | 'per
     }
     if (err.status === 401 || err.code === 'UNAUTHENTICATED') {
       return { kind: 'auth', code: err.code, message: t('sync.err.auth') };
+    }
+    // A12 (H3): the session lost its workspace (switch, removal, archive) — the item waits, it is
+    // never failed for that: it is sent again by a session of its own workspace.
+    if (err.code === 'WORKSPACE_REQUIRED' || err.code === 'WORKSPACE_FORBIDDEN' || err.code === 'WORKSPACE_ARCHIVED') {
+      return { kind: 'auth', code: err.code, message: t('sync.err.workspace') };
     }
     if (
       err.status >= 500 ||
@@ -78,6 +89,7 @@ export class SyncEngine {
   private readonly api: ApiClient;
   private readonly db: OfflineDb;
   private readonly getUserId: () => string | null;
+  private readonly getWorkspaceId: () => string | null | undefined;
   private readonly now: () => number;
   private readonly onState?: (state: SyncState) => void;
   private running: Promise<SyncReport> | null = null;
@@ -90,6 +102,7 @@ export class SyncEngine {
     this.api = opts.api;
     this.db = opts.db;
     this.getUserId = opts.getUserId;
+    this.getWorkspaceId = opts.getWorkspaceId ?? (() => undefined);
     this.now = opts.now ?? (() => Date.now());
     this.onState = opts.onState;
   }
@@ -118,9 +131,10 @@ export class SyncEngine {
   /** «مزامنة الآن» and the `online` event: due now, whatever the backoff said. */
   async runNow(): Promise<SyncReport> {
     const userId = this.getUserId();
-    if (userId) {
+    const ws = this.getWorkspaceId();
+    if (userId && ws !== null) {
       await this.db.outbox
-        .filter((i) => i.userId === userId && i.status === 'pending')
+        .filter((i) => i.userId === userId && i.status === 'pending' && inWorkspace(i, ws))
         .modify({ nextAttemptAt: 0 });
     }
     return this.run();
@@ -141,12 +155,15 @@ export class SyncEngine {
   private async runOnce(): Promise<SyncReport> {
     const report: SyncReport = { synced: 0, failed: 0, pending: 0, offline: false, authRequired: false };
     const userId = this.getUserId();
-    if (!userId) return report;
+    const ws = this.getWorkspaceId();
+    // A12 (H3): no workspace chosen yet («اختر القسم»): nothing may be sent (and nothing is lost).
+    if (!userId || ws === null) return report;
     this.setState({ running: true });
     try {
-      // An item left "uploading" by a reload or a crash simply resumes.
+      // An item left "uploading" by a reload or a crash simply resumes. Only the items of the
+      // session's workspace go; the others stay on the device for a session of theirs.
       const items = (await this.db.outbox.where('userId').equals(userId).toArray())
-        .filter((i) => i.status === 'pending' || i.status === 'uploading')
+        .filter((i) => (i.status === 'pending' || i.status === 'uploading') && inWorkspace(i, ws))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       for (const item of items) {
         if (item.nextAttemptAt > this.now()) {
@@ -181,6 +198,9 @@ export class SyncEngine {
   }
 
   private async processItem(item: OutboxItem): Promise<Outcome> {
+    // A pre-A12 item (no workspace) is adopted by the workspace that sends it.
+    const ws = this.getWorkspaceId();
+    if (item.workspaceId == null && ws) item.workspaceId = ws;
     item.status = 'uploading';
     await this.save(item);
     try {
@@ -282,9 +302,10 @@ export class SyncEngine {
     this.timer = null;
     if (!this.stopFns.length) return; // not started (tests drive `run()` directly)
     const userId = this.getUserId();
-    if (!userId) return;
+    const ws = this.getWorkspaceId();
+    if (!userId || ws === null) return;
     const pending = await this.db.outbox
-      .filter((i) => i.userId === userId && i.status === 'pending')
+      .filter((i) => i.userId === userId && i.status === 'pending' && inWorkspace(i, ws))
       .toArray();
     if (!pending.length) return;
     const next = Math.min(...pending.map((i) => i.nextAttemptAt));

@@ -150,15 +150,52 @@ describe('RLS as nuzli_app', () => {
     });
   });
 
-  it('the audited owner bypass sees every workspace', async () => {
+  it('security review A12 L2: nuzli_app can NOT bypass RLS by setting app.bypass_rls itself (one SQL injection must not defeat RLS)', async () => {
+    // The API transaction sets the GUC to "off"; an injected statement could set it "on" — ignored.
     await inWorkspace(
       A.workspaceId,
       async () => {
-        const r = await db.query<{ n: number }>(`SELECT count(DISTINCT workspace_id)::int AS n FROM teams`);
-        expect(r.rows[0]!.n).toBe(2);
+        const r = await db.query<{ n: number; b: boolean }>(`SELECT count(DISTINCT workspace_id)::int AS n, bool_or(workspace_id = $1) AS b FROM teams`, [B.workspaceId]);
+        expect(r.rows[0]!.n).toBe(1);
+        expect(r.rows[0]!.b).toBe(false);
+        await db.query(`SET LOCAL app.bypass_rls = 'on'`);
+        const again = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM violations WHERE workspace_id = $1`, [B.workspaceId]);
+        expect(again.rows[0]!.n).toBe(0);
+        expect(await errorOf(`UPDATE teams SET name = name WHERE workspace_id = $1`, [B.workspaceId])).toBe('');
+        const touched = await db.query<{ n: number }>(`WITH u AS (UPDATE teams SET name = name WHERE workspace_id = $1 RETURNING 1) SELECT count(*)::int AS n FROM u`, [B.workspaceId]);
+        expect(touched.rows[0]!.n).toBe(0);
       },
       true,
     );
+    // A role that is a MEMBER of nuzli_app is the API too: no bypass either.
+    await db.exec(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nz_app_child') THEN CREATE ROLE nz_app_child NOLOGIN NOBYPASSRLS IN ROLE nuzli_app; END IF; END $$`);
+    await db.exec('SET ROLE nz_app_child');
+    await db.exec('BEGIN');
+    try {
+      await db.query(`SELECT set_config('app.workspace_id', $1, true), set_config('app.bypass_rls', 'on', true)`, [A.workspaceId]);
+      const r = await db.query<{ n: number }>(`SELECT count(DISTINCT workspace_id)::int AS n FROM teams`);
+      expect(r.rows[0]!.n).toBe(1);
+    } finally {
+      await db.exec('ROLLBACK');
+      await asSuperuser(db);
+    }
+  });
+
+  it('security review A12 L2: the maintenance bypass still works for the operator role (not nuzli_app), and only with the GUC', async () => {
+    await db.exec(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nz_maint') THEN CREATE ROLE nz_maint NOLOGIN NOSUPERUSER NOBYPASSRLS; END IF; END $$`);
+    await db.exec('GRANT SELECT ON ALL TABLES IN SCHEMA public TO nz_maint');
+    for (const bypass of [false, true]) {
+      await db.exec('SET ROLE nz_maint');
+      await db.exec('BEGIN');
+      try {
+        await db.query(`SELECT set_config('app.workspace_id', $1, true), set_config('app.bypass_rls', $2, true)`, [A.workspaceId, bypass ? 'on' : 'off']);
+        const r = await db.query<{ n: number }>(`SELECT count(DISTINCT workspace_id)::int AS n FROM teams`);
+        expect(r.rows[0]!.n).toBe(bypass ? 2 : 1);
+      } finally {
+        await db.exec('ROLLBACK');
+        await asSuperuser(db);
+      }
+    }
   });
 
   it('identity tables stay global (users, memberships, workspaces)', async () => {

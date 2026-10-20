@@ -258,7 +258,8 @@ export class UsersService {
       );
       return after;
     });
-    await this.notifySafely([user.id], 'REGISTRATION_APPROVED', { role: matrixRole(user, ws) });
+    // L1: the username travels with the approval (a registration may have got a free variant).
+    await this.notifySafely([user.id], 'REGISTRATION_APPROVED', { role: matrixRole(user, ws), username: user.username });
     return this.dto(user, viewer, true);
   }
 
@@ -391,9 +392,17 @@ export class UsersService {
       const beforeStatus = displayStatus(before, ws);
       if (beforeStatus === 'ACTIVE') return before;
       if (beforeStatus !== 'SUSPENDED') throw new AppError('INVALID_STATE');
+      // Security review A12 H2: an account an OWNER suspended in every workspace stays suspended
+      // until an owner lifts it — a workspace admin cannot undo it from their workspace (the person
+      // would be back in every other workspace too). A suspension that only cascaded from this
+      // workspace's last membership is lifted here as before.
+      if (before.status === 'SUSPENDED') {
+        const acct = await tx.user.findUniqueOrThrow({ where: { id }, select: { suspendedGlobally: true } });
+        if (acct.suspendedGlobally && viewer.accountRole !== 'OWNER') throw new AppError('SUSPENDED_BY_OWNER');
+      }
       await tx.workspaceMembership.updateMany({ where: { workspaceId: ws, userId: id, archivedAt: null }, data: { status: 'ACTIVE' } });
       if (before.status === 'SUSPENDED') {
-        await tx.user.update({ where: { id }, data: { status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null } });
+        await tx.user.update({ where: { id }, data: { status: 'ACTIVE', suspendedGlobally: false, failedLoginCount: 0, lockedUntil: null } });
       }
       const after = await tx.user.findUniqueOrThrow({ where: { id }, select: USER_DTO_SELECT });
       await this.audit.logCtx(

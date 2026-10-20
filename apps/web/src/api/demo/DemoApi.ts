@@ -137,6 +137,8 @@ export class DemoApi implements ApiClient {
   private workspaceRows = new Map<string, DemoWorkspace>();
   /** A12: raw account rows of owners (refreshed with the memberships). */
   private ownerIds = new Set<string>();
+  /** Security review A12 M3: accounts that are not ACTIVE (suspended…) get no notification. */
+  private inactiveAccountIds = new Set<string>();
 
   colors!: Phase2Api['colors'];
   /** @internal A12 round 2: the members code reused by the worker requests. */
@@ -512,18 +514,20 @@ export class DemoApi implements ApiClient {
 
   /** @internal Reloads memberships, workspaces and owners (the synchronous copies). */
   async reloadIdentity() {
-    const [memberships, workspaces, owners] = await this.unscoped(
+    const [memberships, workspaces, owners, inactive] = await this.unscoped(
       async () =>
         [
           await this.db.wsMemberships.toArray(),
           await this.db.workspaces.toArray(),
           await this.db.users.filter((u) => u.accountRole === 'OWNER').toArray(),
+          await this.db.users.filter((u) => u.status !== 'ACTIVE').primaryKeys(),
         ] as const,
       'r',
     );
     this.scope.setMemberships(memberships);
     this.workspaceRows = new Map(workspaces.map((w) => [w.id, w]));
     this.ownerIds = new Set(owners.map((o) => o.id));
+    this.inactiveAccountIds = new Set(inactive as string[]);
   }
 
   /** @internal Live memberships (any status) of a user, every workspace. */
@@ -797,6 +801,38 @@ export class DemoApi implements ApiClient {
     return u;
   }
 
+  /** Security review A12 L1: `name`, `name2`, `name3`… (32 characters at most), the first free one. */
+  private async freeUsernameLike(requested: string): Promise<string> {
+    const base = requested.trim().toLowerCase();
+    for (let n = 1; n < 10_000; n++) {
+      const suffix = n === 1 ? '' : String(n);
+      const candidate = base.slice(0, 32 - suffix.length) + suffix;
+      if (!(await this.rawUserBy('username', candidate))) return candidate;
+    }
+    return fail('USERNAME_TAKEN');
+  }
+
+  /**
+   * @internal Security review A12 M2: someone else's profile photo is part of the GLOBAL account —
+   * the target is resolved through the LIVE memberships (never the users view, which also shows
+   * former members), then the account-edit rule applies (an owner → FORBIDDEN, a person in another
+   * workspace → USER_IN_OTHER_WORKSPACES; owners always may).
+   */
+  async assertPhotoAccountReach(viewer: Actor, targetId: string): Promise<DemoUser> {
+    const target = await this.rawUser(targetId);
+    if (!target) fail('NOT_FOUND');
+    if (viewer.id === targetId || viewer.accountRole === 'OWNER') return target;
+    const wid = viewer._wid ?? null;
+    if (!wid || !this.liveMemberships(targetId).some((m) => m.workspaceId === wid)) fail('NOT_FOUND');
+    this.assertMayEditAccount(viewer, target);
+    return target;
+  }
+
+  /** Security review A12 M1: an OWNER's account change is an account-level audit entry (wid null). */
+  private accountAuditWid(actor: Actor): string | null {
+    return actor.accountRole === 'OWNER' ? null : (actor._wid ?? null);
+  }
+
   private inWorkspaceList(u: DemoUser, wid: string | null): boolean {
     if (!wid) return false;
     if (this.liveMemberships(u.id).some((m) => m.workspaceId === wid)) return true;
@@ -827,8 +863,19 @@ export class DemoApi implements ApiClient {
     );
   }
 
-  /** @internal */
+  /**
+   * @internal Security review A12 M3 (as the API's NotificationsService.notify): a notification
+   * of the active workspace reaches only an ACTIVE account with a live ACTIVE membership there,
+   * or an owner — never a person who was removed or suspended there. The applicant of a
+   * registration to this workspace is told its outcome.
+   */
   notify(userId: string, type: string, payload: Record<string, unknown>) {
+    // Synchronous checks only (callers may hold a Dexie transaction without the users table).
+    if (type !== 'REGISTRATION_APPROVED' && type !== 'REGISTRATION_REJECTED') {
+      const wid = this.scope.current.wid;
+      const live = this.liveMemberships(userId).some((m) => m.workspaceId === wid && m.status === 'ACTIVE');
+      if (this.inactiveAccountIds.has(userId) || !(this.ownerIds.has(userId) || live)) return Dexie.Promise.resolve(undefined) as Promise<unknown>;
+    }
     return this.db.notifications.add({
       id: newId(),
       userId,
@@ -963,9 +1010,10 @@ export class DemoApi implements ApiClient {
       if (!wid || !active.some((w) => w.id === wid)) {
         fail('VALIDATION_FAILED', { fieldErrors: { workspaceId: ['اختر القسم الذي تتقدّم إليه'] } });
       }
-      if (data.username && (await this.rawUserBy('username', data.username))) fail('USERNAME_TAKEN');
+      // Security review A12 L1: a taken username is not revealed to an anonymous caller — the
+      // request gets the nearest free name (the approval says which) and the same answer.
       const passwordHash = await hashPassword(data.password);
-      const username = data.username ?? (await this.uniqueUsername(data.email));
+      const username = data.username ? await this.freeUsernameLike(data.username) : await this.uniqueUsername(data.email);
       // ADR-063: duplicates create nothing and get the same answer; the attempt is audited.
       const owners = await this.duplicateOwners(data);
       if (owners.length) {
@@ -1414,12 +1462,16 @@ export class DemoApi implements ApiClient {
     target: DemoUser,
     input: { role: WorkspaceRole; title?: string | null; permissions?: AssistantPermissions; scope?: { projectIds?: string[]; teamIds?: string[] }; confirmDualRole?: boolean },
   ): Promise<DemoWsMembership> {
-    if (target.status !== 'ACTIVE') fail('INVALID_STATE');
+    // Security review A12 L1: to a non-owner an account that is not ACTIVE looks unknown.
+    if (target.status !== 'ACTIVE') fail(actor.accountRole === 'OWNER' ? 'INVALID_STATE' : 'NOT_FOUND');
     if (target.accountRole === 'OWNER' && actor.accountRole !== 'OWNER') fail('FORBIDDEN');
     const live = this.liveMemberships(target.id);
     if (live.some((m) => m.workspaceId === wid && m.role === input.role)) fail('MEMBERSHIP_EXISTS');
     if (live.length && !input.confirmDualRole) {
-      fail('DUAL_ROLE_CONFIRM_REQUIRED', { roles: this.dualRoleDetails(target.id, actor.accountRole === 'OWNER', actor._wid ?? null) });
+      if (actor.accountRole === 'OWNER') fail('DUAL_ROLE_CONFIRM_REQUIRED', { roles: this.dualRoleDetails(target.id, true, actor._wid ?? null) });
+      // L1: an admin learns THAT another role exists — this workspace's roles only, nothing else.
+      const here = this.dualRoleDetails(target.id, false, actor._wid ?? null).filter((r) => r.workspaceId !== null);
+      fail('DUAL_ROLE_CONFIRM_REQUIRED', { roles: here, otherWorkspaces: here.length < live.length });
     }
     if (input.role !== 'ASSISTANT' && (input.permissions || input.scope)) {
       fail('VALIDATION_FAILED', { fieldErrors: { permissions: ['الصلاحيات التفصيلية للمساعد فقط'] } });
@@ -1509,7 +1561,7 @@ export class DemoApi implements ApiClient {
       await this.unscoped(() => this.db.workspaces.add(row));
       // A new workspace is EMPTY: neutral defaults only (settings, palette, calendar, card sizes/templates).
       await seedWorkspaceDefaults(this, row.id);
-      await this.writeAuditIn(row.id, {
+      await this.writeAuditIn(null, {
         actorId: actor.id,
         action: 'workspace.created',
         entityType: 'workspace',
@@ -1525,7 +1577,7 @@ export class DemoApi implements ApiClient {
       const w = this.workspaceRow(id);
       const data = validate(renameWorkspaceSchema, input);
       await this.unscoped(() => this.db.workspaces.update(id, { name: data.name }));
-      await this.writeAuditIn(id, {
+      await this.writeAuditIn(null, {
         actorId: actor.id,
         action: 'workspace.renamed',
         entityType: 'workspace',
@@ -1547,7 +1599,7 @@ export class DemoApi implements ApiClient {
           // Its sessions end (nothing is deleted).
           await this.db.sessions.filter((s) => s.workspaceId === id && s.token !== this.token).delete();
         });
-        await this.writeAuditIn(id, {
+        await this.writeAuditIn(null, {
           actorId: actor.id,
           action: 'workspace.archived',
           entityType: 'workspace',
@@ -1564,7 +1616,7 @@ export class DemoApi implements ApiClient {
       const w = this.workspaceRow(id);
       if (w.status === 'ARCHIVED') {
         await this.unscoped(() => this.db.workspaces.update(id, { status: 'ACTIVE', archivedAt: null }));
-        await this.writeAuditIn(id, {
+        await this.writeAuditIn(null, {
           actorId: actor.id,
           action: 'workspace.restored',
           entityType: 'workspace',
@@ -1836,14 +1888,26 @@ export class DemoApi implements ApiClient {
           await this.db.wsMemberships.add(row);
         }
       });
-      for (const wid of new Set(wantRoles.map((m) => m.workspaceId!))) {
-        await this.writeAuditIn(wid, {
+      if (isOwner) {
+        // Security review A12 M1: the account is created at account level; each membership is
+        // audited in its own workspace.
+        await this.writeAuditIn(null, {
           actorId: actor.id,
           action: 'user.created',
           entityType: 'user',
           entityId: created.id,
           before: null,
-          after: {
+          after: { username, fullName: created.fullName, status: created.status, ...(data.password ? { passwordSet: true, mustChangePassword: created.mustChangePassword } : {}) },
+        });
+      }
+      for (const wid of new Set(wantRoles.map((m) => m.workspaceId!))) {
+        await this.writeAuditIn(wid, {
+          actorId: actor.id,
+          action: isOwner ? 'membership.added' : 'user.created',
+          entityType: 'user',
+          entityId: created.id,
+          before: null,
+          after: isOwner ? { userId: created.id, roles: wantRoles.filter((m) => m.workspaceId === wid).map((m) => m.role) } : {
             username,
             fullName: created.fullName,
             roles: wantRoles.filter((m) => m.workspaceId === wid).map((m) => m.role),
@@ -1879,7 +1943,7 @@ export class DemoApi implements ApiClient {
         ...(data.nationalId ? { nationalId: data.nationalId } : {}),
       };
       await this.unscoped(() => this.db.users.put(next));
-      await this.writeAuditIn(actor._wid ?? null, {
+      await this.writeAuditIn(this.accountAuditWid(actor), {
         actorId: actor.id,
         action: 'user.updated',
         entityType: 'user',
@@ -1898,7 +1962,7 @@ export class DemoApi implements ApiClient {
       const hit = await this.rawUserBy('username', data.username);
       if (hit && hit.id !== id) fail('USERNAME_TAKEN', { fieldErrors: { username: [ERRORS.USERNAME_TAKEN] } });
       await this.unscoped(() => this.db.users.update(id, { username: data.username }));
-      await this.writeAuditIn(actor._wid ?? null, {
+      await this.writeAuditIn(this.accountAuditWid(actor), {
         actorId: actor.id,
         action: 'user.username_changed',
         entityType: 'user',
@@ -1922,7 +1986,7 @@ export class DemoApi implements ApiClient {
         await this.db.sessions.filter((s) => s.userId === id && s.token !== this.token).delete();
       });
       // Never the value.
-      await this.writeAuditIn(actor._wid ?? null, {
+      await this.writeAuditIn(this.accountAuditWid(actor), {
         actorId: actor.id,
         action: 'user.password_set',
         entityType: 'user',
@@ -1972,7 +2036,19 @@ export class DemoApi implements ApiClient {
       if (target.accountRole === 'OWNER' && actor.accountRole !== 'OWNER') fail('FORBIDDEN');
       if (scope === 'global') {
         if (actor.accountRole !== 'OWNER') fail('FORBIDDEN');
-        if (target.status !== 'ACTIVE') return this.toUserDto(target, { full: true, viewerIsOwner: true });
+        if (target.status === 'SUSPENDED' && !target.suspendedGlobally) {
+          // A cascaded suspension becomes a global one (only an owner may lift it).
+          await this.unscoped(() => this.db.users.update(id, { suspendedGlobally: true }));
+          await this.writeAuditIn(null, {
+            actorId: actor.id,
+            action: 'user.suspended',
+            entityType: 'user',
+            entityId: id,
+            before: { status: 'SUSPENDED' },
+            after: { status: 'SUSPENDED', scope: 'global', ...(data.reason ? { reason: data.reason } : {}) },
+          });
+        }
+        if (target.status !== 'ACTIVE') return this.toUserDto({ ...target, suspendedGlobally: true }, { full: true, viewerIsOwner: true });
         if (target.accountRole === 'OWNER') {
           const others = await this.unscoped(
             () => this.db.users.filter((u) => u.accountRole === 'OWNER' && u.status === 'ACTIVE' && u.id !== id).count(),
@@ -1984,10 +2060,10 @@ export class DemoApi implements ApiClient {
           this.guardLastAdmin(wid, this.liveMemberships(id).filter((m) => m.workspaceId === wid));
         }
         await this.unscoped(async () => {
-          await this.db.users.update(id, { status: 'SUSPENDED' });
+          await this.db.users.update(id, { status: 'SUSPENDED', suspendedGlobally: true });
           await this.db.sessions.where('userId').equals(id).delete();
         });
-        await this.writeAuditIn(actor._wid ?? null, {
+        await this.writeAuditIn(null, {
           actorId: actor.id,
           action: 'user.suspended',
           entityType: 'user',
@@ -1995,6 +2071,7 @@ export class DemoApi implements ApiClient {
           before: { status: 'ACTIVE' },
           after: { status: 'SUSPENDED', scope: 'global', ...(data.reason ? { reason: data.reason } : {}) },
         });
+        await this.reloadIdentity();
         return this.toUserDto({ ...target, status: 'SUSPENDED' }, { full: true, viewerIsOwner: true });
       }
       const wid = actor._wid;
@@ -2031,6 +2108,11 @@ export class DemoApi implements ApiClient {
       const scope = input?.scope ?? 'workspace';
       const target = await this.getUser(id);
       if (scope === 'global' && actor.accountRole !== 'OWNER') fail('FORBIDDEN');
+      // Security review A12 H2 (G2): nobody but an owner acts on an owner — like suspend.
+      if (target.accountRole === 'OWNER' && actor.accountRole !== 'OWNER') fail('FORBIDDEN');
+      // H2 (G1): an owner's GLOBAL suspension is lifted by an owner only.
+      const raw = await this.rawUser(id);
+      if (raw?.status === 'SUSPENDED' && raw.suspendedGlobally && actor.accountRole !== 'OWNER') fail('SUSPENDED_BY_OWNER');
       if (scope === 'workspace') {
         const wid = actor._wid;
         if (!wid) fail('WORKSPACE_REQUIRED');
@@ -2040,8 +2122,10 @@ export class DemoApi implements ApiClient {
           for (const m of here) await this.db.wsMemberships.update(m.id, { status: 'ACTIVE' });
         });
       }
-      if (target.status === 'SUSPENDED') await this.unscoped(() => this.db.users.update(id, { status: 'ACTIVE' }));
-      await this.writeAuditIn(actor._wid ?? null, {
+      if (target.status === 'SUSPENDED' || raw?.status === 'SUSPENDED') {
+        await this.unscoped(() => this.db.users.update(id, { status: 'ACTIVE', suspendedGlobally: false }));
+      }
+      await this.writeAuditIn(scope === 'global' ? null : (actor._wid ?? null), {
         actorId: actor.id,
         action: 'user.reactivated',
         entityType: 'user',
@@ -2102,7 +2186,7 @@ export class DemoApi implements ApiClient {
         before: { status: 'PENDING', role: target.requestedRole ?? target.role },
         after: { status: 'ACTIVE', role },
       });
-      await this.notify(target.id, 'REGISTRATION_APPROVED', { role });
+      await this.notify(target.id, 'REGISTRATION_APPROVED', { role, username: target.username });
       await this.reloadIdentity();
       return this.toUserDto({ ...target, status: 'ACTIVE', role }, { full: true });
     },
@@ -2133,9 +2217,15 @@ export class DemoApi implements ApiClient {
 
   audit: ApiClient['audit'] = {
     list: async (query = {}) => {
-      await this.actor('audit.read');
+      const viewer = await this.actor('audit.read');
       const users = new Map((await this.unscoped(() => this.db.users.toArray(), 'r')).map((u) => [u.id, u]));
-      const rows = (await this.db.audit.toArray())
+      // Security review A12 M1: `scope: 'account'` — the account-level entries (wid null), owners only.
+      if (query.scope === 'account' && viewer.accountRole !== 'OWNER') fail('FORBIDDEN');
+      const source =
+        query.scope === 'account'
+          ? (await this.unscoped(() => this.db.audit.toArray(), 'r')).filter((a) => (a as { wid?: string | null }).wid == null)
+          : await this.db.audit.toArray();
+      const rows = source
         .filter((a) => !query.action || a.action === query.action)
         .filter((a) => !query.entityType || a.entityType === query.entityType)
         .filter((a) => !query.entityId || a.entityId === query.entityId)

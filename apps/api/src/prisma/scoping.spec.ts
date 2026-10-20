@@ -108,6 +108,15 @@ describe('A12 scoping layer — scopeArgs', () => {
     expect(scopeArgs('Team', 'findMany', { where: { id: 'x' } }, bypass)).toEqual({ where: { id: 'x' } });
   });
 
+  it('security review A12 M1: outside any workspace an OWNER reads ONLY the account-level audit (workspace NULL); nobody else reads anything', () => {
+    const ownerOutside = newStore({ accountRole: 'OWNER', userId: 'o1' });
+    expect(scopeArgs('AuditLog', 'findMany', { where: { entityType: 'user' } }, ownerOutside).where).toEqual({ entityType: 'user', AND: [{ workspaceId: null }] });
+    expect(scopeArgs('AuditLog', 'count', {}, ownerOutside).where).toEqual({ AND: [{ workspaceId: null }] });
+    expect(() => scopeArgs('AuditLog', 'findMany', {}, newStore({ userId: 'u1' }))).toThrow(WorkspaceScopeError);
+    expect(() => scopeArgs('AuditLog', 'deleteMany', {}, ownerOutside)).toThrow(WorkspaceScopeError);
+    expect(() => scopeArgs('Team', 'findMany', {}, ownerOutside)).toThrow(WorkspaceScopeError);
+  });
+
   it('readsRelations spots include and nested selects (they may touch scoped tables)', () => {
     expect(readsRelations({ include: { photo: true } })).toBe(true);
     expect(readsRelations({ select: { id: true, photo: { select: { id: true } } } })).toBe(true);

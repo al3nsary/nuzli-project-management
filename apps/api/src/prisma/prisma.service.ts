@@ -187,10 +187,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     );
   }
 
-  /** Runs `fn` once per active workspace (background jobs). Errors of one workspace do not stop the others. */
-  async forEachWorkspace(label: string, fn: (workspace: { id: string; name: string }) => Promise<void>): Promise<void> {
+  /**
+   * Runs `fn` once per workspace (background jobs). Errors of one workspace do not stop the others.
+   * Active workspaces only by default (reminders, OCR); security review A12 M4: retention and
+   * cleanup jobs pass `includeArchived` — archiving a workspace closes it, it never exempts its
+   * ID-card photos, OCR results or pending uploads from deletion (PDPL).
+   */
+  async forEachWorkspace(
+    label: string,
+    fn: (workspace: { id: string; name: string }) => Promise<void>,
+    opts: { includeArchived?: boolean } = {},
+  ): Promise<void> {
     const workspaces = await this.workspace.findMany({
-      where: { status: 'ACTIVE' },
+      where: opts.includeArchived ? {} : { status: 'ACTIVE' },
       select: { id: true, name: true },
       orderBy: { createdAt: 'asc' },
     });

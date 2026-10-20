@@ -239,6 +239,8 @@ export const en: Record<MessageKey, string> = {
   'users.lastAdminHint': '',
   'audit.title': '',
   'audit.lead': '',
+  'audit.scope.workspace': '',
+  'audit.scope.account': '',
   'audit.filterAction': '',
   'audit.filterActor': '',
   'audit.from': '',

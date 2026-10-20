@@ -78,10 +78,14 @@ export const emails = {
     });
   },
 
-  registrationApproved(p: { name: string; role: Role; url: string }) {
+  registrationApproved(p: { name: string; role: Role; url: string; username?: string }) {
     return layout('اعتُمد حسابك في نزلي', {
       greeting: hello(p.name),
-      paragraphs: [`اعتمد مدير النظام حسابك بصفة «${ROLE_LABELS[p.role]}».`, 'يمكنك الآن تسجيل الدخول.'],
+      paragraphs: [
+        `اعتمد مدير النظام حسابك بصفة «${ROLE_LABELS[p.role]}».`,
+        ...(p.username ? [`اسم المستخدم لتسجيل الدخول: ${p.username}`] : []),
+        'يمكنك الآن تسجيل الدخول.',
+      ],
       action: { label: 'تسجيل الدخول', url: p.url },
     });
   },

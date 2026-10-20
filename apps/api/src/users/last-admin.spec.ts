@@ -37,6 +37,11 @@ describe('last-admin rules (ADR-009)', () => {
     await expect(lockActiveAdmins(tx as never, 'ws-1')).resolves.toEqual(['a1', 'a2']);
     const sql = (tx.$queryRaw.mock.calls[0]![0] as TemplateStringsArray).join('?');
     expect(sql).toMatch(/FOR UPDATE/);
+    // Security review A12 L3: the USERS rows are locked too — a concurrent global suspension of one
+    // admin (users.status) and a workspace suspension of the other (membership) serialise, and the
+    // re-check after the wait sees the suspended account (no workspace left without an admin).
+    expect(sql).toMatch(/FOR UPDATE OF m, u$/);
+    expect(sql).toMatch(/u.status = 'ACTIVE'/);
     // A12: the admins of ONE workspace (the id is a bound parameter).
     expect(sql).toContain("m.workspace_id = ?::uuid");
     expect(sql).toMatch(/role = 'ADMIN'/);

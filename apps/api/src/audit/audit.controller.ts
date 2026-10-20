@@ -2,7 +2,8 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { isoDate, isoDateTime, paginationQuery, uuid } from '@nuzli/shared';
 import { z } from 'zod';
-import { RequirePermission } from '../common/decorators';
+import { CurrentUser, RequirePermission } from '../common/decorators';
+import type { AuthUser } from '../common/request';
 import { ZodQuery } from '../common/zod-openapi';
 import { AuditService } from './audit.service';
 
@@ -14,6 +15,8 @@ const auditQuery = paginationQuery.extend({
   /** `YYYY-MM-DD` (whole day, UTC) or an ISO instant. */
   from: z.union([isoDate, isoDateTime]).optional(),
   to: z.union([isoDate, isoDateTime]).optional(),
+  /** Security review A12 M1: `account` = account-level entries (owners only). */
+  scope: z.enum(['workspace', 'account']).optional(),
 });
 
 @ApiTags('audit')
@@ -25,7 +28,7 @@ export class AuditController {
   @Get()
   @RequirePermission('audit.read')
   @ApiOperation({ summary: 'سجل التدقيق' })
-  list(@ZodQuery(auditQuery) q: z.infer<typeof auditQuery>) {
-    return this.audit.list(q);
+  list(@ZodQuery(auditQuery) q: z.infer<typeof auditQuery>, @CurrentUser() viewer: AuthUser) {
+    return this.audit.list(q, viewer);
   }
 }

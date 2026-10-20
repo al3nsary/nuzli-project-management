@@ -232,7 +232,7 @@ export class FilesService {
     let total = 0;
     await this.prisma.forEachWorkspace('files-cleanup', async () => {
       total += await this.cleanupPending(now);
-    });
+    }, { includeArchived: true });
     return total;
   }
 
@@ -241,7 +241,7 @@ export class FilesService {
     let total = 0;
     await this.prisma.forEachWorkspace('files-orphans', async () => {
       total += await this.cleanupOrphans(now);
-    });
+    }, { includeArchived: true });
     return total;
   }
 

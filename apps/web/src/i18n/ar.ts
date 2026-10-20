@@ -275,6 +275,8 @@ export const ar = {
   // ---------------------------------------------------------------- audit
   'audit.title': 'سجل التدقيق',
   'audit.lead': 'كل تغيير في الحسابات والصلاحيات والإعدادات، بمن نفّذه ومتى.',
+  'audit.scope.workspace': 'سجل هذا القسم',
+  'audit.scope.account': 'سجل الحسابات والأقسام (للمالك)',
   'audit.filterAction': 'الإجراء',
   'audit.filterActor': 'المنفّذ',
   'audit.from': 'من تاريخ',

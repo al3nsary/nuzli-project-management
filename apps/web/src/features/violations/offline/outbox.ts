@@ -24,7 +24,14 @@ export const SYNCED_KEEP_MS = 24 * 60 * 60 * 1000;
  */
 export async function enqueueViolation(
   db: OfflineDb,
-  input: { userId: string; payload: OutboxPayload; display: OutboxDisplay; photos: NewPhoto[] },
+  input: {
+    userId: string;
+    /** A12 (H3): the session's workspace — the item is sent only by a session of it. */
+    workspace?: { id: string; name: string } | null;
+    payload: OutboxPayload;
+    display: OutboxDisplay;
+    photos: NewPhoto[];
+  },
   now: Date = new Date(),
 ): Promise<OutboxItem> {
   const id = input.payload.clientUuid;
@@ -63,6 +70,8 @@ export async function enqueueViolation(
   const item: OutboxItem = {
     id,
     userId: input.userId,
+    workspaceId: input.workspace?.id ?? null,
+    workspaceName: input.workspace?.name ?? null,
     createdAt: at,
     updatedAt: at,
     payload: input.payload,
@@ -83,11 +92,59 @@ export async function enqueueViolation(
   return item;
 }
 
-/** Items not yet on the server (pending, uploading or failed). */
+/** Items not yet on the server (pending, uploading or failed) — of every workspace. */
 export async function unsyncedCount(db: OfflineDb, userId?: string | null): Promise<number> {
   return db.outbox
     .filter((i) => i.status !== 'synced' && (!userId || i.userId === userId))
     .count();
+}
+
+/**
+ * A12 (H3): does this item belong to the session's workspace? Items recorded before A12 carry no
+ * workspace and are adopted by the session that syncs them (exactly the pre-A12 behaviour).
+ */
+export function inWorkspace(item: Pick<OutboxItem, 'workspaceId'>, workspaceId: string | null | undefined): boolean {
+  return item.workspaceId == null || !workspaceId || item.workspaceId === workspaceId;
+}
+
+export interface OtherWorkspaceUnsynced {
+  workspaceId: string;
+  workspaceName: string | null;
+  count: number;
+}
+
+/**
+ * A12 (H3): unsynced items of this user recorded in OTHER workspaces than `workspaceId` — kept on
+ * the device and sent when the user enters that workspace again (the notice on «اختر القسم» and
+ * on the violations screens).
+ */
+export async function unsyncedElsewhere(db: OfflineDb, userId: string | null | undefined, workspaceId: string | null | undefined): Promise<OtherWorkspaceUnsynced[]> {
+  if (!userId) return [];
+  const items = await db.outbox
+    .where('userId')
+    .equals(userId)
+    .filter((i) => i.status !== 'synced' && i.workspaceId != null && i.workspaceId !== workspaceId)
+    .toArray();
+  const by = new Map<string, OtherWorkspaceUnsynced>();
+  for (const i of items) {
+    const row = by.get(i.workspaceId!) ?? { workspaceId: i.workspaceId!, workspaceName: i.workspaceName, count: 0 };
+    row.count += 1;
+    by.set(i.workspaceId!, row);
+  }
+  return [...by.values()];
+}
+
+/**
+ * A12 (L4): entering another workspace drops the cached roster (names and masked IDs of the
+ * previous workspace's workers), the violation types and the form settings — never the outbox.
+ */
+export async function clearWorkspaceCache(db: OfflineDb) {
+  await db.transaction('rw', [db.roster, db.meta], async () => {
+    await db.roster.clear();
+    await Promise.all(
+      (['lastRosterAt', 'rosterUserId', 'rosterWorkspaceId', 'types', 'formSettings'] as const).map((k) => db.meta.delete(k)),
+    );
+  });
 }
 
 /** «إعادة المحاولة»: back to pending, now, with a fresh backoff. */
@@ -120,7 +177,8 @@ export async function pruneSynced(db: OfflineDb, now = Date.now()) {
 
 /**
  * Logout (brief §7.4): every cached personal datum and the outbox leave the device.
- * The caller warns first when `unsyncedCount` > 0.
+ * The caller warns first when `unsyncedCount` > 0 (counting every workspace). A workspace change
+ * never calls this (A12 H3): it uses `clearWorkspaceCache`.
  */
 export async function clearOfflineData(db: OfflineDb) {
   await db.transaction('rw', [db.roster, db.meta, db.outbox, db.outboxFiles], async () => {

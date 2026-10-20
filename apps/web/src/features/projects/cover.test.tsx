@@ -2,6 +2,8 @@
  * A12 round 2 — the project cover: with no image the generated cover shows the project's colour
  * and two Arabic-aware initials; the 16:9 crop geometry keeps the frame inside the picture.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { projectColor } from '@nuzli/shared';
@@ -24,7 +26,7 @@ describe('ProjectCover', () => {
     const cover = await screen.findByTestId('project-cover');
     expect(cover).toHaveAttribute('data-kind', 'generated');
     expect(cover.style.getPropertyValue('--cover')).toBe(projectColor(id));
-    expect(cover).toHaveTextContent(`ص${ZWNJ}ش`);
+    expect(cover).toHaveTextContent(`ص${ZWNJ}ح`);
     expect(cover).toHaveAccessibleName('غلاف مشروع مشروع صيانة الحديقة الشمالية');
     expect(cover.querySelector('img')).toBeNull();
   });
@@ -45,6 +47,25 @@ describe('ProjectCover', () => {
     expect(projectInitials('مشروع تأهيل الحديقة')).toBe(`ت${ZWNJ}ح`);
     expect(projectInitials('مشروع')).toBe('م');
     expect(projectInitials('  ')).toBe('؟');
+  });
+
+  it('owner QA A12: the first letters of the first two meaningful words, not the first and the last', () => {
+    expect(projectInitials('تركيب نظام ري ذكي — مبنى الإدارة (تجريبي)')).toBe(`ت${ZWNJ}ن`);
+    expect(projectInitials('(تجريبي) صيانة الحديقة')).toBe(`ص${ZWNJ}ح`);
+    expect(projectInitials('تطوير في الحي الشمالي')).toBe(`ت${ZWNJ}ح`);
+    expect(projectInitials('مشروع «الإنارة» و الطرق')).toBe(`إ${ZWNJ}ط`);
+    expect(projectInitials('— ري —')).toBe('ر');
+    expect(projectInitials('ال')).toBe('ا');
+    expect(projectInitials('مشروع الأداء — 2000 مهمة (تجريبي)')).toBe(`أ${ZWNJ}م`);
+    expect(projectInitials('2026')).toBe('2');
+  });
+
+  it('the generated cover never underlines its letters (the card is a link)', () => {
+    const css = readFileSync(join(__dirname, 'cover.css'), 'utf8');
+    expect(css).toMatch(/.nz-cover-initials {[^}]*text-decoration: none/);
+    // A propagated underline cannot be cancelled by a child: the link around the cover drops it.
+    expect(css).toContain('a:has(> .nz-cover),');
+    expect(css).toMatch(/a:has\(> \.nz-cover\),[^{]*\{[^}]*text-decoration: none/);
   });
 });
 

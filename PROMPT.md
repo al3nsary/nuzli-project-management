@@ -655,3 +655,12 @@ Verbatim requests and the agreed design are in `docs/brief/A12-request.md`. The 
   - «البحث عن تحديث» and the app version in settings.
   - Unsynced violations survive updates.
 - **Final deliverable:** an **empty** production system — no demo data; only the owner bootstrap and the «إدارة المشاريع» workspace with neutral defaults — deployable with `docker compose` per §3, with clear deployment docs. The GitHub Pages demo stays a separate, clearly-labelled demo.
+- **Independent security review of A12 — every finding fixed, server and demo alike (2026-10-20, `docs/security-review-2026-10-A12.md`, ADR-162…167):**
+  - **No silent data loss:** choosing or switching a workspace never deletes unsynced violations; each one belongs to the workspace it was recorded in and is sent when that workspace is active (the user is told where items wait). Only signing out removes them, after a warning with the count.
+  - **Owners:** the `BOOTSTRAP_OWNER_*` list acts on the first boot only; a lost owner is restored by an operator with server access (`npm run owner:recover -- --username …`).
+  - **The account is global:** a workspace admin cannot lift an owner's suspension in every workspace, nor change the photo or data of a person who belongs to another workspace; owners' account changes are audited at account level (owners only), never in a workspace's audit log.
+  - **Side effects:** reminders and e-mails only reach live members of the workspace; retention also runs on archived workspaces.
+  - **Lookups:** adding an existing account reveals nothing about other workspaces; registration does not reveal taken usernames.
+  - **Database:** the API's role can never bypass Row Level Security, even by setting the setting itself.
+  - **Proof:** both isolation suites fail if the workspace filter of ANY single scoped table is removed (mutation gates `npm run test:isolation:mutation`, API and demo).
+  - **Covers:** the generated cover takes the first letters of the first two meaningful words (no underline).

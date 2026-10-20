@@ -12,6 +12,11 @@
  *
  * Coverage gate: the method list is read from `client.ts` with the TypeScript parser — a method
  * without a case here fails the suite.
+ *
+ * Security review A12 M5 (ADR-166): a sixth identity — a person with roles in BOTH workspaces, with
+ * B notifications, a B participation and a B view preference, working in A — probes every method;
+ * and every scoped Dexie table is read directly in A's context (model by model). Removing the
+ * workspace filter of ANY scoped table makes this suite fail (`npm run test:isolation:mutation`).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -85,8 +90,17 @@ const allBIds = new Set<string>();
 async function login(identifier: string, password = DEMO_PASSWORD) {
   const s = await api.auth.login({ identifier, password });
   api.setAccessToken(s.accessToken);
+  // M5: a person with several workspaces works in A (once A is known).
+  if (!s.activeWorkspace && A?.ws && (s.workspaces ?? []).some((w) => w.id === A.ws) && identifier === DUAL) {
+    const sw = await api.auth.switchWorkspace(A.ws);
+    api.setAccessToken(sw.accessToken);
+    return sw;
+  }
   return s;
 }
+
+/** M5: the person with roles in A (monitor) and B (supervisor). Not a B fingerprint: they are in A too. */
+const DUAL = 'iso-dual';
 
 /** B's business rows and identity rows (memberships, its accounts, the workspace), sorted, as JSON. */
 async function snapshotB(wid: string): Promise<string> {
@@ -124,6 +138,19 @@ async function buildB(): Promise<BIds> {
       mustChangePassword: false,
       memberships: [{ workspaceId: ws.id, role }],
     });
+  // M5: the dual member — MONITOR in A, SUPERVISOR in B (created by the owner, confirmed).
+  const aWs = (await api.auth.workspaces()).find((w) => w.id !== ws.id)!;
+  const dual = await api.users.create({
+    username: DUAL,
+    fullName: 'شخص في القسمين للاختبار',
+    email: 'iso-dual@iso-b.example',
+    mobile: '0558110031',
+    nationalId: validId('106600310'),
+    password: PASSWORD,
+    mustChangePassword: false,
+    confirmDualRole: true,
+    memberships: [{ workspaceId: aWs.id, role: 'MONITOR' }, { workspaceId: ws.id, role: 'SUPERVISOR' }],
+  } as never);
   const admin = await mk('isob-admin', 'ADMIN', '11');
   const sup = await mk('isob-sup', 'SUPERVISOR', '12');
   const mon = await mk('isob-mon', 'MONITOR', '13');
@@ -146,6 +173,9 @@ async function buildB(): Promise<BIds> {
   const entry = await api.tasks.addTimeEntry(task.id, { date: new Date().toISOString().slice(0, 10), minutes: 60, note: `وقت ${MARK}` });
   const dep = await api.dependencies.create(project.id, { predecessorId: task.id, successorId: task2.id });
   await api.participants.add(project.id, { userId: member.id, title: `منصب ${MARK}`, level: 'EDITOR' });
+  // M5: B rows keyed by the dual member (a participation + its notification, an assigned task).
+  await api.participants.add(project.id, { userId: dual.id, title: `منصب المزدوج ${MARK}`, level: 'VIEWER' });
+  await api.tasks.update(task2.id, { assigneeId: dual.id } as never).catch(() => undefined);
   const type = await api.violationTypes.create({ name: `نوع ${MARK}`, severity: 'LOW' });
   const calendar = await api.calendars.create({ name: `تقويم ${MARK}`, weekendDays: [5, 6] });
   const withEx = await api.calendars.addException(calendar.id, { date: '2026-12-01', isWorking: false, name: `عطلة ${MARK}` });
@@ -185,6 +215,18 @@ async function buildB(): Promise<BIds> {
     expectedIdPhotos: 1,
     expectedEvidencePhotos: 1,
   });
+  // M5: rows of the three scoped tables the API flows above do not fill in B (a closed supervision,
+  // project access, an OCR job) — written as B's rows, so a missing filter on them has B to leak.
+  const at = new Date().toISOString();
+  await api.inWorkspace(ws.id, async () => {
+    await api.db.table('supervisorHistory').add({ id: uuid(), teamId: team.id, supervisorId: sup.id, validFrom: '2026-01-01T00:00:00.000Z', validTo: '2026-02-01T00:00:00.000Z', changedById: admin.id, reason: `سبب ${MARK}` });
+    await api.db.table('projectAccess').add({ id: uuid(), projectId: project.id, userId: sup.id, level: 'VIEW', createdAt: at });
+    await api.db.table('violationOcr').add({ violationId: violation.id, fileId: presigned.fileId, status: 'PENDING', attempts: 0, error: `خطأ ${MARK}`, extracted: null, extractedAt: null, updatedAt: at });
+  });
+  // M5: the dual member's own B rows (a view preference), written as them inside B.
+  await login(DUAL, PASSWORD);
+  api.setAccessToken((await api.auth.switchWorkspace(ws.id)).accessToken);
+  await api.viewPrefs.put({ projectId: project.id, key: 'gantt.columns', value: [{ id: `المزدوج ${MARK}` }] });
   // The supervisor of B asks to add a worker (a request waiting in B).
   await login('isob-sup', PASSWORD);
   const accepted = await api.teams.addMember(team.id, { fullName: `مرشّح ${MARK}`, nationalId: validId('199445566') });
@@ -579,7 +621,7 @@ async function textOf(value: unknown): Promise<string> {
 
 class Leak extends Error {}
 
-async function probe(name: string, run: () => Promise<unknown>, stats: { refused: number; clean: number }) {
+async function probe(name: string, run: () => Promise<unknown>, stats: { refused: number; clean: number }, allowed: ReadonlySet<string> = new Set()) {
   let out: unknown;
   try {
     out = await run();
@@ -591,7 +633,7 @@ async function probe(name: string, run: () => Promise<unknown>, stats: { refused
     throw new Error(`${name}: not an API answer — ${(err as Error)?.stack ?? String(err)}`);
   }
   const text = await textOf(out);
-  const leaked = [...allBIds].filter((id) => text.includes(id));
+  const leaked = [...allBIds].filter((id) => !allowed.has(id) && text.includes(id));
   if (text.includes(MARK) || leaked.length) {
     throw new Leak(`${name}: workspace B leaked (${leaked.join(', ') || MARK}) → ${text.slice(0, 300)}`);
   }
@@ -650,17 +692,23 @@ const IDENTITIES: { name: string; login: [string, string?] }[] = [
   { name: 'supervisor of A', login: ['supervisor1'] },
   { name: 'monitor of A', login: ['monitor1'] },
   { name: 'project participant of A (editor)', login: ['editor1'] },
+  // Security review A12 M5: roles in A and B, working in A.
+  { name: 'person with roles in A and B (working in A)', login: [DUAL, PASSWORD] },
 ];
 
-describe('A12 demo isolation — five identities of workspace A aimed at workspace B', () => {
+describe('A12 demo isolation — six identities of workspace A aimed at workspace B', () => {
   for (const who of IDENTITIES) {
     it(`${who.name}: every method refuses B or answers without B`, async () => {
       const stats = { refused: 0, clean: 0 };
       for (const [name, c] of Object.entries(CASES)) {
         if ('exempt' in c) continue;
+        // The dual member may enter B — that is their own right (and is audited in B), not a leak.
+        if (who.login[0] === DUAL && name === 'auth.switchWorkspace') continue;
         for (const run of c.probes) {
           await login(...(who.login as [string, string?]));
-          await probe(name, () => run(B, A), stats);
+          // The dual member's OWN session lists the workspaces they belong to — B's id among them.
+          const allowed = who.login[0] === DUAL && name.startsWith('auth.') ? new Set([B.ws]) : undefined;
+          await probe(name, () => run(B, A), stats, allowed);
         }
       }
       expect(stats.refused + stats.clean).toBeGreaterThan(250);
@@ -682,6 +730,35 @@ describe('A12 demo isolation — five identities of workspace A aimed at workspa
     // editor1 is a participant of «تأهيل حديقة الحي الشمالي» only.
     expect((await api.projects.list({})).map((x) => x.id)).toEqual(['00000000-0000-4000-8000-f00000000001']);
   }, 60_000);
+
+  it('M5: the fixture puts B rows in EVERY scoped table (so a missing filter has something to leak)', async () => {
+    const empty: string[] = [];
+    for (const name of SCOPED_TABLES) {
+      const n = await api.unscoped(async () => (await api.db.table(name).toArray()).filter((r: Record<string, unknown>) => r.wid === B.ws).length, 'r');
+      if (!n) empty.push(name);
+    }
+    expect(empty).toEqual([]);
+  });
+
+  it('M5: APP LAYER, table by table — every scoped Dexie table read in A’s context returns no row of B', async () => {
+    await login('admin1');
+    const leaks: string[] = [];
+    for (const name of SCOPED_TABLES) {
+      const rows = (await api.inWorkspace(A.ws, () => api.db.table(name).toArray(), 'r')) as Array<Record<string, unknown>>;
+      const foreign = rows.filter((r) => r.wid !== A.ws && !(name === 'files' && r.wid == null && r.entityType === 'user_photo'));
+      if (foreign.length) leaks.push(`${name}: ${foreign.length} row(s) of another workspace`);
+      const inB = await api.inWorkspace(A.ws, () => api.db.table(name).filter((r: Record<string, unknown>) => r.wid === B.ws).count(), 'r');
+      if (inB) leaks.push(`${name}.filter(wid = B).count → ${inB}`);
+    }
+    expect(leaks).toEqual([]);
+  });
+
+  it('M5: the dual member, in A, sees nothing of B in their own notifications, participations and session', async () => {
+    await login(DUAL, PASSWORD);
+    const text = JSON.stringify([await api.notifications.list({}), await api.notifications.unreadCount(), await api.me.participations(), await api.auth.me(), await api.viewPrefs.list({ projectId: B.projectId })]);
+    expect(text).not.toContain(MARK);
+    expect(text).not.toContain(B.projectId);
+  });
 
   it('B itself still sees its data (the probes did not delete anything)', async () => {
     await login('isob-admin', PASSWORD);

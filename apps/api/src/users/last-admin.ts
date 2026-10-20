@@ -5,7 +5,10 @@ import { activeWorkspaceId } from '../prisma/workspace-context';
 /**
  * Locks every ACTIVE admin membership of the workspace for the rest of the transaction (ADR-009,
  * A12: per workspace) and returns the user ids. Two admins demoting each other at the same moment
- * serialise on these locks.
+ * serialise on these locks. Security review A12 L3: the admins' `users` rows are locked as well
+ * (`FOR UPDATE OF m, u`), so an owner's global suspension (users.status) and a workspace
+ * suspension (the membership) of two different admins serialise too, and PostgreSQL re-checks
+ * `u.status = 'ACTIVE'` on the row versions it waited for.
  */
 export async function lockActiveAdmins(tx: Prisma.TransactionClient, workspaceId: string = activeWorkspaceId()): Promise<string[]> {
   const rows = await tx.$queryRaw<Array<{ id: string }>>`
@@ -15,7 +18,7 @@ export async function lockActiveAdmins(tx: Prisma.TransactionClient, workspaceId
       AND m.role = 'ADMIN'::"WorkspaceRole" AND m.status = 'ACTIVE'::"WorkspaceMembershipStatus"
       AND m.archived_at IS NULL AND u.status = 'ACTIVE'::"UserStatus"
     ORDER BY m.user_id
-    FOR UPDATE OF m`;
+    FOR UPDATE OF m, u`;
   return rows.map((r) => r.id);
 }
 

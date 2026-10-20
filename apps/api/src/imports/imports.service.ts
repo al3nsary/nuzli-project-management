@@ -421,7 +421,7 @@ export class ImportsService {
     let total = 0;
     await this.prisma.forEachWorkspace('import-previews-cleanup', async () => {
       total += await this.cleanupExpired(now);
-    });
+    }, { includeArchived: true });
     return total;
   }
 

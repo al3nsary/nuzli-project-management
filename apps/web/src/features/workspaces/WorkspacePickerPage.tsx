@@ -7,7 +7,8 @@ import { AuthLayout } from '../../pages/auth/AuthLayout';
 import { needsWorkspacePick, useAuthStore } from '../../stores/auth';
 import { useSessionActions } from '../../app/useSessionActions';
 import { roleLabel } from '../../components/ui';
-import { t } from '../../i18n';
+import { t, tCount } from '../../i18n';
+import { useOutboxElsewhere } from '../violations/offline/runtime';
 import { useWorkspaceSwitch } from './useWorkspaceSwitch';
 import './workspaces.css';
 
@@ -41,6 +42,10 @@ export function WorkspacePickerPage() {
   const from = (location.state as { from?: string; lost?: boolean } | null)?.from ?? '/';
   const lost = Boolean((location.state as { lost?: boolean } | null)?.lost);
   const [entering, setEntering] = useState(false);
+  // A12 security review H3: unsynced violations recorded on this device, by workspace. They are
+  // kept whatever is picked here; the notice says where they will be sent.
+  const waiting = useOutboxElsewhere(state.user?.id ?? null, null);
+  const waitingBy = new Map(waiting.map((w) => [w.workspaceId, w.count]));
 
   useEffect(() => {
     if (state.status === 'authenticated' && state.workspaces.length === 1 && !state.activeWorkspace && !entering) {
@@ -67,6 +72,11 @@ export function WorkspacePickerPage() {
           </Alert>
         ) : null}
         {state.workspaces.length === 0 ? <Alert color="gray">{t('workspacePick.empty')}</Alert> : null}
+        {waiting.length ? (
+          <Alert color="signal" variant="light" data-testid="ws-pick-unsynced">
+            {t('workspacePick.unsyncedNotice')}
+          </Alert>
+        ) : null}
         {entering ? (
           <Stack align="center" py="md">
             <Loader size="sm" />
@@ -95,6 +105,11 @@ export function WorkspacePickerPage() {
                   <b>{ws.name}</b>
                   <span className="nz-ws-roles">
                     <RolePills ws={ws} owner={owner} />
+                    {waitingBy.get(ws.id) ? (
+                      <span className="pill wait" data-testid={`ws-unsynced-${ws.code}`}>
+                        {tCount('workspacePick.unsynced', waitingBy.get(ws.id)!)}
+                      </span>
+                    ) : null}
                   </span>
                 </span>
                 <span className="nz-ws-go" aria-hidden>

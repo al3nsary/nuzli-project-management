@@ -7,6 +7,7 @@ import {
   Collapse,
   Group,
   Pagination,
+  SegmentedControl,
   Select,
   SimpleGrid,
   Stack,
@@ -19,6 +20,7 @@ import type { AuditEntryDto } from '@nuzli/shared';
 import { useAudit, useUsers } from '../api/queries';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader, roleLabel } from '../components/ui';
 import { formatDateTime, hasKey, t, tKey } from '../i18n';
+import { useAuthStore } from '../stores/auth';
 
 /** Audit action codes written in Phase 1 (the API and the demo use the same names). */
 export const AUDIT_ACTIONS = [
@@ -308,6 +310,10 @@ export function AuditPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
+  // Security review A12 M1: owners also read the ACCOUNT-LEVEL log (accounts, owners, workspaces —
+  // written outside any workspace, never in a workspace's log).
+  const isOwner = useAuthStore((s) => s.user?.accountRole === 'OWNER');
+  const [scope, setScope] = useState<'workspace' | 'account'>('workspace');
 
   const filters = {
     action: action ?? undefined,
@@ -316,7 +322,7 @@ export function AuditPage() {
     from: from || undefined,
     to: to || undefined,
   };
-  const q = useAudit({ ...filters, page, pageSize: 20 });
+  const q = useAudit({ ...filters, ...(isOwner && scope === 'account' ? { scope } : {}), page, pageSize: 20 });
   const people = useUsers({ pageSize: 200 });
   const names = useMemo(
     () => new Map((people.data?.items ?? []).map((u) => [u.id, u.fullName])),
@@ -333,6 +339,21 @@ export function AuditPage() {
   return (
     <>
       <PageHeader title={t('audit.title')} lead={t('audit.lead')} />
+      {isOwner ? (
+        <SegmentedControl
+          mb="md"
+          data-testid="audit-scope"
+          value={scope}
+          onChange={(v) => {
+            setScope(v as 'workspace' | 'account');
+            setPage(1);
+          }}
+          data={[
+            { value: 'workspace', label: t('audit.scope.workspace') },
+            { value: 'account', label: t('audit.scope.account') },
+          ]}
+        />
+      ) : null}
       <Card mb="md" p="md">
         <SimpleGrid cols={{ base: 1, xs: 2, md: 5 }} spacing="sm">
           <Select

@@ -30,6 +30,13 @@ export const GLOBAL_MODELS: ReadonlySet<string> = new Set([
 /** Account-level audit entries (login lock, refresh reuse…) are written with workspace_id NULL. */
 const NULL_WORKSPACE_WRITES = new Set(['AuditLog']);
 
+/**
+ * Security review A12 M1: OWNERS read the account-level audit (workspace NULL rows only) outside
+ * any workspace — `GET /audit?scope=account`. Nobody else, and never a workspace's rows.
+ */
+const NULL_WORKSPACE_OWNER_READS = new Set(['AuditLog']);
+const READ_OPS = new Set(['findUnique', 'findUniqueOrThrow', 'findFirst', 'findFirstOrThrow', 'findMany', 'count', 'aggregate', 'groupBy']);
+
 const WHERE_OPS = new Set([
   'findUnique', 'findUniqueOrThrow', 'findFirst', 'findFirstOrThrow', 'findMany',
   'count', 'aggregate', 'groupBy', 'update', 'updateMany', 'delete', 'deleteMany',
@@ -133,6 +140,12 @@ export function scopeArgs(model: string, operation: string, args: unknown, store
     if (NULL_WORKSPACE_WRITES.has(model) && CREATE_OPS.has(operation)) {
       if (Array.isArray(a.data)) a.data = a.data.map((d) => withWorkspaceData(model, d, null));
       else a.data = withWorkspaceData(model, a.data, null);
+      return a;
+    }
+    if (NULL_WORKSPACE_OWNER_READS.has(model) && READ_OPS.has(operation) && store?.accountRole === 'OWNER') {
+      const base = isObject(a.where) ? { ...a.where } : {};
+      const and = base.AND === undefined ? [] : Array.isArray(base.AND) ? [...base.AND] : [base.AND];
+      a.where = { ...base, AND: [...and, { workspaceId: null }] };
       return a;
     }
     throw new WorkspaceScopeError(`${model}.${operation} outside a workspace context`);

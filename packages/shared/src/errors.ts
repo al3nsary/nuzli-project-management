@@ -37,6 +37,8 @@ export const ERRORS = {
   PARTICIPANT_NOT_MEMBER: 'المشارك يجب أن يكون عضوًا في هذا القسم. أضفه إلى القسم أولًا.',
   PARTICIPANT_EXISTS: 'هذا الشخص مشارك في المشروع مسبقًا.',
   MEMBER_REQUEST_NOT_PENDING: 'هذا الطلب لم يعد بانتظار القرار.',
+  // A12 security review H2
+  SUSPENDED_BY_OWNER: 'هذا الحساب أوقفه المالك في كل الأقسام، فلا يرفع الإيقاف إلا المالك.',
 
   // users
   EMAIL_TAKEN: 'هذا البريد مسجّل لحساب آخر.',

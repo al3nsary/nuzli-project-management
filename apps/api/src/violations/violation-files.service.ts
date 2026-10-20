@@ -162,7 +162,7 @@ export class ViolationFilesService implements FileEntityHook, OnModuleInit {
     let total = 0;
     await this.prisma.forEachWorkspace('violation-photo-retention', async () => {
       total += await this.purgeExpiredPhotos(now);
-    });
+    }, { includeArchived: true });
     return total;
   }
 

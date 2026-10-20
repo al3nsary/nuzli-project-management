@@ -98,14 +98,15 @@ project access, time entries, photo access.
 | `teams/teams.service.ts` | `lockTeam` | `AND workspace_id = $ws` |
 | `photos/photos.service.ts` | `SELECT … FROM team_members … FOR UPDATE` | `AND workspace_id = $ws` (the `users` lock stays global) |
 | `org/org.service.ts` | `pg_advisory_xact_lock(hashtext('nuzli.org_structure'))` | key per workspace |
-| `users/last-admin.ts` | `lockActiveAdmins` | ADMIN memberships of the workspace (`FOR UPDATE OF m`) |
+| `users/last-admin.ts` | `lockActiveAdmins` | ADMIN memberships of the workspace and their users (`FOR UPDATE OF m, u` — security review L3) |
 | `prisma/prisma.service.ts` | `SELECT 1`, `pg_roles` check, the `set_config` GUC | no business table |
 
 ### Background jobs
 
-Each runs every active workspace explicitly (`PrismaService.forEachWorkspace`), its own context per
+Each runs every workspace explicitly (`PrismaService.forEachWorkspace`), its own context per
 workspace: import-preview cleanup, task due/overdue/deadline reminders, pending-upload cleanup, orphan
-files, violation photo retention (per-workspace setting and audit). The OCR queue claims jobs
+files, violation photo retention (per-workspace setting and audit). Security review M4: retention and the
+cleanups also visit ARCHIVED workspaces (`{ includeArchived: true }`); reminders and OCR stay on active ones. The OCR queue claims jobs
 workspace by workspace (`runWithoutWorkspace` → per-workspace `claim`) and processes each job inside the
 violation's workspace; the start-up sweep visits every workspace. The national-ID key-rotation CLI
 uses the documented maintenance bypass (§4).
@@ -117,7 +118,8 @@ uses the documented maintenance bypass (§4).
   (`audit_log`: `IS NOT DISTINCT FROM`, so account-level rows are visible only outside any workspace;
   `files`: plus global user photos).
 - `nz_current_workspace()` = `NULLIF(current_setting('app.workspace_id', true), '')::uuid`;
-  `nz_rls_bypass()` = `current_setting('app.bypass_rls', true) = 'on'`.
+  `nz_rls_bypass()` = `current_setting('app.bypass_rls', true) = 'on'` **and** the role is not `nuzli_app`
+  (nor a member of it) — security review L2, ADR-165: the API role can never bypass RLS, even by setting the GUC.
 - `workspace_id DEFAULT nz_current_workspace()` on every scoped table: nested Prisma creates and raw
   inserts get the session workspace; without one the insert fails (NOT NULL / RLS).
 - **How the GUC is set (performance + pooling).** No session-level `SET` (Prisma pools connections).
@@ -138,15 +140,17 @@ uses the documented maintenance bypass (§4).
   bypasses RLS, and refuses to start with `DB_REQUIRE_RLS=true`.
 - FORCE applies to the table owner too: a later **data** migration run by a non-superuser owner must
   start with `SET LOCAL app.bypass_rls = 'on';` (documented in the migration header).
-- What RLS is and is not: a second line of defence against a missing filter in the API (a bug), not
-  against a compromised API process (which could set the GUC itself).
+- What RLS is and is not: a second line of defence against a missing filter in the API (a bug). Since
+  ADR-165 the API's own role cannot switch it off (an injected `SET app.bypass_rls = on` is ignored for
+  `nuzli_app`); the bypass is only for maintenance connections as the migrator.
 
 ## 4. Owner bypass (ADR-145)
 
 `PrismaService.crossWorkspace(actor, reason, fn)` — the only cross-workspace path: the actor must be an
 OWNER, a reason is required, an `owner.cross_workspace_access` audit entry (workspace NULL, reason,
 ip, request id) is written **before** `fn` runs; inside `fn` the scoping is off and `app.bypass_rls = on`
-for that context only. Round 1 has no HTTP route using it (owners work inside one workspace at a time,
+for that context only — which, since ADR-165, spans workspaces only on a maintenance connection (not as
+`nuzli_app`, where RLS keeps the bound workspace). Round 1 has no HTTP route using it (owners work inside one workspace at a time,
 like admins); round 2's owner screens will. Operator CLIs (national-ID key rotation) use an explicit
 `bypass: true` maintenance store and are never reachable from HTTP.
 
@@ -220,7 +224,9 @@ no live membership elsewhere — the pre-A12 behaviour in single-workspace mode)
 The seed afterwards: per active workspace default settings/palette/calendar/card sizes/templates;
 bootstrap owner (username `BOOTSTRAP_OWNER_USERNAME`, e.g. `mmansary`, password from
 `BOOTSTRAP_ADMIN_PASSWORD`, must change at first login) only on an empty system; accounts named in
-`BOOTSTRAP_OWNER_EMAIL` / `BOOTSTRAP_OWNER_USERNAME` promoted to OWNER (audited `user.owner_promoted`).
+`BOOTSTRAP_OWNER_EMAIL` / `BOOTSTRAP_OWNER_USERNAME` promoted to OWNER (audited `user.owner_promoted`) —
+**only while no owner exists** (security review H1, ADR-163); a lost owner is restored with
+`npm run owner:recover -- --username …` (server access).
 
 ## 9. Risks and how each is tested
 
@@ -228,7 +234,7 @@ bootstrap owner (username `BOOTSTRAP_OWNER_USERNAME`, e.g. `mmansary`, password 
 |---|---|
 | A route returns or changes another workspace's data | `test/isolation/isolation-*.pg-spec.ts`: **every route** (203, read from Nest metadata) × 4 identities of A (admin, supervisor, monitor, owner working in A), aimed at B (path ids; A parent + B child for nested routes; B ids in bodies and filters): 840 probes; no B id/text in any response (JSON, CSV, XML, **xlsx parsed cell by cell**); 4xx whenever B is targeted (each documented exception named); positive controls on A; **B's 45 tables, accounts and memberships hashed before/after: identical** |
 | A new route ships without an isolation case | coverage test: a route missing from `test/isolation/cases.ts` fails the suite |
-| The app layer alone is wrong | the same suite runs as **superuser (RLS bypassed)**; mutation check: removing the filter for `Team`/`Violation` makes this run fail with leaks while the RLS run still passes (both layers independently effective) |
+| The app layer alone is wrong | the same suite runs as **superuser (RLS bypassed)**; **mutation gate** (security review M5, ADR-166): `npm run test:isolation:mutation` removes the filter of each of the 47 models in turn — the suite must fail for every one (47/47; the HTTP probes alone catch 26) |
 | RLS missing or bypassable | `test/pglite/rls.pg-spec.ts`: FORCE + policy on all 45; `nuzli_app` no superuser/BYPASSRLS; no rows without a workspace; exactly A's rows in A for all 45; cross-workspace insert refused, update/delete affect 0 rows; default workspace; audit NULL rows; owner bypass |
 | A row references another workspace | same file: **every one of the 55 guarded reference columns** updated to a B row → refused; `workspace_id` immutable on all 45; insert path; polymorphic `files.entity_id`; user membership checks |
 | The migration loses or misplaces data | `test/pglite/migration.pg-spec.ts`: chain up to the last pre-A12 migration, every table populated twice + edge cases, then A12: counts equal for **every** table, all rows in «إدارة المشاريع», memberships = roles, bootstrap admin = OWNER, usernames valid/unique/de-duplicated, sessions bound, NOTICEs printed, RLS on, guards on |
@@ -259,6 +265,26 @@ Nothing in the API serves or changes data across workspaces. Open items:
 5. The web app (workspace picker/switcher, workspace name under the logo, username login) — a later round;
    the API is backward compatible (single-workspace mode looks exactly as before).
 6. `test/int` (Testcontainers) suites were adapted but not run here (no Docker on this machine).
+
+## 11. Security review A12 (2026-10-20) — what changed
+
+`docs/security-review-2026-10-A12.md` (status table at its top) and ADR-162 … ADR-167. Business-data
+isolation was found sound; the fixes are in the global layer around it:
+
+- **Identity is global, so it is guarded globally:** suspension origin (`users.suspended_globally`, H2),
+  the profile photo under the account-edit rule (M2), account-level audit for owners' account, owner and
+  workspace actions with an owners-only read path (`GET /audit?scope=account`; the scoping layer allows
+  AuditLog READS outside a workspace for owners only, filtered to `workspace_id IS NULL`) (M1), a lookup that
+  reveals nothing about other workspaces and a registration that does not reveal taken usernames (L1),
+  user rows locked in the last-admin check (L3).
+- **Side effects:** `notify()` keeps only live members (or owners) of the active workspace (M3); retention
+  and cleanups include archived workspaces (M4).
+- **Deployment:** owner promotion from the environment only on the first boot, recovery by CLI (H1); the
+  RLS bypass is tied to the role (L2, migration `20261025000000_a12_security_review`).
+- **Device (web):** unsynced violations are per workspace and never wiped by a switch (H3/L4, ADR-162).
+- **Tests:** `test/isolation/a12-security-review.pg-spec.ts` ports every reproduction of the reviewer;
+  the isolation suite gained a sixth identity (roles in A and B), every `/reference/:kind`, real settings
+  keys, and a model-by-model probe; `test/isolation/mutation-check.ts` is the 47-model gate.
 
 ---
 

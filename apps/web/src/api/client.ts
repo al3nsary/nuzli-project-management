@@ -235,6 +235,8 @@ export interface AuditQuery extends PageQuery {
   /** `YYYY-MM-DD`, inclusive, Asia/Riyadh day. */
   from?: string;
   to?: string;
+  /** Security review A12 M1: `account` = the account-level entries (workspace NULL), owners only. */
+  scope?: 'workspace' | 'account';
 }
 
 export interface NotificationQuery extends PageQuery {

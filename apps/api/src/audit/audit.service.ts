@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { AppError } from '../common/app-error';
+import { newStore, runInStore } from '../prisma/workspace-context';
 import { Prisma } from '@prisma/client';
 import type { AuditEntryDto, Paginated } from '@nuzli/shared';
 import { paginate } from '../common/pagination';
@@ -165,6 +167,8 @@ export interface AuditQuery {
   entityId?: string;
   from?: string;
   to?: string;
+  /** Security review A12 M1: `account` = the account-level entries (workspace NULL), owners only. */
+  scope?: 'workspace' | 'account';
 }
 
 /** A bare date as `to` means the end of that day. */
@@ -226,7 +230,20 @@ export class AuditService {
     });
   }
 
-  async list(q: AuditQuery): Promise<Paginated<AuditEntryDto>> {
+  /**
+   * The audit log of the ACTIVE workspace, or — `scope: 'account'`, owners only — the account-level
+   * entries (owner account changes, owners, workspaces, login locks: workspace NULL). A workspace's
+   * admins never see account-level entries, and owners read them outside any workspace.
+   */
+  async list(q: AuditQuery, viewer?: { id: string; accountRole?: string | null }): Promise<Paginated<AuditEntryDto>> {
+    if (q.scope === 'account') {
+      if (viewer?.accountRole !== 'OWNER') throw new AppError('FORBIDDEN');
+      return runInStore(newStore({ userId: viewer.id, accountRole: 'OWNER', label: 'account-audit' }), () => this.listRows(q));
+    }
+    return this.listRows(q);
+  }
+
+  private async listRows(q: AuditQuery): Promise<Paginated<AuditEntryDto>> {
     const where: Prisma.AuditLogWhereInput = {
       ...(q.action ? { action: q.action } : {}),
       ...(q.entityType ? { entityType: q.entityType } : {}),

@@ -1,10 +1,9 @@
-import { useState } from 'react';
-import { Button, Group, Menu, Modal, Stack, Text } from '@mantine/core';
+import { Menu } from '@mantine/core';
 import { IconBuildingCommunity, IconCheck } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { useActiveWorkspace, useAuthStore } from '../../stores/auth';
 import { t } from '../../i18n';
-import { unsyncedCount, useWorkspaceSwitch } from './useWorkspaceSwitch';
+import { useWorkspaceSwitch } from './useWorkspaceSwitch';
 import './workspaces.css';
 
 /**
@@ -36,13 +35,13 @@ export function WorkspaceName({ variant = 'side' }: { variant?: 'side' | 'chip' 
 /**
  * The workspace list inside the top-bar user menu (owner A12: «يسمح له بالتبديل من الشريط العلوي
  * عند النقر على اسمه»). Hidden in single-workspace mode or with one workspace. `items` go inside
- * the menu; `dialog` (the unsynced-violations warning) outside it, so it outlives the menu.
+ * the menu. A12 security review H3: switching never deletes unsynced violations any more (they wait
+ * for their workspace), so there is no warning dialog; `dialog` stays for the callers' layout.
  */
 export function useWorkspaceMenu() {
   const { workspaces, activeWorkspace, singleWorkspace } = useAuthStore();
   const { enter, busyId } = useWorkspaceSwitch();
   const navigate = useNavigate();
-  const [confirm, setConfirm] = useState<{ id: string; count: number } | null>(null);
   const visible = !singleWorkspace && workspaces.length > 1;
 
   const go = async (id: string) => {
@@ -51,9 +50,7 @@ export function useWorkspaceMenu() {
   };
   const pick = async (id: string) => {
     if (id === activeWorkspace?.id) return;
-    const count = await unsyncedCount();
-    if (count > 0) setConfirm({ id, count });
-    else await go(id);
+    await go(id);
   };
 
   const items = visible ? (
@@ -82,28 +79,7 @@ export function useWorkspaceMenu() {
     </>
   ) : null;
 
-  const dialog = (
-    <Modal opened={confirm !== null} onClose={() => setConfirm(null)} title={t('workspaceSwitch.unsyncedTitle')} centered>
-      <Stack gap="md">
-        <Text size="sm">{t('workspaceSwitch.unsyncedBody')}</Text>
-        <Group justify="flex-end" gap="sm">
-          <Button variant="default" onClick={() => setConfirm(null)}>
-            {t('workspaceSwitch.stay')}
-          </Button>
-          <Button
-            color="breach"
-            onClick={() => {
-              const id = confirm!.id;
-              setConfirm(null);
-              void go(id);
-            }}
-          >
-            {t('workspaceSwitch.anyway')}
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-  );
+  const dialog = null;
 
   return { items, dialog, visible, pick, workspaces, activeId: activeWorkspace?.id ?? null, busyId };
 }

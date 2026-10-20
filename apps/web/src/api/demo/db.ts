@@ -58,6 +58,11 @@ export interface DemoUser {
   accountRole?: 'OWNER' | 'USER';
   /** A12: the workspace a registration applies to. */
   requestedWorkspaceId?: string | null;
+  /**
+   * Security review A12 H2: the account was suspended by an OWNER in every workspace — only an
+   * owner lifts it (a workspace admin answers SUSPENDED_BY_OWNER), like the API.
+   */
+  suspendedGlobally?: boolean;
 }
 
 /** A12: a workspace (قسم). Never deleted — archived. */

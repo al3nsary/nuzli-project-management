@@ -55,7 +55,7 @@ export class NotificationsService {
    * Payloads must not carry personal data beyond names (never national IDs).
    */
   async notify(userIds: string[], type: NotificationType, payload: Payload = {}): Promise<void> {
-    const ids = [...new Set(userIds)];
+    const ids = await this.liveRecipients([...new Set(userIds)], type);
     if (!ids.length) return;
     const created = await this.prisma.notification.createManyAndReturn({
       data: ids.map((userId) => ({ userId, type, payload: payload as Prisma.InputJsonValue })),
@@ -81,6 +81,33 @@ export class NotificationsService {
         }
       }
     }
+  }
+
+  /**
+   * Security review A12 M3: a notification (and its e-mail) of a workspace reaches only people who
+   * are, at send time, ACTIVE accounts with a live ACTIVE membership of that workspace — or owners.
+   * A person removed or suspended there (a former assignee, a project owner who moved to another
+   * workspace) gets nothing more about it. The one exception is the applicant of a registration
+   * to this workspace (approved / rejected): they are told the outcome of their own request.
+   * Every caller goes through here, so no reminder or e-mail can bypass it.
+   */
+  private async liveRecipients(ids: string[], type: NotificationType): Promise<string[]> {
+    if (!ids.length) return ids;
+    const ws = activeWorkspaceId();
+    const applicant = type === 'REGISTRATION_APPROVED' || type === 'REGISTRATION_REJECTED';
+    const rows = await this.prisma.user.findMany({
+      where: {
+        id: { in: ids },
+        OR: [
+          { status: 'ACTIVE', accountRole: 'OWNER' },
+          { status: 'ACTIVE', memberships: { some: { workspaceId: ws, status: 'ACTIVE', archivedAt: null } } },
+          ...(applicant ? [{ requestedWorkspaceId: ws }, { memberships: { some: { workspaceId: ws, archivedAt: null } } }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    const ok = new Set(rows.map((r) => r.id));
+    return ids.filter((id) => ok.has(id));
   }
 
   /**
@@ -119,6 +146,7 @@ export class NotificationsService {
         return emails.registrationApproved({
           name: to.fullName,
           role: (payload.role as Role) ?? 'SUPERVISOR',
+          username: typeof payload.username === 'string' ? payload.username : undefined,
           url: `${web}/login`,
         });
       case 'REGISTRATION_REJECTED':

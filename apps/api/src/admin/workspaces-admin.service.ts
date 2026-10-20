@@ -13,7 +13,7 @@ import { AppError } from '../common/app-error';
 import { withPrismaErrors } from '../common/prisma-errors';
 import type { AuthUser, RequestContext } from '../common/request';
 import { PrismaService } from '../prisma/prisma.service';
-import { newStore, runInStore } from '../prisma/workspace-context';
+import { newStore, runInStore, runWithoutWorkspace } from '../prisma/workspace-context';
 import { seedWorkspaceDefaults } from '../seed/seed';
 import { MembershipsService } from '../users/memberships.service';
 
@@ -93,16 +93,18 @@ export class WorkspacesAdminService {
     const ws = await withPrismaErrors(() =>
       this.prisma.workspace.create({ data: { name: input.name, code, createdById: viewer.id }, select: WS_SELECT }),
     );
-    await this.inside(ws.id, viewer, async () => {
-      // Neutral defaults only (the same idempotent seed every workspace gets at start-up).
-      const seeded = await seedWorkspaceDefaults(this.prisma as unknown as PrismaClient);
-      await this.audit.logCtx(ctx, {
+    // Neutral defaults only (the same idempotent seed every workspace gets at start-up).
+    const seeded = await this.inside(ws.id, viewer, () => seedWorkspaceDefaults(this.prisma as unknown as PrismaClient));
+    // Security review A12 M1: workspace lifecycle is an owner's system action — an account-level
+    // entry (workspace NULL, owners only), never in a workspace's own audit log.
+    await runWithoutWorkspace(() =>
+      this.audit.logCtx(ctx, {
         action: WorkspaceAction.CREATED,
         entityType: 'workspace',
         entityId: ws.id,
         after: { name: ws.name, code: ws.code, defaults: seeded },
-      });
-    });
+      }),
+    );
     return { ...this.dto(ws), adminCount: 0, memberCount: 0 };
   }
 
@@ -128,7 +130,7 @@ export class WorkspacesAdminService {
     const before = await this.load(id);
     if (before.name !== name) {
       await this.prisma.workspace.update({ where: { id }, data: { name } });
-      await this.inside(id, viewer, () =>
+      await runWithoutWorkspace(() =>
         this.audit.logCtx(ctx, { action: WorkspaceAction.RENAMED, entityType: 'workspace', entityId: id, before: { name: before.name }, after: { name } }),
       );
     }
@@ -148,7 +150,7 @@ export class WorkspacesAdminService {
       await tx.workspace.update({ where: { id }, data: { status: 'ARCHIVED', archivedAt: new Date() } });
       await tx.refreshToken.updateMany({ where: { workspaceId: id, revokedAt: null }, data: { revokedAt: new Date() } });
     });
-    await this.inside(id, viewer, () =>
+    await runWithoutWorkspace(() =>
       this.audit.logCtx(ctx, { action: WorkspaceAction.ARCHIVED, entityType: 'workspace', entityId: id, before: { status: 'ACTIVE' }, after: { status: 'ARCHIVED' } }),
     );
     return this.withCounts(id);
@@ -159,7 +161,7 @@ export class WorkspacesAdminService {
     const before = await this.load(id);
     if (before.status === 'ARCHIVED') {
       await this.prisma.workspace.update({ where: { id }, data: { status: 'ACTIVE', archivedAt: null } });
-      await this.inside(id, viewer, () =>
+      await runWithoutWorkspace(() =>
         this.audit.logCtx(ctx, { action: WorkspaceAction.RESTORED, entityType: 'workspace', entityId: id, before: { status: 'ARCHIVED' }, after: { status: 'ACTIVE' } }),
       );
     }

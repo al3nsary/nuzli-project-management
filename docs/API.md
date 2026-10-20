@@ -737,3 +737,31 @@ the person refs above; `PERSON_REF_KEYS`, `personRefIds`, `applyDualRole`.
 dual mark). The compact «صلاحية مزدوجة» mark (icon with tooltip) sits beside assignee names in the Gantt (grid
 and bar avatar), list, board, task drawer, «مهامي», chat authors, hub rows, team cards/detail and formation
 column headers.
+
+## A12 — security review fixes (ADR-162 … ADR-167, `docs/security-review-2026-10-A12.md`)
+
+The demo (`DemoApi`) answers identically.
+
+| Change | Contract |
+|---|---|
+| `GET /audit` | new query `scope=workspace\|account` (default `workspace`). `account` = the account-level entries (workspace NULL: an owner's account edits, username and password changes, global suspend/reactivate, account creation, owners, workspace create/rename/archive/restore, login locks, `owner.recovered`) — **owners only**, else 403 `FORBIDDEN`. These entries never appear in a workspace's log any more. |
+| `POST /users/:id/reactivate` (workspace path) | **403 `SUSPENDED_BY_OWNER`** («هذا الحساب أوقفه المالك في كل الأقسام، فلا يرفع الإيقاف إلا المالك.») to a non-owner when the account was suspended globally by an owner; nothing changes. A suspension that cascaded from the workspace's last membership is lifted as before. Owners: `{ scope: 'global' }` (or the workspace path) lift it. |
+| `POST /users/:id/suspend { scope: 'global' }` | also on an account already suspended by a cascade: it becomes a global suspension (audited). |
+| `POST /files/presign`, `POST /files/:id/confirm`, `DELETE /users/:id/photo` for `user_photo` of someone else | the account-edit rule: **403 `USER_IN_OTHER_WORKSPACES`** when the person has a membership in a workspace the caller does not administer; **403 `FORBIDDEN`** for an owner's photo (owners may always). |
+| `POST /workspaces/:id/members` | rate limited like sign-in (3 × `THROTTLE_AUTH_LIMIT` per minute per IP). To non-owners: a non-ACTIVE account → **404 `NOT_FOUND`** (same body as an unknown one; owners still get 409 `INVALID_STATE`); `DUAL_ROLE_CONFIRM_REQUIRED.details` = `{ roles: <roles in THIS workspace>, otherWorkspaces: true }` — no role, status or workspace of the others. The 201 body (with the e-mail) only after a confirmed add. |
+| `POST /auth/register` | a taken `username` is no longer answered with `USERNAME_TAKEN`: the request gets the nearest free variant (`name2`, `name3`…), the answer is the usual `{ status: 'PENDING' }`, and the approval e-mail states the username. |
+| Notifications and e-mails (every type) | sent only to ACTIVE accounts with a live ACTIVE membership of the workspace at send time, or owners; the applicant of a registration is told its outcome. |
+| Jobs | photo retention, pending-upload cleanup, orphan files and import-preview cleanup also run on ARCHIVED workspaces. |
+| Database | `users.suspended_globally boolean NOT NULL DEFAULT false`; `nz_rls_bypass()` is false for `nuzli_app` (and its members) whatever `app.bypass_rls` says. Migration `20261025000000_a12_security_review`. |
+| Operator CLI | `npm run owner:recover -- --username <name> [--reset-password] [--dry-run]` (apps/api; `node dist/scripts/recover-owner.js`). `BOOTSTRAP_OWNER_*` only act while no owner exists. |
+
+### Audit actions
+`owner.recovered` (account level, no actor). `membership.added` is now the per-workspace entry of an account an
+owner creates (its `user.created` is account-level).
+
+### Error codes
+`SUSPENDED_BY_OWNER` (403).
+
+### Tests and gates
+`apps/api/test/isolation/a12-security-review.pg-spec.ts`, `apps/web/src/api/demo/DemoApi.securityA12.test.ts`;
+mutation gates `npm run test:isolation:mutation` in `apps/api` (47 models) and `apps/web` (every scoped Dexie table).

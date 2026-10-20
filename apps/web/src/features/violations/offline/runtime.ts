@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { ApiClient } from '../../../api/client';
+import { useAuthStore } from '../../../stores/auth';
 import { getMeta, offlineDb, type OfflineDb, type OutboxItem } from './db';
 import { SyncEngine, type SyncState } from './sync';
 import { refreshRoster } from './roster';
+import { inWorkspace, unsyncedElsewhere, type OtherWorkspaceUnsynced } from './outbox';
 
 /** UI state of the sync engine and the roster refresh. */
 interface OfflineUiState extends SyncState {
@@ -28,9 +30,20 @@ export const useOfflineStore = create<OfflineUiState>((set) => ({
 let engine: SyncEngine | null = null;
 let engineApi: ApiClient | null = null;
 let currentUserId: string | null = null;
+/** A12 (H3): undefined = a server without workspaces; null = none chosen yet. */
+let currentWorkspaceId: string | null | undefined = undefined;
 
 export function setOfflineUser(id: string | null) {
   currentUserId = id;
+}
+
+/** A12 (H3): the session's workspace — the sync engine sends only that workspace's items. */
+export function setOfflineWorkspace(id: string | null | undefined) {
+  currentWorkspaceId = id;
+}
+
+export function offlineWorkspaceId(): string | null | undefined {
+  return currentWorkspaceId;
 }
 
 /** The single engine of this tab, bound to the active adapter. */
@@ -42,6 +55,7 @@ export function getSyncEngine(api: ApiClient, db: OfflineDb = offlineDb()): Sync
       api,
       db,
       getUserId: () => currentUserId,
+      getWorkspaceId: () => currentWorkspaceId,
       onState: (s) => useOfflineStore.getState().set(s),
     });
   }
@@ -53,12 +67,12 @@ export function peekSyncEngine(): SyncEngine | null {
 }
 
 /** Refreshes the roster now; network errors only update the status line. */
-export async function refreshRosterNow(api: ApiClient, userId: string, db: OfflineDb = offlineDb()) {
+export async function refreshRosterNow(api: ApiClient, userId: string, db: OfflineDb = offlineDb(), workspaceId?: string | null) {
   const store = useOfflineStore.getState();
   if (store.rosterRefreshing) return;
   store.set({ rosterRefreshing: true, rosterError: null });
   try {
-    await refreshRoster(api, db, userId);
+    await refreshRoster(api, db, userId, workspaceId ?? currentWorkspaceId ?? null);
   } catch (err) {
     store.set({ rosterError: (err as { message_ar?: string }).message_ar ?? null });
   } finally {
@@ -68,21 +82,28 @@ export async function refreshRosterNow(api: ApiClient, userId: string, db: Offli
 
 // ---------------------------------------------------------------- live hooks (IndexedDB)
 
-/** The signed-in user's outbox, newest first. */
-export function useOutbox(userId: string | null | undefined): OutboxItem[] | undefined {
+/**
+ * The signed-in user's outbox in the active workspace, newest first. A12 (H3): items recorded in
+ * another workspace are not listed here (they wait for that workspace; see useOutboxElsewhere).
+ */
+export function useOutbox(userId: string | null | undefined, workspace?: string | null): OutboxItem[] | undefined {
+  const active = useAuthStore((s) => s.activeWorkspace?.id ?? null);
+  const workspaceId = workspace === undefined ? active : workspace;
   return useLiveQuery(
     async () =>
       userId
-        ? (await offlineDb().outbox.where('userId').equals(userId).toArray()).sort((a, b) =>
-            b.createdAt.localeCompare(a.createdAt),
-          )
+        ? (await offlineDb().outbox.where('userId').equals(userId).toArray())
+            .filter((i) => inWorkspace(i, workspaceId))
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         : [],
-    [userId],
+    [userId, workspaceId],
   );
 }
 
-/** Items not yet on the server (badge on «بانتظار المزامنة»). */
-export function useUnsyncedCount(userId: string | null | undefined): number {
+/** Items not yet on the server in the active workspace (badge on «بانتظار المزامنة»). */
+export function useUnsyncedCount(userId: string | null | undefined, workspace?: string | null): number {
+  const active = useAuthStore((s) => s.activeWorkspace?.id ?? null);
+  const workspaceId = workspace === undefined ? active : workspace;
   return (
     useLiveQuery(
       () =>
@@ -90,12 +111,19 @@ export function useUnsyncedCount(userId: string | null | undefined): number {
           ? offlineDb()
               .outbox.where('userId')
               .equals(userId)
-              .filter((i) => i.status !== 'synced')
+              .filter((i) => i.status !== 'synced' && inWorkspace(i, workspaceId))
               .count()
           : 0,
-      [userId],
+      [userId, workspaceId],
     ) ?? 0
   );
+}
+
+/** A12 (H3): unsynced items recorded in other workspaces (kept; sent when the user returns there). */
+export function useOutboxElsewhere(userId: string | null | undefined, workspace?: string | null): OtherWorkspaceUnsynced[] {
+  const active = useAuthStore((s) => s.activeWorkspace?.id ?? null);
+  const workspaceId = workspace === undefined ? active : workspace;
+  return useLiveQuery(() => unsyncedElsewhere(offlineDb(), userId, workspaceId).catch(() => []), [userId, workspaceId]) ?? [];
 }
 
 export function useOutboxItem(id: string | null | undefined): OutboxItem | undefined {

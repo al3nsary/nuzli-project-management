@@ -1,4 +1,5 @@
 import { Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   addOwnerSchema,
@@ -159,6 +160,8 @@ export class WorkspacesAdminController {
   }
 
   @Post(':id/members')
+  // Security review A12 L1: the identifier lookup is rate limited like sign-in (per IP).
+  @Throttle({ default: { limit: () => 3 * Number(process.env.THROTTLE_AUTH_LIMIT ?? 10), ttl: 60_000 } })
   @WorkspaceOptional()
   @RequirePermission('users.manageRoles')
   @ApiOperation({ summary: 'إضافة حساب موجود إلى القسم بدور (مع تأكيد الصلاحية المزدوجة)' })

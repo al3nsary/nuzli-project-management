@@ -31,7 +31,7 @@ import { useApi } from '../../api/context';
 import { useMyViolations } from '../../api/queries';
 import { useAuthStore } from '../../stores/auth';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
-import { formatDateTime, formatNumber, t } from '../../i18n';
+import { formatDateTime, formatNumber, t, tCount } from '../../i18n';
 import { TeamBadge } from '../../theme/TeamBadge';
 import { offlineDb, type OutboxItem } from '../../features/violations/offline/db';
 import { deleteItem, retryItem } from '../../features/violations/offline/outbox';
@@ -40,6 +40,7 @@ import {
   useOfflineStore,
   useOutbox,
   useUnsyncedCount,
+  useOutboxElsewhere,
 } from '../../features/violations/offline/runtime';
 import { useOnline } from '../../lib/useOnline';
 import { OutboxProgress, OutboxStatusBadge, SnapshotTeam, ViolationStatusBadge } from './parts';
@@ -147,6 +148,27 @@ function OutboxCard({ item, onDelete }: { item: OutboxItem; onDelete: () => void
   );
 }
 
+/**
+ * A12 security review H3: unsynced violations recorded in ANOTHER workspace stay on the device and
+ * are sent when the user enters that workspace again — this says so (never «lost»).
+ */
+export function OutboxElsewhereNotice() {
+  const user = useAuthStore((s) => s.user);
+  const waiting = useOutboxElsewhere(user?.id);
+  if (!waiting.length) return null;
+  return (
+    <Alert color="signal" variant="light" data-testid="outbox-elsewhere">
+      <Stack gap={4}>
+        {waiting.map((w) => (
+          <Text key={w.workspaceId} size="sm">
+            {tCount('outbox.elsewhere', w.count, { name: w.workspaceName ?? '' })}
+          </Text>
+        ))}
+      </Stack>
+    </Alert>
+  );
+}
+
 /** «بانتظار المزامنة»: the device outbox with per-item status, retry and delete-failed. */
 export function PendingList() {
   const api = useApi();
@@ -192,6 +214,7 @@ export function PendingList() {
           {t('sync.err.auth')}
         </Alert>
       ) : null}
+      <OutboxElsewhereNotice />
       {items.length === 0 ? (
         <EmptyState
           icon={IconCloudCheck}
