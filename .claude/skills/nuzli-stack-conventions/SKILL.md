@@ -1,6 +1,6 @@
 ---
 name: nuzli-stack-conventions
-description: Languages, frameworks and code conventions for the Nuzli monorepo — TypeScript strict, pnpm workspaces, NestJS module layout, Prisma + raw SQL migrations, zod shared schemas, testing tools, Docker. Load before writing code in any package.
+description: Languages, frameworks and code conventions for the Nuzli monorepo — TypeScript strict, npm workspaces with the committed package-lock.json (npm ci, ADR-168), NestJS module layout, Prisma + raw SQL migrations, zod shared schemas, testing tools, Docker. Load before writing code in any package.
 ---
 
 # لغات ومعايير الكود في نزلي

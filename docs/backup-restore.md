@@ -51,7 +51,9 @@ final swap:
 4. The data is restored into a **new** database (`<db>_restore_<timestamp>`) in a single
    transaction (`pg_restore --exit-on-error --single-transaction`).
 5. Sanity checks run on the new copy: applied Prisma migrations, the `users` table, and at
-   least one admin.
+   least one owner (`account_role = 'OWNER'`; in a dump taken before A12: an admin). Before the
+   A12 final step this looked for the legacy `users.role = 'ADMIN'`, which is empty on a fresh
+   install — every backup of a new system would have been refused (fixed, ADR-169).
 6. Only then are the databases swapped. Both renames run in one transaction: `<db>` becomes
    `<db>_pre_restore_<timestamp>` and the new copy becomes `<db>`. The previous database is
    kept until you drop it.

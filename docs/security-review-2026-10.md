@@ -28,7 +28,7 @@ Fixed in the API and infrastructure. The web client still has follow-ups for M2,
 | L6 | **Fixed** | Server sets `nationalId`, `qrValue` and `photoFileId` from the DB on `POST /cards/batches` (ADR-064) |
 | L7 | **Fixed** | `members/member-writes.ts` `hideDuplicateNationalId`: non-admins get `NATIONAL_ID_NOT_ACCEPTED` + `member.duplicate_rejected` audit; 30/min on member and team writes (ADR-067). **Accepted residual:** a failed save still hints that something is wrong with the ID |
 | L8 | **Fixed** | `change-password` counts toward the throttle and the account lock (ADR-062) |
-| L9 | **Fixed / Accepted** | Fixed: root-owned read-only code in `apps/api/Dockerfile`; `read_only`, tmpfs `/tmp`, `cap_drop: [ALL]`, `no-new-privileges` on api, proxy and backup (`no-new-privileges` only on db). **Accepted (open):** no committed `pnpm-lock.yaml` yet (ADR-022) |
+| L9 | **Fixed / Accepted** | Fixed: root-owned read-only code in `apps/api/Dockerfile`; `read_only`, tmpfs `/tmp`, `cap_drop: [ALL]`, `no-new-privileges` on api, proxy and backup (`no-new-privileges` only on db). ~~Accepted (open): no committed `pnpm-lock.yaml` yet (ADR-022)~~ **Closed 2026-10-20 (ADR-168):** every Dockerfile installs with `npm ci` from the committed `package-lock.json` |
 | L10 | **Fixed** | Dev ports bound to `127.0.0.1`; `infra/nginx/dev-storage.conf` repeats nosniff and adds a sandbox CSP (ADR-068) |
 | To verify: PDF transport | **Fixed (config)** | `X-Pdf-Service-Token` from `PDF_SERVICE_TOKEN` (required in production with `PDF_SERVICE_URL`) on card and dashboard PDFs. The renderer must join only the `backend` network. No PDF service is deployed yet |
 | To verify: logout clears caches | Open (web) | Out of scope for this change (`apps/web`) |
