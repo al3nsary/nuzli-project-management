@@ -25,6 +25,10 @@ s3_setup() {
   # OCI's S3 API rejects the newer default checksum headers of AWS CLI v2.
   export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
   export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+  # OCI's S3 compatibility API is addressed path-style (https://<ns>.compat…/<bucket>/<key>);
+  # the AWS CLI has no environment variable for it, so a private config file (tmpfs) says so.
+  export AWS_CONFIG_FILE="${TMPDIR:-/tmp}/nuzli-aws-config"
+  printf '[default]\ns3 =\n    addressing_style = path\n' > "$AWS_CONFIG_FILE"
   S3_ENDPOINT_ARG=""
   if [ -n "${BACKUP_S3_ENDPOINT:-}" ]; then S3_ENDPOINT_ARG="--endpoint-url ${BACKUP_S3_ENDPOINT}"; fi
 }

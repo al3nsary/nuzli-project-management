@@ -1,7 +1,9 @@
 # Production override: no MinIO (OCI Object Storage via S3_* in env/api.env), resource limits,
 # restart policies, rotated logs.
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-# Certificates: point CERTS_DIR at the Let's Encrypt live directory or provided certificates.
+# Certificates: CERTS_DIR=/opt/nuzli/certs, a plain folder that certbot's deploy hook copies
+# fullchain.pem + privkey.pem into (NOT /etc/letsencrypt/live: symlinks) — docs/deployment-oci.md §6.
+# Before the first start: node scripts/preflight.mjs (checks every env file and the certificate).
 # Secrets: env/api.env, env/db.env, env/backup.env (ADR-068). Swagger stays off unless
 # env/api.env sets SWAGGER_ENABLED=true explicitly (security review L5).
 # Off-site backups: set BACKUP_S3_ENABLED=true and the BACKUP_S3_* values in env/backup.env

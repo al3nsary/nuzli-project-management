@@ -119,10 +119,19 @@ fi
 migrations=$(psql -tA -d "$target" -c 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL') \
   || fail "no _prisma_migrations table"
 users=$(psql -tA -d "$target" -c 'SELECT count(*) FROM "users"') || fail "no users table"
-admins=$(psql -tA -d "$target" -c "SELECT count(*) FROM \"users\" WHERE role = 'ADMIN'")
+# A12: the system's top accounts are OWNERS (users.account_role); the legacy users.role is NULL for
+# every account created after A12 — including the bootstrap owner of a fresh install. Dumps taken
+# before A12 have no account_role column and keep the old check.
+has_owner_col=$(psql -tA -d "$target" -c "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'account_role'") \
+  || fail "cannot inspect the users table"
+if [ "$has_owner_col" -gt 0 ]; then
+  admins=$(psql -tA -d "$target" -c "SELECT count(*) FROM \"users\" WHERE account_role = 'OWNER'")
+else
+  admins=$(psql -tA -d "$target" -c "SELECT count(*) FROM \"users\" WHERE role = 'ADMIN'")
+fi
 [ "$migrations" -gt 0 ] || fail "no applied migrations in the restored copy"
-[ "$admins" -gt 0 ] || fail "no admin account in the restored copy"
-echo "[restore] restored copy OK — migrations: ${migrations}, users: ${users}, admins: ${admins}"
+[ "$admins" -gt 0 ] || fail "no owner (or, before A12, admin) account in the restored copy"
+echo "[restore] restored copy OK — migrations: ${migrations}, users: ${users}, owners/admins: ${admins}"
 
 if [ "$mode" = "verify" ]; then
   psql -q -d postgres -c "DROP DATABASE \"${target}\""
