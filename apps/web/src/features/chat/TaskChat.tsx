@@ -34,6 +34,10 @@ export interface TaskChatProps {
   projectId?: string;
   assignee: { id: string; fullName: string } | null;
   className?: string;
+  /** A12 round 2: overrides «may write» (participant level, team task). */
+  canWrite?: boolean;
+  /** A12 round 2: overrides «may attach files». */
+  canUpload?: boolean;
 }
 
 interface Person {
@@ -41,14 +45,15 @@ interface Person {
   fullName: string;
 }
 
-export function TaskChat({ taskId, taskName, projectId, assignee, className }: TaskChatProps) {
+export function TaskChat({ taskId, taskName, projectId, assignee, className, canWrite: canWriteProp, canUpload: canUploadProp }: TaskChatProps) {
   const api = useApi();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const viewerId = user?.id ?? null;
   const signedIn = useAuthStore((s) => s.status === 'authenticated');
-  const canWrite = can(user, 'tasks.comment');
-  const canUpload = can(user, 'tasks.manage') || (!!assignee && assignee.id === viewerId);
+  // A12 round 2: the caller may override from the project/task relation (participants, team tasks).
+  const canWrite = canWriteProp ?? can(user, 'tasks.comment');
+  const canUpload = canUploadProp ?? (can(user, 'tasks.manage') || (!!assignee && assignee.id === viewerId));
 
   const comments = useQuery({
     queryKey: qk4.comments(taskId),

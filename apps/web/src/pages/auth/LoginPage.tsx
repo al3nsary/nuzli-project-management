@@ -13,20 +13,35 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import { IconCamera, IconLogin2, IconShieldCheck, IconUser, IconUsersGroup, type Icon } from '@tabler/icons-react';
-import { loginSchema, type AuthSession, type Role } from '@nuzli/shared';
+import {
+  IconCamera,
+  IconCrown,
+  IconEye,
+  IconLogin2,
+  IconPencil,
+  IconShieldCheck,
+  IconUser,
+  IconUserCog,
+  IconUsersGroup,
+  type Icon,
+} from '@tabler/icons-react';
+import { loginSchema, type AuthSession } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { ApiError } from '../../api/errors';
 import { useAuthStore } from '../../stores/auth';
 import { useZodForm } from '../../forms/useZodForm';
 import { FormError, roleLabel } from '../../components/ui';
-import { t, tCount } from '../../i18n';
+import { t, tCount, tKey } from '../../i18n';
 import { AuthLayout } from './AuthLayout';
 
-const ROLE_ICON: Partial<Record<Role, Icon>> = {
+const ROLE_ICON: Record<string, Icon> = {
+  OWNER: IconCrown,
   ADMIN: IconShieldCheck,
   SUPERVISOR: IconUsersGroup,
   MONITOR: IconCamera,
+  ASSISTANT: IconUserCog,
+  EDITOR: IconPencil,
+  VIEWER: IconEye,
 };
 
 export function LoginPage() {
@@ -36,7 +51,7 @@ export function LoginPage() {
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? '/';
   const [error, setError] = useState<unknown>(null);
-  const [demoBusy, setDemoBusy] = useState<Role | null>(null);
+  const [demoBusy, setDemoBusy] = useState<string | null>(null);
   const form = useZodForm(loginSchema, { identifier: '', password: '' });
   // ADR-062: throttled logins answer 429 RATE_LIMITED with details.retryAfterSeconds.
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
@@ -80,10 +95,10 @@ export function LoginPage() {
     }
   });
 
-  const demoLogin = async (role: Role, identifier: string) => {
+  const demoLogin = async (identifier: string) => {
     if (!api.demo) return;
     setError(null);
-    setDemoBusy(role);
+    setDemoBusy(identifier);
     try {
       finish(await api.auth.login({ identifier, password: api.demo.password }));
     } catch (err) {
@@ -150,27 +165,39 @@ export function LoginPage() {
           </div>
           <div className="nz-demo-roles">
               {api.demo.accounts.map((a) => {
-                const RoleIcon = ROLE_ICON[a.role] ?? IconUser;
+                // A12: the owner, the assistant and the two project participants have their own buttons.
+                const kind = a.kind ?? a.role;
+                const RoleIcon = ROLE_ICON[kind] ?? IconUser;
+                const label = a.kind ? tKey(`login.demoKind.${kind}`, 'common.none') : roleLabel(a.role);
+                const busy = demoBusy === a.identifier;
                 return (
                   <button
-                    key={a.role}
+                    key={a.identifier}
                     type="button"
                     className="nz-rolebtn"
-                    data-busy={demoBusy === a.role || undefined}
+                    data-busy={busy || undefined}
                     disabled={demoBusy !== null}
-                    aria-label={t('login.demoAs', { role: roleLabel(a.role) })}
-                    onClick={() => void demoLogin(a.role, a.identifier)}
+                    aria-label={t('login.demoAsKind', { kind: label })}
+                    title={a.identifier.includes('@') ? undefined : t('login.demoUsername', { username: a.identifier })}
+                    data-testid={`demo-login-${kind.toLowerCase()}`}
+                    onClick={() => void demoLogin(a.identifier)}
                   >
                     <span className="ci">
-                      {demoBusy === a.role ? <Loader size={15} color="currentColor" /> : <RoleIcon size={17} stroke={1.8} />}
+                      {busy ? <Loader size={15} color="currentColor" /> : <RoleIcon size={17} stroke={1.8} />}
                     </span>
-                    <span>{roleLabel(a.role)}</span>
+                    <span>{label}</span>
                   </button>
                 );
               })}
           </div>
           <p className="nz-demo-note">
             {t('login.demoBody')} <Code className="ltr">{api.demo.password}</Code>
+            {api.demo.accounts.some((a) => a.kind === 'OWNER') ? (
+              <>
+                <br />
+                {t('login.demoOwnerHint', { username: api.demo.accounts.find((a) => a.kind === 'OWNER')!.identifier })}
+              </>
+            ) : null}
             {api.demo.pendingExample ? (
               <>
                 <br />

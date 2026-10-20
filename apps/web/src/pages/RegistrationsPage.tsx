@@ -11,13 +11,14 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Tabs,
   Text,
   Textarea,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation } from '@tanstack/react-query';
 import { IconCheck, IconInbox, IconX } from '@tabler/icons-react';
-import { rejectRegistrationSchema, type UserDto } from '@nuzli/shared';
+import { can, rejectRegistrationSchema, type UserDto } from '@nuzli/shared';
 import { useApi } from '../api/context';
 import { errorMessage } from '../api/errors';
 import { useInvalidateAccounts, useRegistrations, useUser } from '../api/queries';
@@ -34,6 +35,10 @@ import {
   roleLabel,
 } from '../components/ui';
 import { formatDateTime, t } from '../i18n';
+import { useAuthStore } from '../stores/auth';
+import { useTabParam } from '../lib/useUrlState';
+import { MemberRequestList } from './requests/MemberRequests';
+import './requests/requests.css';
 
 type ReviewRole = 'SUPERVISOR' | 'MONITOR';
 
@@ -124,7 +129,7 @@ function RejectModal({ user, onClose }: { user: UserDto | null; onClose: () => v
   );
 }
 
-function RequestCard({ user, onReject }: { user: UserDto; onReject: (u: UserDto) => void }) {
+function RequestCard({ user, onReject, canDecide }: { user: UserDto; onReject: (u: UserDto) => void; canDecide: boolean }) {
   const api = useApi();
   const invalidate = useInvalidateAccounts();
   const requested = (user.requestedRole ?? user.role) as ReviewRole;
@@ -163,6 +168,7 @@ function RequestCard({ user, onReject }: { user: UserDto; onReject: (u: UserDto)
         <Field label={t('reg.requestedTeam')}>{user.requestedTeamName || t('common.none')}</Field>
         <Field label={t('reg.submittedAt')}>{formatDateTime(user.createdAt)}</Field>
       </SimpleGrid>
+      {canDecide ? (
       <Group mt="md" align="flex-end" wrap="wrap" gap="sm">
         <Select
           label={t('reg.approveAs')}
@@ -192,7 +198,8 @@ function RequestCard({ user, onReject }: { user: UserDto; onReject: (u: UserDto)
           {t('reg.reject')}
         </Button>
       </Group>
-      {role !== requested ? (
+      ) : null}
+      {canDecide && role !== requested ? (
         <Text size="xs" c="dimmed" mt={6}>
           {t('reg.roleChanged', { role: roleLabel(role) })}
         </Text>
@@ -201,7 +208,56 @@ function RequestCard({ user, onReject }: { user: UserDto; onReject: (u: UserDto)
   );
 }
 
+const REQUEST_TABS = ['registrations', 'workers'] as const;
+
+/**
+ * «الطلبات» (A12 round 2): «طلبات التسجيل» (unchanged) and «طلبات العمّال» (`?tab=workers`) —
+ * supervisors' requests to add or remove workers. Deciding needs `registrations.review`; an
+ * assistant with registrations:view (`registrations.read`) only reads.
+ */
 export function RegistrationsPage() {
+  const user = useAuthStore((s) => s.user);
+  const [tab, setTab] = useTabParam('tab', REQUEST_TABS, 'registrations');
+  const canDecide = can(user, 'registrations.review');
+  return (
+    <>
+      <PageHeader title={t('nav.requests')} lead={t('a12roles.requests.lead')} />
+      <Tabs value={tab} onChange={setTab} keepMounted={false} className="nz-req-tabs">
+        <Tabs.List>
+          <Tabs.Tab value="registrations" data-testid="requests-tab-registrations">
+            {t('a12roles.requests.tab.registrations')}
+          </Tabs.Tab>
+          <Tabs.Tab value="workers" data-testid="requests-tab-workers">
+            {t('a12roles.requests.tab.workers')}
+          </Tabs.Tab>
+        </Tabs.List>
+      </Tabs>
+      {tab === 'workers' ? <WorkersTab canDecide={canDecide} /> : <RegistrationsTab canDecide={canDecide} />}
+    </>
+  );
+}
+
+function WorkersTab({ canDecide }: { canDecide: boolean }) {
+  return (
+    <Stack gap="lg">
+      {!canDecide ? (
+        <Text size="sm" c="dimmed" className="nz-req-note">
+          {t('a12roles.wr.readOnly')}
+        </Text>
+      ) : null}
+      <MemberRequestList view="pending" approver={canDecide} />
+      <section aria-labelledby="wr-history">
+        <Text component="h2" id="wr-history" fw={600} fz="lg" mb="sm">
+          {t('a12roles.wr.history')}
+        </Text>
+        <MemberRequestList view="decided" approver={false} />
+      </section>
+    </Stack>
+  );
+}
+
+/** «طلبات التسجيل» — the registration requests as before A12 round 2. */
+function RegistrationsTab({ canDecide }: { canDecide: boolean }) {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [rejecting, setRejecting] = useState<UserDto | null>(null);
@@ -209,7 +265,9 @@ export function RegistrationsPage() {
 
   return (
     <>
-      <PageHeader title={t('reg.title')} lead={t('reg.lead')} />
+      <Text size="sm" c="dimmed" className="nz-req-note">
+        {canDecide ? t('reg.lead') : t('a12roles.requests.regReadOnly')}
+      </Text>
       {q.isLoading ? (
         <LoadingBlock variant="list" rows={3} />
       ) : q.isError ? (
@@ -224,7 +282,7 @@ export function RegistrationsPage() {
       ) : (
         <Stack>
           {q.data.items.map((u) => (
-            <RequestCard key={u.id} user={u} onReject={setRejecting} />
+            <RequestCard key={u.id} user={u} onReject={setRejecting} canDecide={canDecide} />
           ))}
           {q.data.total > q.data.pageSize ? (
             <Pagination

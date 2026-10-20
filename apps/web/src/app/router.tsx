@@ -18,13 +18,14 @@ function lazyPage<K extends string>(
   };
 }
 import { Layout } from './Layout';
-import { NotFound, PublicOnly, RequireAuth, RequirePermission, RouteError } from './guards';
+import { NotFound, PublicOnly, RequireAnyPermission, RequireAuth, RequireOwner, RequireProjectsAccess, RequirePermission, RouteError } from './guards';
 import { LoginPage } from '../pages/auth/LoginPage';
 import { RegisterPage } from '../pages/auth/RegisterPage';
 import { PendingPage } from '../pages/auth/PendingPage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage';
 import { ChangePasswordPage } from '../pages/auth/ChangePasswordPage';
+import { WorkspacePickerPage } from '../features/workspaces/WorkspacePickerPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { RegistrationsPage } from '../pages/RegistrationsPage';
 import { UsersPage } from '../pages/UsersPage';
@@ -87,6 +88,11 @@ const TimeLogPage = lazyPage(() => import('../pages/timelog/TimeLogPage'), 'Time
 // A9 collaboration, teams and violations round.
 const HubPage = lazyPage(() => import('../pages/hub/HubPage'), 'HubPage', 'list');
 const AttachmentsPage = lazyPage(() => import('../pages/attachments/AttachmentsPage'), 'AttachmentsPage', 'cards');
+// A12: owners area and worker requests.
+const SystemWorkspacesPage = lazyPage(() => import('../pages/system/WorkspacesPage'), 'WorkspacesPage', 'table');
+const SystemOwnersPage = lazyPage(() => import('../pages/system/OwnersPage'), 'OwnersPage', 'table');
+const SystemAccountsPage = lazyPage(() => import('../pages/system/AccountsPage'), 'AccountsPage', 'table');
+const WorkerRequestsPage = lazyPage(() => import('../pages/requests/WorkerRequestsPage'), 'WorkerRequestsPage', 'list');
 const OrgPage = lazyPage(() => import('../pages/org/OrgPage'), 'OrgPage', 'list');
 
 /** Old paths of the A9 placeholders keep working (bookmarks, e-mails): same query, new path. */
@@ -135,6 +141,16 @@ export const routes: RouteObject[] = [
     ),
   },
   { path: '/reset-password', element: <ResetPasswordPage /> },
+  // A12: «اختر القسم» after sign-in (several workspaces, none chosen) — outside the shell.
+  {
+    path: '/choose-workspace',
+    element: (
+      <RequireAuth>
+        <WorkspacePickerPage />
+      </RequireAuth>
+    ),
+    errorElement: <RouteError />,
+  },
   {
     path: '/change-password',
     element: (
@@ -179,11 +195,24 @@ export const routes: RouteObject[] = [
       {
         path: 'registrations',
         element: (
-          <RequirePermission permission="registrations.review">
+          <RequireAnyPermission permissions={['registrations.review', 'registrations.read']}>
             <RegistrationsPage />
+          </RequireAnyPermission>
+        ),
+      },
+      // A12 round 2: a supervisor's worker requests.
+      {
+        path: 'worker-requests',
+        element: (
+          <RequirePermission permission="members.manageOwn">
+            <WorkerRequestsPage />
           </RequirePermission>
         ),
       },
+      // A12: owners only — «إدارة النظام».
+      { path: 'system/workspaces', element: <RequireOwner><SystemWorkspacesPage /></RequireOwner> },
+      { path: 'system/owners', element: <RequireOwner><SystemOwnersPage /></RequireOwner> },
+      { path: 'system/accounts', element: <RequireOwner><SystemAccountsPage /></RequireOwner> },
       {
         path: 'users',
         element: (
@@ -213,9 +242,9 @@ export const routes: RouteObject[] = [
       {
         path: 'teams',
         element: (
-          <RequirePermission permission="teams.readOwn">
+          <RequireAnyPermission permissions={['teams.readOwn', 'teams.readAll']}>
             <TeamsPage />
-          </RequirePermission>
+          </RequireAnyPermission>
         ),
       },
       {
@@ -230,17 +259,17 @@ export const routes: RouteObject[] = [
       {
         path: 'teams/:id',
         element: (
-          <RequirePermission permission="teams.readOwn">
+          <RequireAnyPermission permissions={['teams.readOwn', 'teams.readAll']}>
             <TeamDetailPage />
-          </RequirePermission>
+          </RequireAnyPermission>
         ),
       },
       {
         path: 'members',
         element: (
-          <RequirePermission permission="teams.readOwn">
+          <RequireAnyPermission permissions={['teams.readOwn', 'teams.readAll']}>
             <MembersPage />
-          </RequirePermission>
+          </RequireAnyPermission>
         ),
       },
       {
@@ -324,9 +353,9 @@ export const routes: RouteObject[] = [
       {
         path: 'projects',
         element: (
-          <RequirePermission permission="projects.readAll">
+          <RequireProjectsAccess>
             <ProjectsPage />
-          </RequirePermission>
+          </RequireProjectsAccess>
         ),
       },
       {
@@ -341,9 +370,9 @@ export const routes: RouteObject[] = [
         path: 'projects/:id',
         handle: { fullWidth: true },
         element: (
-          <RequirePermission permission="projects.readAll">
+          <RequireProjectsAccess project>
             <ProjectPage />
-          </RequirePermission>
+          </RequireProjectsAccess>
         ),
       },
       {

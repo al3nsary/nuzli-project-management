@@ -3,12 +3,12 @@ import { ActionIcon, Button, Group, Popover, SegmentedControl, Switch, Text, Too
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconCalendarEvent, IconChevronLeft, IconChevronRight, IconFlag } from '@tabler/icons-react';
-import { can } from '@nuzli/shared';
 import type { TabProps } from './types';
 import type { TaskView } from '../../../api/hoursWire';
 import { unitOf } from '../../../api/hoursWire';
 import { ApiError, errorMessage } from '../../../api/errors';
 import { useAuthStore } from '../../../stores/auth';
+import { useProjectAccess } from '../../../features/participants/access';
 import { formatLocalTime, formatNumber, getDisplayPrefs, t, tCount } from '../../../i18n';
 import { riyadhToday } from '../../../features/projects/engine';
 import { engineState } from '../../../features/gantt/batch';
@@ -87,7 +87,8 @@ interface DragState {
 
 export function ProjectCalendarTab({ data, writes, onOpenTask, visible }: TabProps) {
   const user = useAuthStore((s) => s.user);
-  const editable = can(user, 'tasks.manage');
+  // A12 round 2: moving bars is a structural edit (admins, assistants with tasks:edit, editors).
+  const editable = useProjectAccess(data.project.id).editTasks;
   const showHijri = user?.preferences.showHijri ?? false;
   const digits = getDisplayPrefs().digits;
   const phone = useMediaQuery('(max-width: 47.99em)', false, { getInitialValueInEffect: false }) ?? false;

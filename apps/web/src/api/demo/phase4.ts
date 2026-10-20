@@ -86,9 +86,15 @@ import { workbookToBlob } from '../../features/violations/excel';
 import type { DemoCalendar, DemoDependency, DemoFile, DemoProject, DemoTask, DemoUser } from './db';
 import type { DemoInternals } from './phase2';
 import { fail, newId, validate } from './util';
+import { participationOf, projectInScope } from './access';
+import { openLeaderIds, teamsLedBy } from './leaders';
+import { projectColor } from '@nuzli/shared';
 import { drawPlaceholder, placeholderPdf } from './placeholderImage';
 
-export type Phase4Api = Pick<ApiClient, 'projects' | 'tasks' | 'dependencies' | 'calendars'>;
+export type Phase4Api = Pick<ApiClient, 'tasks' | 'dependencies' | 'calendars'> & {
+  /** A12 round 2: the cover methods live in a12.ts. */
+  projects: Omit<ApiClient['projects'], 'coverUrl' | 'uploadCover' | 'removeCover'>;
+};
 
 export interface Phase4Hooks {
   beforeTaskPresign(input: { entityId?: string; kind?: string }, actor: DemoUser): Promise<void>;
@@ -136,7 +142,15 @@ function pick(t: StoredTask, fields: readonly VersionedField[]): Record<string, 
 }
 
 const READ_PROJECTS = ['projects.readAll', 'projects.readGranted'] as const;
-const TASK_READ = ['projects.readAll', 'tasks.readAssigned'] as const;
+// A12 round 2: participants read their projects' tasks (projects.readGranted, scoped per project).
+const TASK_READ = ['projects.readAll', 'tasks.readAssigned', 'projects.readGranted'] as const;
+
+/**
+ * A12 round 2 (docs/a12-roles.md §6.5) — what the viewer may do with a task:
+ * manage (edit everything) · work (status/progress, comments, checklist, attachments, time log) ·
+ * team (a co-supervisor's task: read, reply, status/progress only) · view (read only).
+ */
+export type TaskRelation = 'manage' | 'work' | 'team' | 'view';
 
 /** A demo task row with the A9 columns filled (rows stored before A9 lack them). */
 export const rowOf = (t: DemoTask): DemoTask => withA9(t);
@@ -165,8 +179,11 @@ export interface ProjectsCore {
   readProjects(viewer: DemoUser): void;
   canSeeProject(viewer: DemoUser, p: DemoProject): Promise<boolean>;
   visibleProject(id: string, viewer: DemoUser): Promise<DemoProject>;
-  visibleTask(id: string, viewer: DemoUser): Promise<{ task: DemoTask; project: DemoProject }>;
-  writableTask(id: string, viewer: DemoUser): Promise<{ task: DemoTask; project: DemoProject }>;
+  visibleTask(id: string, viewer: DemoUser): Promise<{ task: DemoTask; project: DemoProject; relation: TaskRelation }>;
+  writableTask(id: string, viewer: DemoUser): Promise<{ task: DemoTask; project: DemoProject; relation: TaskRelation }>;
+  /** A12: the supervisors who lead a (live) team with the viewer. */
+  teamPeers(viewer: DemoUser): Promise<Set<string>>;
+  relationTo(viewer: DemoUser, task: Pick<DemoTask, 'assigneeId' | 'projectId'>, project: DemoProject, peers: Set<string>): TaskRelation | null;
   assertAssignee(userId: string): Promise<void>;
   assertLabels(projectId: string, labelIds: readonly string[]): Promise<void>;
   load(projectId: string): Promise<WriteState>;
@@ -340,6 +357,9 @@ export function createPhase4(
       budgetUsedPct: budgetCents ? Math.round((actual / budgetCents) * 10000) / 100 : null,
       isTemplate: Boolean(p.isTemplate),
       durationUnit: unitOf(p),
+      // A12 round 2: the cover image, or the generated cover drawn from this colour.
+      hasCover: Boolean(p.coverFileId),
+      color: projectColor(p.id),
     };
   }
 
@@ -368,7 +388,9 @@ export function createPhase4(
   }
 
   async function canSeeProject(viewer: DemoUser, p: DemoProject): Promise<boolean> {
-    if (can(viewer, 'projects.readAll')) return true;
+    // A12: an assistant limited to some projects; a participant sees only their projects.
+    if (can(viewer, 'projects.readAll') && projectInScope(viewer, p.id)) return true;
+    if (participationOf(viewer, p.id) && !p.isTemplate) return true;
     // Kept for `project_access` (no role holds `projects.readGranted` since A9).
     if (!can(viewer, 'projects.readGranted') || p.archivedAt || p.isTemplate) return false;
     return (await db.projectAccess.where('projectId').equals(p.id).filter((a) => a.userId === viewer.id).count()) > 0;
@@ -380,18 +402,42 @@ export function createPhase4(
     return p;
   }
 
-  /** Admins: any live task. Supervisors: a live task assigned to them in a live, non-template project. */
-  async function visibleTask(id: string, viewer: DemoUser): Promise<{ task: DemoTask; project: DemoProject }> {
+  /** A12: supervisors leading a live team together with the viewer (the owner's «team tasks» rule). */
+  async function teamPeers(viewer: DemoUser): Promise<Set<string>> {
+    const out = new Set<string>();
+    if (!can(viewer, 'tasks.readAssigned')) return out;
+    for (const teamId of await teamsLedBy(db, viewer.id)) {
+      const team = await db.teams.get(teamId);
+      if (!team || team.status === 'ARCHIVED') continue;
+      for (const id of await openLeaderIds(db, teamId)) if (id !== viewer.id) out.add(id);
+    }
+    return out;
+  }
+
+  function relationTo(viewer: DemoUser, task: Pick<DemoTask, 'assigneeId' | 'projectId'>, project: DemoProject, peers: Set<string>): TaskRelation | null {
+    if (can(viewer, 'projects.readAll') && projectInScope(viewer, project.id)) return can(viewer, 'tasks.manage') ? 'manage' : 'view';
+    const level = participationOf(viewer, project.id);
+    if (level && !project.isTemplate) return level === 'EDITOR' ? 'manage' : level === 'CONTRIBUTOR' ? 'work' : 'view';
+    if (can(viewer, 'tasks.readAssigned') && !project.archivedAt && !project.isTemplate && task.assigneeId) {
+      if (task.assigneeId === viewer.id) return 'work';
+      if (peers.has(task.assigneeId)) return 'team';
+    }
+    return null;
+  }
+
+  /**
+   * Admins: any live task. Supervisors: their own and their team's (A12). Participants: the tasks
+   * of their projects (A12). Anything else answers 404 (never another workspace's: scoping.ts).
+   */
+  async function visibleTask(id: string, viewer: DemoUser): Promise<{ task: DemoTask; project: DemoProject; relation: TaskRelation }> {
     const raw = await db.tasks.get(id);
     if (!raw || raw.archivedAt) fail('NOT_FOUND');
     const project = await db.projects.get(raw.projectId);
     if (!project) fail('NOT_FOUND');
     const task = rowOf(raw);
-    if (can(viewer, 'projects.readAll')) return { task, project };
-    if (can(viewer, 'tasks.readAssigned') && task.assigneeId === viewer.id && !project.archivedAt && !project.isTemplate) {
-      return { task, project };
-    }
-    fail('NOT_FOUND');
+    const relation = relationTo(viewer, task, project, await teamPeers(viewer));
+    if (!relation) fail('NOT_FOUND');
+    return { task, project, relation };
   }
 
   async function writableTask(id: string, viewer: DemoUser) {
@@ -598,6 +644,8 @@ export function createPhase4(
     visibleProject,
     visibleTask,
     writableTask,
+    teamPeers,
+    relationTo,
     assertAssignee,
     assertLabels,
     load,
@@ -1025,7 +1073,7 @@ export function createPhase4(
 
   const tasks: Phase4Api['tasks'] = {
     create: async (projectId, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { projectId } });
       const data = validate(createTaskSchemaH, input);
       await visibleProject(projectId, viewer);
       if (data.assigneeId) await assertAssignee(data.assigneeId);
@@ -1098,20 +1146,20 @@ export function createPhase4(
     },
 
     get: async (id) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       const { task } = await visibleTask(id, viewer);
       return (await taskDtos([task], viewer.id))[0]!;
     },
 
     update: async (id, input) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, ['tasks.manage', 'tasks.updateAssigned'])) fail('FORBIDDEN');
       const data = validate(updateTaskSchemaH, input);
-      const { task: visible } = await visibleTask(id, viewer);
-      if (!can(viewer, 'tasks.manage')) {
-        // ADR-007: progress/status only, on tasks assigned to the supervisor.
-        if (!can(viewer, 'tasks.updateAssigned') || visible.assigneeId !== viewer.id) fail('FORBIDDEN');
+      const { task: visible, relation } = await visibleTask(id, viewer);
+      if (!can(viewer, 'tasks.manage') || relation !== 'manage') {
+        // ADR-007: progress/status only — the supervisor's own tasks and (A12) their team's, a contributor's project.
+        if (!can(viewer, 'tasks.updateAssigned') || (relation !== 'work' && relation !== 'team')) fail('FORBIDDEN');
         const extra = Object.entries(input as Record<string, unknown>)
           .filter(([k, v]) => v !== undefined && !SUPERVISOR_FIELDS.has(k))
           .map(([k]) => k);
@@ -1186,7 +1234,7 @@ export function createPhase4(
     },
 
     batch: async (projectId, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { projectId } });
       const data = validate(taskBatchSchemaH, input);
       await visibleProject(projectId, viewer);
       const seen = new Set<string>();
@@ -1263,7 +1311,7 @@ export function createPhase4(
     },
 
     archive: async (id) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { taskId: id } });
       const { task } = await visibleTask(id, viewer);
       let r!: Awaited<ReturnType<typeof archiveIn>>;
       await tx(async () => {
@@ -1276,7 +1324,11 @@ export function createPhase4(
     mine: async () => {
       const viewer = await api.actor('tasks.readAssigned');
       await maybeSweep();
-      const rows = (await db.tasks.where('assigneeId').equals(viewer.id).toArray()).filter((t) => !t.archivedAt);
+      // A12 round 2 (owner rule): own tasks AND the tasks of the other supervisors of the same team(s).
+      const peers = await teamPeers(viewer);
+      const rows = (await db.tasks.toArray()).filter(
+        (t) => !t.archivedAt && t.assigneeId && (t.assigneeId === viewer.id || peers.has(t.assigneeId)),
+      );
       const projectsById = await liveProjects();
       const live = rows.filter((t) => projectsById.has(t.projectId)).map(rowOf);
       live.sort((a, b) => a.endDate.localeCompare(b.endDate) || a.startDate.localeCompare(b.startDate) || a.name.localeCompare(b.name, 'ar'));
@@ -1286,12 +1338,12 @@ export function createPhase4(
       return dtos.map((d): MyTaskDto => {
         const p = projectsById.get(d.projectId)!;
         const cal = cals.get(p.calendarId) ?? workCalendarOf({ weekendDays: [5, 6], exceptions: [] });
-        return { ...d, project: { id: p.id, name: p.name }, ...dueFlags(d, today, cal) };
+        return { ...d, project: { id: p.id, name: p.name }, ...dueFlags(d, today, cal), assignedToMe: d.assignee?.id === viewer.id };
       });
     },
 
     comments: async (id) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       await visibleTask(id, viewer);
       const rows = (await db.taskComments.where('taskId').equals(id).toArray()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -1311,7 +1363,7 @@ export function createPhase4(
     },
 
     addComment: async (id, input) => {
-      const viewer = await api.actor('tasks.comment');
+      const viewer = await api.actor('tasks.comment', { project: { taskId: id } });
       const data = validate(taskCommentSchema, input);
       const { task, project } = await visibleTask(id, viewer);
       if (project.archivedAt) fail('PROJECT_ARCHIVED');
@@ -1373,7 +1425,7 @@ export function createPhase4(
     },
 
     markRead: async (id) => {
-      const viewer = await api.actor('tasks.comment');
+      const viewer = await api.actor('tasks.comment', { project: { taskId: id } });
       await visibleTask(id, viewer);
       const lastReadAt = new Date().toISOString();
       await db.commentReads.put({ id: `${viewer.id}|${id}`, userId: viewer.id, taskId: id, lastReadAt });
@@ -1382,7 +1434,7 @@ export function createPhase4(
     },
 
     activity: async (id) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       await visibleTask(id, viewer);
       const names = (v: unknown) => {
@@ -1405,7 +1457,7 @@ export function createPhase4(
     },
 
     attachments: async (id) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       await visibleTask(id, viewer);
       const files = (await db.files.where('entityId').equals(id).toArray())
@@ -1431,7 +1483,7 @@ export function createPhase4(
     },
 
     attachmentUrl: async (id, fileId) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       await visibleTask(id, viewer);
       const file = await taskFile(id, fileId);
       let obj = await db.objects.get(file.id);
@@ -1452,7 +1504,7 @@ export function createPhase4(
     },
 
     removeAttachment: async (id, fileId) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       await visibleTask(id, viewer);
       const file = await taskFile(id, fileId);
       if (!can(viewer, 'tasks.manage') && file.createdById !== viewer.id) fail('FORBIDDEN');
@@ -1561,9 +1613,10 @@ export function createPhase4(
   }
 
   async function uploadableTask(taskId: string, viewer: DemoUser) {
-    const { task, project } = await visibleTask(taskId, viewer);
+    const { task, project, relation } = await visibleTask(taskId, viewer);
     if (project.archivedAt) fail('PROJECT_ARCHIVED');
-    if (!can(viewer, 'tasks.manage') && task.assigneeId !== viewer.id) fail('FORBIDDEN');
+    // Attachments: managers, the assignee, a contributor — never a co-supervisor's task (A12).
+    if (!(relation === 'manage' && can(viewer, 'tasks.manage')) && relation !== 'work') fail('FORBIDDEN');
     return task;
   }
 
@@ -1592,7 +1645,7 @@ export function createPhase4(
 
   const dependencies: Phase4Api['dependencies'] = {
     create: async (projectId, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { projectId } });
       const data = validate(createDependencySchema, input);
       await visibleProject(projectId, viewer);
       if (!ENABLED_DEPENDENCY_TYPES.includes(data.type)) fail('DEPENDENCY_TYPE_DISABLED', { type: data.type });
@@ -1650,7 +1703,7 @@ export function createPhase4(
     },
 
     remove: async (id) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { dependencyId: id } });
       const dep = await db.dependencies.get(id);
       if (!dep) fail('NOT_FOUND');
       await visibleProject(dep.projectId, viewer);
@@ -1825,9 +1878,11 @@ export function createPhase4(
   /** Once per Riyadh day, like the 07:00 job (the demo has no cron). */
   async function maybeSweep() {
     const today = riyadhToday();
-    if ((await db.kv.get('taskRemindersDay'))?.value === today) return;
+    // A12: once per workspace and day (the key-value table is global).
+    const key = (api as { wsKey?: (k: string) => string }).wsKey?.('taskRemindersDay') ?? 'taskRemindersDay';
+    if ((await db.kv.get(key))?.value === today) return;
     await sweepReminders();
-    await db.kv.put({ key: 'taskRemindersDay', value: today });
+    await db.kv.put({ key, value: today });
   }
 
   /**

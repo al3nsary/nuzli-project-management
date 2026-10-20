@@ -26,7 +26,9 @@ import { useOfflineStore, useUnsyncedCount } from '../../features/violations/off
 import { offlineDb } from '../../features/violations/offline/db';
 import { unsyncedCount } from '../../features/violations/offline/outbox';
 import { formatNumber, t, tCount } from '../../i18n';
-import { roleLabel } from '../../components/ui';
+import { useWorkspaceMenu, WorkspaceName } from '../../features/workspaces/WorkspaceName';
+import { workspaceRoleText } from '../../features/workspaces/roles';
+import { DualRoleBadge } from '../../features/workspaces/DualRole';
 import { UserPhotoAvatar } from '../../components/UserAvatar';
 import { NotificationBell } from '../NotificationBell';
 import { useSessionActions } from '../useSessionActions';
@@ -132,6 +134,7 @@ function UserMenu() {
   const [unsynced, setUnsynced] = useState(0);
   const [busy, setBusy] = useState(false);
   const [demoReset, setDemoReset] = useState(false);
+  const wsMenu = useWorkspaceMenu();
   if (!user) return null;
   // Brief §7.4: warn before logout wipes violations that never reached the server.
   const requestLogout = async () => {
@@ -169,6 +172,7 @@ function UserMenu() {
           </Group>
         </Stack>
       </Modal>
+      {wsMenu.dialog}
       {api.demo ? <DemoResetDialog opened={demoReset} onClose={() => setDemoReset(false)} /> : null}
       <Menu position="bottom-end" width={250}>
         <Menu.Target>
@@ -176,7 +180,7 @@ function UserMenu() {
             <UserPhotoAvatar user={user} self size={34} ring />
             <span className="nz-who-text">
               <b>{user.fullName}</b>
-              <span>{roleLabel(user.role)}</span>
+              <span>{workspaceRoleText(user)}</span>
             </span>
             <IconChevronDown size={15} stroke={1.8} className="nz-who-chev" aria-hidden />
           </UnstyledButton>
@@ -189,11 +193,13 @@ function UserMenu() {
                 {user.fullName}
               </Text>
               <Text size="xs" c="dimmed">
-                {roleLabel(user.role)}
+                {workspaceRoleText(user)}
               </Text>
+              <DualRoleBadge user={user} />
             </div>
           </div>
           <Menu.Divider />
+          {wsMenu.items}
           <Menu.Item component={Link} to="/profile" leftSection={<IconUserCircle size={18} />}>
             {t('nav.profile')}
           </Menu.Item>
@@ -273,6 +279,7 @@ export function TopBar({ trail, mobile }: { trail: Trail; mobile: boolean }) {
         <h2 className="sr-only" key={location.pathname}>
           {trail.status && trail.status !== 'ok' ? '' : trail.title}
         </h2>
+        {mobile ? <WorkspaceName variant="chip" /> : null}
         <div className="nz-top-sp" />
         <div className="nz-top-chips">
           <SyncChip />

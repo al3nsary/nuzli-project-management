@@ -118,6 +118,11 @@ describe('DemoApi — same rules as the real API', () => {
   });
 
   it('protects the last active admin from demotion and suspension', async () => {
+    // A12: the owner (mmansary) is also an admin of «إدارة المشاريع»; an owner removes that role first.
+    await loginAs('mmansary');
+    const ws = (await api.workspaces.list())[0]!;
+    const ownerId = (await api.owners.list())[0]!.id;
+    await api.workspaces.removeAdmin(ws.id, ownerId);
     const me = await loginAs(ADMIN1);
     const admins = await api.users.list({ role: 'ADMIN', status: 'ACTIVE' });
     const other = admins.items.find((u) => u.email === ADMIN2)!;

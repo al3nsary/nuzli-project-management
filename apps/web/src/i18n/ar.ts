@@ -3,7 +3,15 @@
  * Flat keys (`area.thing`) so `scripts/check-i18n.mjs` and TypeScript can both verify them.
  * Placeholders use `{name}` and are filled by `t(key, vars)`.
  */
+import { arA12Session } from './parts/a12-session.ar';
+import { arA12Admin } from './parts/a12-admin.ar';
+import { arA12Roles } from './parts/a12-roles.ar';
+
 export const ar = {
+  // A12 (owner request 2026-10-20): workspaces, owners, user management, assistants, participants.
+  ...arA12Session,
+  ...arA12Admin,
+  ...arA12Roles,
   // ---------------------------------------------------------------- app
   'app.name': 'نُزلي',
   'app.tagline': 'إدارة المشاريع والفرق الميدانية',
@@ -92,8 +100,8 @@ export const ar = {
   // ---------------------------------------------------------------- auth: login
   'login.title': 'تسجيل الدخول إلى نُزلي',
   'login.subtitle': 'إدارة المشاريع والفرق الميدانية',
-  'login.identifier': 'البريد الإلكتروني أو رقم الجوال',
-  'login.identifierPlaceholder': 'name@example.com · 05XXXXXXXX',
+  'login.identifier': 'اسم المستخدم أو البريد أو الجوال',
+  'login.identifierPlaceholder': 'mmansary · name@example.com · 05XXXXXXXX',
   'login.password': 'كلمة المرور',
   'login.submit': 'تسجيل الدخول',
   'login.forgot': 'نسيت كلمة المرور؟',

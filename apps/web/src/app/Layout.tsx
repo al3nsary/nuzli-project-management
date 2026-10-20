@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
+import { uiRoleOf } from '../features/workspaces/roles';
 import { Outlet, useLocation, useMatches, useNavigationType } from 'react-router-dom';
 import { useMediaQuery } from '@mantine/hooks';
 import { can } from '@nuzli/shared';
@@ -142,7 +143,8 @@ export function Layout() {
   // Boards and wide grids (route handle fullWidth) use the whole width; forms stay at 1200px.
   const matches = useMatches();
   const fullWidth = matches.some((m) => (m.handle as { fullWidth?: boolean } | undefined)?.fullWidth === true);
-  const bottomBar = hasBottomBar(user?.role);
+  const uiRole = uiRoleOf(user);
+  const bottomBar = hasBottomBar(uiRole ?? undefined);
 
   return (
     <div className={['nz-room', mini ? 'is-mini' : '', bottomBar ? 'nz-has-bottombar' : ''].filter(Boolean).join(' ')}>
@@ -165,7 +167,7 @@ export function Layout() {
           </div>
         </main>
       </div>
-      {bottomBar && user ? <RoleBottomBar role={user.role} tree={tree} chain={chain} badges={badges} /> : null}
+      {bottomBar && user && uiRole ? <RoleBottomBar role={uiRole} tree={tree} chain={chain} badges={badges} /> : null}
       <CommandPalette user={user} tree={tree} />
       <ShortcutSheet tree={tree} />
     </div>

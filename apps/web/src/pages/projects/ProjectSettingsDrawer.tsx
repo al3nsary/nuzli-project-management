@@ -34,7 +34,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { IconCheck, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { CUSTOM_FIELD_TYPES, type CustomFieldDto, type CustomFieldType, type LabelDto, type ProjectStatus } from '@nuzli/shared';
+import { can, CUSTOM_FIELD_TYPES, type CustomFieldDto, type CustomFieldType, type LabelDto, type ProjectStatus } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { ApiError, errorMessage } from '../../api/errors';
 import { qk4, useCalendars } from '../../api/projectQueries';
@@ -44,24 +44,33 @@ import { FormError } from '../../components/ui';
 import { formatMoney, formatNumber, t } from '../../i18n';
 import { useTabParam } from '../../lib/useUrlState';
 import { PROJECT_STATUSES, projectStatusLabel } from './parts';
+import { useAuthStore } from '../../stores/auth';
+import { CoverPanel } from '../../features/projects/CoverEditor';
 
 const SWATCHES = ['#5030e5', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F9A825', '#EF6C00', '#C62828', '#AD1457', '#6A1B9A', '#5D4037', '#546E7A'];
 
 export function ProjectSettingsDrawer({ opened, onClose, project, data }: { opened: boolean; onClose(): void; project: ProjectView; data: GanttView }) {
   const { dir } = useDirection();
   const phone = useMediaQuery('(max-width: 600px)') ?? false;
-  const [tab, setTab] = useTabParam('stab', ['general', 'labels', 'fields', 'budget'] as const, 'general');
+  const user = useAuthStore((s) => s.user);
+  // A12 round 2: money is not sent without budget.read — no «الميزانية» tab then.
+  const budget = can(user, 'budget.read');
+  const [tab, setTab] = useTabParam('stab', ['general', 'cover', 'labels', 'fields', 'budget'] as const, 'general');
   return (
     <Drawer opened={opened} onClose={onClose} position={dir === 'rtl' ? 'left' : 'right'} size={phone ? '100%' : 'lg'} title={t('projects.settings')}>
       <Tabs value={tab} onChange={setTab} keepMounted={false}>
         <Tabs.List mb="md">
           <Tabs.Tab value="general">{t('settings.tab.general')}</Tabs.Tab>
+          <Tabs.Tab value="cover">{t('a12roles.cover.tab')}</Tabs.Tab>
           <Tabs.Tab value="labels">{t('settings.tab.labels')}</Tabs.Tab>
           <Tabs.Tab value="fields">{t('settings.tab.fields')}</Tabs.Tab>
-          <Tabs.Tab value="budget">{t('settings.tab.budget')}</Tabs.Tab>
+          {budget ? <Tabs.Tab value="budget">{t('settings.tab.budget')}</Tabs.Tab> : null}
         </Tabs.List>
         <Tabs.Panel value="general">
           <GeneralPanel project={project} onClose={onClose} opened={opened} />
+        </Tabs.Panel>
+        <Tabs.Panel value="cover">
+          <CoverPanel project={project} />
         </Tabs.Panel>
         <Tabs.Panel value="labels">
           <LabelsPanel projectId={project.id} labels={data.labels ?? []} />
@@ -69,9 +78,11 @@ export function ProjectSettingsDrawer({ opened, onClose, project, data }: { open
         <Tabs.Panel value="fields">
           <FieldsPanel projectId={project.id} fields={data.customFields ?? []} />
         </Tabs.Panel>
-        <Tabs.Panel value="budget">
-          <BudgetPanel project={project} />
-        </Tabs.Panel>
+        {budget ? (
+          <Tabs.Panel value="budget">
+            <BudgetPanel project={project} />
+          </Tabs.Panel>
+        ) : null}
       </Tabs>
     </Drawer>
   );
@@ -507,6 +518,8 @@ function FieldsPanel({ projectId, fields }: { projectId: string; fields: CustomF
 
 function BudgetPanel({ project }: { project: ProjectView }) {
   const api = useApi();
+  // budget.read shows the figures; only budget.manage changes the amount (else 403 details.field=budget).
+  const editable = can(useAuthStore((s) => s.user), 'budget.manage');
   const qc = useQueryClient();
   const [amount, setAmount] = useState<number | ''>(project.budget ?? '');
   const [busy, setBusy] = useState(false);
@@ -552,10 +565,13 @@ function BudgetPanel({ project }: { project: ProjectView }) {
           value={amount}
           onChange={(v) => setAmount(v === '' ? '' : Number(v))}
           style={{ flex: 1 }}
+          disabled={!editable}
         />
-        <Button onClick={() => void save()} loading={busy}>
-          {t('common.save')}
-        </Button>
+        {editable ? (
+          <Button onClick={() => void save()} loading={busy}>
+            {t('common.save')}
+          </Button>
+        ) : null}
       </Group>
       <SimpleGrid cols={{ base: 1, xs: 3 }} className="nz-budget-kpis">
         <div className="surface-card nz-budget-kpi">

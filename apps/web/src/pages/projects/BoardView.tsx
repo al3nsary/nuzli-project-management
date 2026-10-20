@@ -21,6 +21,7 @@ import { can, type GanttDto, type TaskDto, type TaskStatus } from '@nuzli/shared
 import { errorMessage } from '../../api/errors';
 import type { useProjectWrites } from '../../api/projectWrites';
 import { useAuthStore } from '../../stores/auth';
+import { useProjectAccess } from '../../features/participants/access';
 import { formatDate, formatDateTime, formatNumber, t } from '../../i18n';
 import { dueDayOf, riyadhToday } from '../../features/projects/engine';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -46,8 +47,10 @@ export function BoardView({
   onOpenChat?(id: string): void;
 }) {
   const user = useAuthStore((s) => s.user);
-  const admin = can(user, 'tasks.manage');
-  const [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine');
+  // A12 round 2: the account's rights plus the participant level (contributors move every card).
+  const access = useProjectAccess(data.project.id);
+  const admin = access.editTasks;
+  const [scope, setScope] = useState<'all' | 'mine'>(admin || access.level ? 'all' : 'mine');
   const [limit, setLimit] = useState<Record<string, number>>({});
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -58,7 +61,7 @@ export function BoardView({
     () => data.tasks.filter((x) => !parents.has(x.id) && x.type !== 'GROUP' && (scope === 'all' || x.assignee?.id === user?.id)),
     [data.tasks, parents, scope, user?.id],
   );
-  const canMove = (task: TaskDto) => admin || (task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned'));
+  const canMove = (task: TaskDto) => access.workAll || (task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned'));
 
   /**
    * A move is a status edit: the card moves at once and its progress follows the shared rule

@@ -29,7 +29,9 @@ import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconBrandTrello, IconFileImport, IconPlus, IconX } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { can } from '@nuzli/shared';
 import { useApi } from '../../api/context';
+import { useAuthStore } from '../../stores/auth';
 import { ApiError } from '../../api/errors';
 import { useTemplates } from '../../api/a9Queries';
 import { DEFAULT_WORKING_HOURS, type DurationUnit, type WorkingInterval } from '../../api/hoursWire';
@@ -74,6 +76,8 @@ export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onCl
   const [workingDays, setWorkingDays] = useState<number[]>(DEFAULT_WORKING_DAYS);
   const [hours, setHours] = useState<WorkingInterval[]>(DEFAULT_WORKING_HOURS.map((w) => ({ ...w })));
   const [budget, setBudget] = useState<number | ''>('');
+  // A12 round 2: a budget needs budget.manage (an assistant with projects:edit alone gets 403).
+  const canBudget = can(useAuthStore((s) => s.user), 'budget.manage');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -100,7 +104,7 @@ export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onCl
         durationUnit: unit,
         workingDays: [...workingDays].sort((x, y) => x - y),
         workingHours: [...hours].sort((x, y) => x.start.localeCompare(y.start)),
-        ...(budget === '' ? {} : { budget: Number(budget) }),
+        ...(budget === '' || !canBudget ? {} : { budget: Number(budget) }),
         ...(templateId ? { fromTemplateId: templateId } : {}),
       });
       void qc.invalidateQueries({ queryKey: ['projects'] });
@@ -256,6 +260,7 @@ export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onCl
                 </Text>
               ) : null}
             </div>
+            {canBudget ? (
             <NumberInput
               label={t('createProject.budget')}
               description={t('createProject.budgetHint')}
@@ -269,6 +274,7 @@ export function CreateProjectDialog({ opened, onClose }: { opened: boolean; onCl
               onChange={(v) => setBudget(v === '' ? '' : Number(v))}
               error={errors.budget}
             />
+            ) : null}
             <Button type="submit" size="md" fullWidth loading={busy}>
               {t('createProject.submit')}
             </Button>

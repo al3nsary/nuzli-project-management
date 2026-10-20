@@ -12,12 +12,13 @@ import { formatPct, isOverBudget } from '../../../features/reports/budget';
 import '../../../features/reports/reports.css';
 import { ProgressLine } from '../parts';
 import type { TabProps } from './types';
+import { useProjectAccess } from '../../../features/participants/access';
 
 /** Assignees first by planned cost, the «غير مسندة» bucket last. */
 export function sortPeople(rows: readonly ProjectPersonDto[]): ProjectPersonDto[] {
   return [...rows].sort((a, b) => {
     if (!a.assignee !== !b.assignee) return a.assignee ? -1 : 1;
-    return b.taskCount - a.taskCount || b.plannedCost - a.plannedCost;
+    return b.taskCount - a.taskCount || (b.plannedCost ?? 0) - (a.plannedCost ?? 0);
   });
 }
 
@@ -60,6 +61,8 @@ export function ProjectPeopleTab(props: TabProps) {
   const phone = useMediaQuery('(max-width: 47.99em)', false, { getInitialValueInEffect: false }) ?? false;
   const rows = useMemo(() => sortPeople(people.data ?? []), [people.data]);
   const money = (v: number) => formatMoney(v, currency);
+  // A12 round 2: money fields are absent without budget.read — their columns are not drawn.
+  const showMoney = useProjectAccess(id).budgetRead;
 
   if (people.isLoading) return <LoadingBlock variant={phone ? 'tasks' : 'table'} rows={5} />;
   if (people.error) return <ErrorBlock error={people.error} onRetry={() => void people.refetch()} />;
@@ -70,8 +73,8 @@ export function ProjectPeopleTab(props: TabProps) {
       tasks: s.tasks + r.taskCount,
       done: s.done + r.doneCount,
       overdue: s.overdue + r.overdueCount,
-      planned: s.planned + r.plannedCost,
-      actual: s.actual + r.actualCost,
+      planned: s.planned + (r.plannedCost ?? 0),
+      actual: s.actual + (r.actualCost ?? 0),
       logged: s.logged + r.loggedMinutes,
     }),
     { tasks: 0, done: 0, overdue: 0, planned: 0, actual: 0, logged: 0 },
@@ -104,6 +107,8 @@ export function ProjectPeopleTab(props: TabProps) {
                 <span>{t('a9r.people.overdue')}</span>
                 <b className={r.overdueCount ? 'rp-red' : undefined}>{formatNumber(r.overdueCount)}</b>
               </div>
+              {showMoney ? (
+              <>
               <div className="rp-person-stat">
                 <span>{t('a9r.budget.planned')}</span>
                 <b>{money(r.plannedCost)}</b>
@@ -116,6 +121,8 @@ export function ProjectPeopleTab(props: TabProps) {
                 <span>{t('a9r.people.share')}</span>
                 <b>{formatPct(r.budgetShare)}</b>
               </div>
+              </>
+              ) : null}
             </div>
             <Text size="xs" c="dimmed">
               {t('a9r.people.loggedLine', { time: r.loggedMinutes ? formatMinutes(r.loggedMinutes) : t('common.none') })}
@@ -146,9 +153,13 @@ export function ProjectPeopleTab(props: TabProps) {
               <th className="num">{t('a9r.people.done')}</th>
               <th className="num">{t('a9r.people.overdue')}</th>
               <th style={{ minWidth: 150 }}>{t('a9r.people.progress')}</th>
-              <th className="num">{t('a9r.budget.planned')}</th>
-              <th className="num">{t('a9r.budget.actual')}</th>
-              <th className="num">{t('a9r.people.share')}</th>
+              {showMoney ? (
+                <>
+                  <th className="num">{t('a9r.budget.planned')}</th>
+                  <th className="num">{t('a9r.budget.actual')}</th>
+                  <th className="num">{t('a9r.people.share')}</th>
+                </>
+              ) : null}
               <th className="num">{t('a9r.people.logged')}</th>
             </tr>
           </thead>
@@ -167,9 +178,13 @@ export function ProjectPeopleTab(props: TabProps) {
                 <td>
                   <ProgressLine value={r.progress} label={t('a9r.people.progressOf', { name: r.assignee?.fullName ?? t('a9r.people.unassigned') })} />
                 </td>
-                <td className="num">{money(r.plannedCost)}</td>
-                <td className={isOverBudget(r) ? 'num rp-red' : 'num'}>{money(r.actualCost)}</td>
-                <td className="num">{formatPct(r.budgetShare)}</td>
+                {showMoney ? (
+                  <>
+                    <td className="num">{money(r.plannedCost)}</td>
+                    <td className={isOverBudget(r) ? 'num rp-red' : 'num'}>{money(r.actualCost)}</td>
+                    <td className="num">{formatPct(r.budgetShare)}</td>
+                  </>
+                ) : null}
                 <td className="num">{r.loggedMinutes ? formatMinutes(r.loggedMinutes) : <span className="rp-dim">{t('common.none')}</span>}</td>
               </tr>
             ))}
@@ -181,9 +196,13 @@ export function ProjectPeopleTab(props: TabProps) {
               <td className="num">{formatNumber(totals.done)}</td>
               <td className={totals.overdue ? 'num rp-red' : 'num'}>{formatNumber(totals.overdue)}</td>
               <td />
-              <td className="num">{money(totals.planned)}</td>
-              <td className="num">{money(totals.actual)}</td>
-              <td />
+              {showMoney ? (
+                <>
+                  <td className="num">{money(totals.planned)}</td>
+                  <td className="num">{money(totals.actual)}</td>
+                  <td />
+                </>
+              ) : null}
               <td className="num">{totals.logged ? formatMinutes(totals.logged) : t('common.none')}</td>
             </tr>
           </tfoot>

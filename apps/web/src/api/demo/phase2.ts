@@ -68,6 +68,7 @@ import type {
   DemoUser,
 } from './db';
 import { fail, newId, paginate, rejectFullIdInUrl, sameName, validate } from './util';
+import { teamInScope } from './access';
 import {
   closeAllLeaders,
   groupOpenLeaders,
@@ -104,13 +105,30 @@ function cardNationalId(config: CardTemplateConfig, full: string): string {
 /** What the Phase 2 module needs from the DemoApi instance. */
 export interface DemoInternals {
   db: DemoDb;
-  actor(permission?: Permission): Promise<DemoUser>;
+  actor(permission?: Permission, opts?: import('./access').ActorOptions): Promise<DemoUser>;
   writeAudit(entry: Omit<DemoAudit, 'id' | 'at' | 'ip'>): Promise<unknown>;
   notify(userId: string, type: string, payload: Record<string, unknown>): Promise<unknown>;
   readSettings(): ReturnType<ApiClient['settings']['get']>;
   demoPasswordHash(): Promise<string>;
   /** Owner request A8: a displayable URL for a linked photo file (cards); null when none. */
   photoUrlFor?(fileId: string | null | undefined): Promise<string | null>;
+  /** A12: raw account lookups (uniqueness spans every workspace) and roles in the active workspace. */
+  rawUserBy?(field: 'email' | 'mobile' | 'nationalId' | 'username', value: string): Promise<DemoUser | undefined>;
+  uniqueUsername?(email: string): Promise<string>;
+  grantRole?(userId: string, role: 'SUPERVISOR', actorId: string | null): Promise<unknown>;
+  approversOf?(wid: string, permission?: Permission): string[];
+  scope?: { current: { wid: string | null } };
+}
+
+/** A12 round 2: what the requests module (a12.ts) reuses from the members code. */
+export interface Phase2Hooks {
+  insertMember(
+    input: ReturnType<typeof memberInputSchema.parse>,
+    teamId: string,
+    actorId: string,
+    at: string,
+  ): Promise<DemoMember>;
+  memberDtoById(id: string): Promise<MemberDto>;
 }
 
 export type Phase2Api = Pick<
@@ -209,7 +227,7 @@ export function sniffImageType(bytes: Uint8Array): (typeof LOGO_TYPES)[number] |
 
 // ---------------------------------------------------------------- module
 
-export function createPhase2(api: DemoInternals): Phase2Api {
+export function createPhase2(api: DemoInternals): Phase2Api & { phase2Hooks: Phase2Hooks } {
   const db = api.db;
   const tx = <T>(fn: () => Promise<T>) => db.transaction('rw', db.tables, fn);
 
@@ -330,8 +348,9 @@ export function createPhase2(api: DemoInternals): Phase2Api {
   // ------------------------------------------------------------ scope (same rules as apps/api)
 
   const readsAll = (u: DemoUser) => can(u, 'teams.readAll');
+  // A12 round 2: an assistant limited to some teams (`teamInScope`) reads only those.
   const canReadTeam = (u: DemoUser, team: DemoTeam) =>
-    readsAll(u) || (can(u, 'teams.readOwn') && leads(u, team));
+    (readsAll(u) && teamInScope(u, team.id)) || (can(u, 'teams.readOwn') && leads(u, team));
   function assertReadable(u: DemoUser, team: DemoTeam | undefined): asserts team is DemoTeam {
     if (!team || !canReadTeam(u, team)) fail('NOT_FOUND');
   }
@@ -345,7 +364,7 @@ export function createPhase2(api: DemoInternals): Phase2Api {
     can(u, 'members.manage') || (!!team && can(u, 'members.manageOwn') && leads(u, team));
   /** Supervisors see their own teams' members and unassigned people (apps/api memberScopeWhere). */
   const canSeeMember = (u: DemoUser, team: DemoTeam | null | undefined) =>
-    readsAll(u) || can(u, 'members.manage') || !team || leads(u, team);
+    !team || ((readsAll(u) || can(u, 'members.manage')) && teamInScope(u, team.id)) || leads(u, team);
   const memberTeam = (w: World, memberId: string) => {
     const open = w.open.get(memberId);
     return open ? w.teams.get(open.teamId) ?? null : null;
@@ -609,11 +628,14 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           supervisorId = u.id;
         } else if (data.newSupervisor) {
           const ns = data.newSupervisor;
-          if (await db.users.where('email').equals(ns.email).first())
+          // A12: accounts are global — uniqueness is checked across every workspace.
+          const taken = (field: 'email' | 'mobile' | 'nationalId', v: string) =>
+            api.rawUserBy ? api.rawUserBy(field, v) : db.users.where(field).equals(v).first();
+          if (await taken('email', ns.email))
             fail('EMAIL_TAKEN', { fieldErrors: { 'newSupervisor.email': [ERRORS.EMAIL_TAKEN] } });
-          if (await db.users.where('mobile').equals(ns.mobile).first())
+          if (await taken('mobile', ns.mobile))
             fail('MOBILE_TAKEN', { fieldErrors: { 'newSupervisor.mobile': [ERRORS.MOBILE_TAKEN] } });
-          if (await db.users.where('nationalId').equals(ns.nationalId).first())
+          if (await taken('nationalId', ns.nationalId))
             fail('NATIONAL_ID_TAKEN', {
               fieldErrors: { 'newSupervisor.nationalId': [ERRORS.NATIONAL_ID_TAKEN] },
             });
@@ -633,8 +655,11 @@ export function createPhase2(api: DemoInternals): Phase2Api {
             createdAt: at,
             preferences: { ...u.preferences, emailNotifications: {} },
             passwordHash,
+            ...(api.uniqueUsername ? { username: await api.uniqueUsername(ns.email), accountRole: 'USER' as const } : {}),
           };
           await db.users.add(sup);
+          // A12: the new supervisor belongs to this workspace.
+          await api.grantRole?.(sup.id, 'SUPERVISOR', u.id);
           await api.writeAudit({
             actorId: u.id,
             action: 'user.created',
@@ -742,13 +767,14 @@ export function createPhase2(api: DemoInternals): Phase2Api {
           },
         });
         if (pending) {
-          const admins = await db.users
-            .where('role')
-            .equals('ADMIN')
-            .filter((a) => a.status === 'ACTIVE')
-            .toArray();
-          for (const admin of admins) {
-            await api.notify(admin.id, 'TEAM_PENDING_APPROVAL', {
+          // A12: this workspace's admins and owners (the users view gives role per workspace).
+          const wid = api.scope?.current.wid;
+          const adminIds =
+            wid && api.approversOf
+              ? api.approversOf(wid, 'teams.approve')
+              : (await db.users.filter((a) => a.role === 'ADMIN' && a.status === 'ACTIVE').toArray()).map((a) => a.id);
+          for (const adminId of adminIds) {
+            await api.notify(adminId, 'TEAM_PENDING_APPROVAL', {
               teamId: created.id,
               name: created.name,
               fullName: u.fullName,
@@ -1206,6 +1232,8 @@ export function createPhase2(api: DemoInternals): Phase2Api {
   }
 
   const members: Phase2Api['members'] = {
+    /** A12 round 2: replaced by a12.ts `decorate()` (admins archive, supervisors request). */
+    archive: async () => fail('FORBIDDEN'),
     list: async (query = {}) => {
       rejectFullIdInUrl(query.q, 'POST /members/search');
       return filterMembers(query);
@@ -2045,7 +2073,15 @@ export function createPhase2(api: DemoInternals): Phase2Api {
   teams.addMember = hideDuplicateNationalId('teams.addMember', teams.addMember);
   members.update = hideDuplicateNationalId('members.update', members.update);
 
-  return { colors, teams, members, reference, cards, logos };
+  const phase2Hooks: Phase2Hooks = {
+    insertMember,
+    memberDtoById: async (id) => {
+      const m = await db.members.get(id);
+      if (!m) fail('NOT_FOUND');
+      return memberDto(m, await world());
+    },
+  };
+  return { colors, teams, members, reference, cards, logos, phase2Hooks };
 }
 
 /** Changed fields only; the national ID is masked in audit snapshots (ADR-032). */

@@ -4,6 +4,7 @@
  * undoes it), checklist, labels & custom fields, the task chat, attachments, time log and
  * activity. `lg` on desktop, full screen on phones.
  */
+import { AccessTaskChat } from '../../features/participants/AccessTaskChat';
 import { useMemo, useState } from 'react';
 import {
   ActionIcon,
@@ -28,7 +29,7 @@ import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { IconFlag, IconLink, IconRefresh, IconTrash } from '@tabler/icons-react';
-import { can, type Priority, type TaskStatus } from '@nuzli/shared';
+import type { Priority, TaskStatus } from '@nuzli/shared';
 import { syncStatusProgress } from '@nuzli/scheduling';
 import { useApi } from '../../api/context';
 import { ApiError, errorMessage } from '../../api/errors';
@@ -36,7 +37,7 @@ import { useSupervisors } from '../../api/queries';
 import { useTaskActivity } from '../../api/projectQueries';
 import type { ProjectWrites } from '../../api/projectWrites';
 import { unitOf, type GanttView, type TaskView } from '../../api/hoursWire';
-import { useAuthStore } from '../../stores/auth';
+import { useProjectAccess, useTaskAccess } from '../../features/participants/access';
 import { FormError } from '../../components/ui';
 import { formatDate, formatDateTime, formatLocalTime, formatMoney, formatNumber, t, tCount, tKey } from '../../i18n';
 import { calendarOf, checkNewLink, engineState } from '../../features/gantt/batch';
@@ -99,11 +100,11 @@ export function TaskDrawer({ data, taskId, writes, onClose }: { data: GanttView;
           </Tabs.Panel>
           <Tabs.Panel value="comments">
             <div className="nz-drawer-chat">
-              <TaskChat taskId={task.id} taskName={task.name} projectId={task.projectId} assignee={task.assignee} />
+              <AccessTaskChat taskId={task.id} taskName={task.name} projectId={task.projectId} assignee={task.assignee} />
             </div>
           </Tabs.Panel>
           <Tabs.Panel value="files">
-            <TaskAttachments taskId={task.id} projectId={task.projectId} assigneeId={task.assignee?.id ?? null} />
+            <FilesTab task={task} />
           </Tabs.Panel>
           <Tabs.Panel value="time">
             <TimeTab task={task} />
@@ -117,22 +118,24 @@ export function TaskDrawer({ data, taskId, writes, onClose }: { data: GanttView;
   );
 }
 
+// A12 round 2: the account's rights plus the participant level on this project (features/participants/access).
 function TaskChecklistTab({ task }: { task: TaskView }) {
-  const user = useAuthStore((s) => s.user);
-  const mode = can(user, 'tasks.manage') ? 'admin' : task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned') ? 'assignee' : 'read';
-  return <TaskChecklist taskId={task.id} projectId={task.projectId} mode={mode} />;
+  const access = useTaskAccess(task);
+  return <TaskChecklist taskId={task.id} projectId={task.projectId} mode={access.checklist} />;
+}
+
+function FilesTab({ task }: { task: TaskView }) {
+  const access = useTaskAccess(task);
+  return <TaskAttachments taskId={task.id} projectId={task.projectId} assigneeId={task.assignee?.id ?? null} canUpload={access.attach} />;
 }
 
 function MetaTab({ data, task, writes }: { data: GanttView; task: TaskView; writes: Writes }) {
-  const user = useAuthStore((s) => s.user);
-  return can(user, 'tasks.manage') ? <TaskLabelsFieldsEditor data={data} task={task} writes={writes} /> : <TaskLabelsFieldsView taskId={task.id} />;
+  return useTaskAccess(task).edit ? <TaskLabelsFieldsEditor data={data} task={task} writes={writes} /> : <TaskLabelsFieldsView taskId={task.id} />;
 }
 
 function TimeTab({ task }: { task: TaskView }) {
-  const user = useAuthStore((s) => s.user);
-  const admin = can(user, 'tasks.manage');
-  const mine = task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned');
-  return <TaskTimeLog taskId={task.id} admin={admin} canLog={admin || mine} />;
+  const access = useTaskAccess(task);
+  return <TaskTimeLog taskId={task.id} admin={access.timeAdmin} canLog={access.logTime} />;
 }
 
 // ---------------------------------------------------------------- details
@@ -141,9 +144,13 @@ const isHex = (v: string) => /^#[0-9a-fA-F]{6}$/.test(v);
 
 function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: TaskView; writes: Writes; onClose(): void }) {
   const api = useApi();
-  const user = useAuthStore((s) => s.user);
-  const admin = can(user, 'tasks.manage');
-  const mine = task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned');
+  const access = useTaskAccess(task);
+  const project = useProjectAccess(task.projectId);
+  const admin = access.edit;
+  const mine = access.status;
+  // A12 round 2: money is absent without budget.read and read-only without budget.manage.
+  const showMoney = project.budgetRead;
+  const editMoney = admin && project.budgetManage;
   const isGroup = data.tasks.some((x) => x.parentId === task.id);
   const hours = unitOf(data.project) === 'HOUR';
   const currency = data.project.currency ?? 'SAR';
@@ -204,8 +211,8 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
           if (form.startDate !== task.startDate.slice(0, 10)) patch.startDate = form.startDate;
           if (form.durationDays !== task.durationDays && form.type !== 'MILESTONE') patch.durationDays = form.durationDays;
         }
-        if (form.plannedCost !== (task.plannedCost ?? 0)) patch.plannedCost = form.plannedCost;
-        if (form.actualCost !== (task.actualCost ?? 0)) patch.actualCost = form.actualCost;
+        if (editMoney && form.plannedCost !== (task.plannedCost ?? 0)) patch.plannedCost = form.plannedCost;
+        if (editMoney && form.actualCost !== (task.actualCost ?? 0)) patch.actualCost = form.actualCost;
       }
     }
     if (Object.keys(patch).length === 1) {
@@ -252,7 +259,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
         </Alert>
       ) : !admin ? (
         <Alert color="field" variant="light">
-          {t('task.supervisorHint')}
+          {project.level === 'CONTRIBUTOR' ? t('a12roles.contributorHint') : t('task.supervisorHint')}
         </Alert>
       ) : null}
       <Group gap="xs" wrap="wrap">
@@ -266,7 +273,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
             {task.deadlinePassed ? t('a9s.deadline.passed', { date: formatDate(task.deadline) }) : t('a9s.deadline.on', { date: formatDate(task.deadline) })}
           </span>
         ) : null}
-        {task.overBudget ? (
+        {showMoney && task.overBudget ? (
           <Badge color="breach" variant="light" radius="xl">
             {t('a9s.drawer.overBudget')}
           </Badge>
@@ -373,6 +380,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
         />
       </SimpleGrid>
 
+      {showMoney ? (
       <div className="surface-card nz-drawer-budget">
         <Text fw={600} size="sm" mb={6}>
           {t('a9s.drawer.budget')}
@@ -410,7 +418,7 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
               onChange={(v) => set('plannedCost', Math.max(0, Number(v) || 0))}
               rightSection={<Text size="xs" c="dimmed">{currency === 'SAR' ? t('money.sar') : currency}</Text>}
               rightSectionWidth={44}
-              disabled={!admin}
+              disabled={!editMoney}
             />
             <NumberInput
               label={t('a9s.drawer.actualCost')}
@@ -421,12 +429,13 @@ function TaskDetails({ data, task, writes, onClose }: { data: GanttView; task: T
               onChange={(v) => set('actualCost', Math.max(0, Number(v) || 0))}
               rightSection={<Text size="xs" c="dimmed">{currency === 'SAR' ? t('money.sar') : currency}</Text>}
               rightSectionWidth={44}
-              disabled={!admin}
+              disabled={!editMoney}
               error={form.actualCost > form.plannedCost && form.plannedCost > 0 ? t('a9s.drawer.overBy', { value: money(form.actualCost - form.plannedCost) }) : undefined}
             />
           </SimpleGrid>
         )}
       </div>
+      ) : null}
 
       <div>
         <Text size="sm" fw={500} mb={4} id="task-progress-label">

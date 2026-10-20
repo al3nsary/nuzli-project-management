@@ -3,6 +3,8 @@ import { can, canAny, type Permission, type Role, type UserDto } from '@nuzli/sh
 import {
   IconAlertOctagon,
   IconBriefcase,
+  IconBuildingCommunity,
+  IconCrown,
   IconClockHour4,
   IconFileReport,
   IconFolders,
@@ -34,6 +36,7 @@ import {
   type Icon,
 } from '@tabler/icons-react';
 import type { MessageKey } from '../i18n';
+import { uiRoleOf } from '../features/workspaces/roles';
 
 /*
  * The single navigation registry (design skill, navigation rule 1). The sidebar, the mini rail,
@@ -41,8 +44,8 @@ import type { MessageKey } from '../i18n';
  * sheet and the document titles all read it — and nothing else.
  */
 
-export type NavGroupId = 'home' | 'projects' | 'collab' | 'teams' | 'violations' | 'admin';
-export type BadgeKind = 'registrations' | 'pendingTeams' | 'outbox' | 'overdueTasks';
+export type NavGroupId = 'home' | 'projects' | 'collab' | 'teams' | 'violations' | 'admin' | 'system';
+export type BadgeKind = 'registrations' | 'pendingTeams' | 'outbox' | 'overdueTasks' | 'workerRequests';
 export type EntityKind = 'team' | 'project' | 'task';
 
 /**
@@ -57,6 +60,8 @@ export const NAV_GROUPS: { id: NavGroupId; label: MessageKey; quiet?: boolean }[
   { id: 'teams', label: 'navGroup.teams' },
   { id: 'violations', label: 'navGroup.violations' },
   { id: 'admin', label: 'navGroup.admin' },
+  // A12: owners only — workspaces, owners and every account («إدارة النظام»).
+  { id: 'system', label: 'navGroup.system' },
 ];
 
 export interface NavNode {
@@ -81,6 +86,10 @@ export interface NavNode {
   soon?: boolean;
   /** Data-dependent rule (the API still enforces): supervisor violation visibility. */
   gate?: 'teamViolations';
+  /** A12: owners (accountRole OWNER) only. */
+  owner?: boolean;
+  /** A12: also shown to project participants (their projects only — the API scopes). */
+  participants?: boolean;
   badge?: BadgeKind;
   /** Active only on an exact match (a parent of other pages, e.g. /teams vs /teams/formation). */
   end?: boolean;
@@ -102,6 +111,7 @@ export const NAV: NavNode[] = [
     icon: IconFolders,
     group: 'projects',
     permission: 'projects.readAll',
+    participants: true,
     key: 'p',
   },
   {
@@ -188,7 +198,7 @@ export const NAV: NavNode[] = [
         title: 'nav.teams',
         icon: IconUsersGroup,
         group: 'teams',
-        permission: 'teams.readOwn',
+        anyOf: ['teams.readOwn', 'teams.readAll'],
         badge: 'pendingTeams',
         end: true,
         key: 't',
@@ -202,7 +212,18 @@ export const NAV: NavNode[] = [
         permission: 'members.move',
         key: 'f',
       },
-      { id: 'members', path: '/members', label: 'nav.members', icon: IconId, group: 'teams', permission: 'teams.readOwn' },
+      { id: 'members', path: '/members', label: 'nav.members', icon: IconId, group: 'teams', anyOf: ['teams.readOwn', 'teams.readAll'] },
+      // A12 round 2: a supervisor's add/remove-worker requests and their decisions.
+      {
+        id: 'workerRequests',
+        path: '/worker-requests',
+        label: 'nav.workerRequests',
+        icon: IconUserCheck,
+        group: 'teams',
+        permission: 'members.manageOwn',
+        role: 'SUPERVISOR',
+        badge: 'workerRequests',
+      },
     ],
   },
   {
@@ -315,12 +336,13 @@ export const NAV: NavNode[] = [
   },
   // ------------------------------------------------------------------ الإدارة
   {
+    // A12 round 2: one approvals page — registrations and (tab) the supervisors' worker requests.
     id: 'registrations',
     path: '/registrations',
-    label: 'nav.registrations',
+    label: 'nav.requests',
     icon: IconUserCheck,
     group: 'admin',
-    permission: 'registrations.review',
+    anyOf: ['registrations.review', 'registrations.read'],
     badge: 'registrations',
   },
   { id: 'users', path: '/users', label: 'nav.users', icon: IconUsers, group: 'admin', permission: 'users.read', key: 'u' },
@@ -359,6 +381,10 @@ export const NAV: NavNode[] = [
       },
     ],
   },
+  // ------------------------------------------------------------------ إدارة النظام (A12, owners)
+  { id: 'systemWorkspaces', path: '/system/workspaces', label: 'nav.systemWorkspaces', icon: IconBuildingCommunity, group: 'system', owner: true },
+  { id: 'systemOwners', path: '/system/owners', label: 'nav.systemOwners', icon: IconCrown, group: 'system', owner: true },
+  { id: 'systemAccounts', path: '/system/accounts', label: 'nav.systemAccounts', icon: IconUsers, group: 'system', owner: true },
 ];
 
 /** Pages that are reached from other pages, not from the side navigation. */
@@ -389,6 +415,8 @@ export const ROUTE_META: RouteMeta[] = [
 export interface NavContext {
   /** Supervisor violation visibility (data gate). */
   teamViolations: boolean;
+  /** A12: the user is a participant of at least one project (`GET /me/participations`). */
+  participant?: boolean;
 }
 
 /** Every leaf (navigable item) of the registry, depth-first. */
@@ -398,9 +426,10 @@ export function navLeaves(nodes: NavNode[] = NAV): NavNode[] {
 
 export function allowed(node: NavNode, user: UserDto | null, ctx: NavContext): boolean {
   if (!user) return false;
-  if (node.permission && !can(user, node.permission)) return false;
+  if (node.owner && user.accountRole !== 'OWNER') return false;
+  if (node.permission && !can(user, node.permission) && !(node.participants && ctx.participant)) return false;
   if (node.anyOf && !canAny(user, node.anyOf)) return false;
-  if (node.role && node.role !== user.role) return false;
+  if (node.role && node.role !== uiRoleOf(user)) return false;
   if (node.gate === 'teamViolations' && (can(user, 'violations.readAll') || !ctx.teamViolations)) return false;
   return true;
 }
@@ -425,7 +454,8 @@ export function visibleNav(user: UserDto | null, ctx: NavContext, nodes: NavNode
   if (user && !can(user, 'projects.readAll')) {
     for (let i = 0; i < out.length; i++) if (out[i]!.group === 'projects') out[i] = { ...out[i]!, group: 'home' };
   }
-  const lead = user ? out.findIndex((n) => n.lead?.includes(user.role)) : -1;
+  const role = uiRoleOf(user);
+  const lead = user && role ? out.findIndex((n) => n.lead?.includes(role)) : -1;
   if (lead > 0) {
     const [n] = out.splice(lead, 1);
     out.unshift({ ...n!, group: out[0]!.group });

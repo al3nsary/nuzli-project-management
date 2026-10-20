@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+import { uiRoleOf } from '../../features/workspaces/roles';
+import { useMemberRequests, useMyParticipations, usePendingMemberRequestCount } from '../../api/a12Queries';
 import { useTask } from '../../api/a9Queries';
 import { useLocation } from 'react-router-dom';
 import { can } from '@nuzli/shared';
@@ -20,12 +22,16 @@ import {
 /** Count pills (navigation rule 11). Each query runs only for users who can see its item. */
 export function useNavBadges(): Record<BadgeKind, number> {
   const user = useAuthStore((s) => s.user);
-  const reg = useRegistrations({ pageSize: 1 }, can(user, 'registrations.review'));
+  const reg = useRegistrations({ pageSize: 1 }, can(user, 'registrations.review') || can(user, 'registrations.read'));
+  // A12 round 2: pending worker requests join the approvals badge; a supervisor sees their own pending ones.
+  const approvers = usePendingMemberRequestCount();
+  const supervisorPending = useMemberRequests({ status: 'PENDING', pageSize: 1 }, can(user, 'members.manageOwn') && !can(user, 'members.manage') && uiRoleOf(user) === 'SUPERVISOR');
   const pendingTeams = useTeams({ status: 'PENDING_APPROVAL' }, can(user, 'teams.approve'));
   const outbox = useUnsyncedCount(can(user, 'violations.create') ? user?.id : undefined);
   const mine = useMyTasks(can(user, 'tasks.readAssigned'));
   return {
-    registrations: reg.data?.total ?? 0,
+    registrations: (reg.data?.total ?? 0) + approvers,
+    workerRequests: supervisorPending.data?.total ?? 0,
     pendingTeams: pendingTeams.data?.length ?? 0,
     outbox: outbox ?? 0,
     overdueTasks: mine.data?.filter((x) => x.overdue).length ?? 0,
@@ -35,7 +41,9 @@ export function useNavBadges(): Record<BadgeKind, number> {
 export function useNavContext(): NavContext {
   const user = useAuthStore((s) => s.user);
   const gate = useTeamViolationsVisible(can(user, 'violations.readOwnTeams') && !can(user, 'violations.readAll'));
-  return { teamViolations: gate.visible };
+  // A12: project participants see «المشاريع» (their projects only).
+  const parts = useMyParticipations();
+  return { teamViolations: gate.visible, participant: (parts.data?.length ?? 0) > 0 };
 }
 
 /** The visible registry, the active leaf with its open containers, and the page trail. */
@@ -43,14 +51,14 @@ export function useNavModel() {
   const user = useAuthStore((s) => s.user);
   const ctx = useNavContext();
   const location = useLocation();
-  const tree = useMemo(() => visibleNav(user, ctx), [user, ctx.teamViolations]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tree = useMemo(() => visibleNav(user, ctx), [user, ctx.teamViolations, ctx.participant]); // eslint-disable-line react-hooks/exhaustive-deps
   const resolved = useMemo(() => resolvePath(location.pathname), [location.pathname]);
   const chain = useMemo(() => activeChain(tree, resolved.leaf?.id), [tree, resolved.leaf?.id]);
 
   // Entity names come from data the page already loads (same query keys, no extra requests).
   const id = resolved.params.id ?? null;
   const team = useTeam(resolved.meta?.entity === 'team' ? id : null);
-  const gantt = useGantt(resolved.meta?.entity === 'project' && can(user, 'projects.readAll') ? id : null);
+  const gantt = useGantt(resolved.meta?.entity === 'project' && (can(user, 'projects.readAll') || ctx.participant) ? id : null);
   const myTask = useTask(resolved.meta?.entity === 'task' ? id : null);
   const taskId = resolved.meta?.entity === 'project' ? new URLSearchParams(location.search).get('task') : null;
   const entityName =
@@ -65,7 +73,7 @@ export function useNavModel() {
 
   const trail = useMemo(
     () => trailFor(location.pathname, { user, ctx, translate: t, entityName, extra }),
-    [location.pathname, user, ctx.teamViolations, entityName, extra], // eslint-disable-line react-hooks/exhaustive-deps
+    [location.pathname, user, ctx.teamViolations, ctx.participant, entityName, extra], // eslint-disable-line react-hooks/exhaustive-deps
   );
   return { user, ctx, tree, resolved, chain, trail, entityName, entityLoading: Boolean(resolved.meta?.entity) && !entityName };
 }

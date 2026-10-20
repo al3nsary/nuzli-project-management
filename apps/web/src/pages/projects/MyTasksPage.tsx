@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Accordion, Badge, Group, Progress, Select, Text, TextInput } from '@mantine/core';
+import { Accordion, Badge, Group, Progress, SegmentedControl, Select, Text, TextInput } from '@mantine/core';
 import { IconChecklist, IconFlag, IconListCheck, IconMessageCircle, IconSearch, IconSearchOff } from '@tabler/icons-react';
 import type { MyTaskDto, TaskStatus } from '@nuzli/shared';
 import { useMyTasks } from '../../api/projectQueries';
@@ -21,6 +21,10 @@ import '../../features/tasks/tasks.css';
 
 const STATUS_FILTERS = ['all', ...TASK_STATUSES] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
+/** A12 round 2: own tasks vs the tasks of the other supervisors of the same team(s). */
+const SCOPES = ['all', 'mine', 'team'] as const;
+type Scope = (typeof SCOPES)[number];
+const isTeamTask = (task: MyTaskDto) => task.assignedToMe === false;
 
 const BUCKET_TONE: Record<Bucket, string> = { overdue: 'var(--red)', soon: 'var(--amber)', later: 'var(--primary)', done: 'var(--live)' };
 
@@ -40,6 +44,7 @@ export function MyTasksPage() {
   const unread = useUnreadByTask();
   const [q, setQ] = useState('');
   const [status, setStatus] = useTabParam<StatusFilter>('status', STATUS_FILTERS, 'all');
+  const [scope, setScope] = useTabParam<Scope>('scope', SCOPES, 'all');
 
   const all = useMemo(() => tasks.data ?? [], [tasks.data]);
   const shown = useMemo(() => {
@@ -47,9 +52,11 @@ export function MyTasksPage() {
     return all.filter(
       (task) =>
         (status === 'all' || task.status === status) &&
+        (scope === 'all' || (scope === 'team') === isTeamTask(task)) &&
         (!term || normalizeSearch(task.name).includes(term) || normalizeSearch(task.project.name).includes(term) || task.wbs.startsWith(term)),
     );
-  }, [all, q, status]);
+  }, [all, q, status, scope]);
+  const hasTeam = useMemo(() => all.some(isTeamTask), [all]);
   const groups = useMemo(() => {
     const g: Record<Bucket, MyTaskDto[]> = { overdue: [], soon: [], later: [], done: [] };
     for (const task of shown) g[bucketOf(task)].push(task);
@@ -60,7 +67,7 @@ export function MyTasksPage() {
   if (tasks.isLoading) return <LoadingBlock variant="tasks" header />;
   if (tasks.isError) return <ErrorBlock error={tasks.error} onRetry={() => void tasks.refetch()} />;
 
-  const filtered = Boolean(q.trim()) || status !== 'all';
+  const filtered = Boolean(q.trim()) || status !== 'all' || scope !== 'all';
 
   return (
     <div className="nz-mytasks">
@@ -75,6 +82,17 @@ export function MyTasksPage() {
             <SummaryTile tone="var(--primary)" label={t('a9s.myTasks.open')} value={all.filter((x) => x.status !== 'DONE').length} />
             <SummaryTile tone="var(--red)" label={t('a9s.myTasks.unreadTile')} value={unreadTotal} />
           </div>
+          {hasTeam ? (
+            <div className="nz-mytasks-scope">
+              <SegmentedControl
+                aria-label={t('a12roles.mine.scope')}
+                value={scope}
+                onChange={(v) => setScope(v)}
+                data={SCOPES.map((x) => ({ value: x, label: t(`a12roles.mine.scope.${x}`) }))}
+                data-testid="mytask-scope"
+              />
+            </div>
+          ) : null}
           <div className="nz-mytasks-tools" role="search">
             <TextInput
               className="nz-mytasks-search"
@@ -110,6 +128,7 @@ export function MyTasksPage() {
                       onClick: () => {
                         setQ('');
                         setStatus(null);
+                        setScope(null);
                       },
                     }
                   : undefined
@@ -173,7 +192,9 @@ function SummaryTile({ tone, label, value }: { tone: string; label: string; valu
 function TaskCard({ task, bucket, unread }: { task: MyTaskDto; bucket: Bucket; unread: number }) {
   const checklist = task.checklist;
   const late = bucket === 'overdue';
-  const label = [task.name, task.project.name, taskStatusLabel(task.status as TaskStatus), unread ? tCount('a9s.myTasks.unreadAria', unread) : '']
+  const team = isTeamTask(task);
+  const owner = team ? (task.assignee ? t('a12roles.mine.badgeTeamOf', { name: task.assignee.fullName }) : t('a12roles.mine.badgeTeam')) : t('a12roles.mine.badgeMine');
+  const label = [task.name, task.project.name, task.assignedToMe === undefined ? '' : owner, taskStatusLabel(task.status as TaskStatus), unread ? tCount('a9s.myTasks.unreadAria', unread) : '']
     .filter(Boolean)
     .join('، ');
   return (
@@ -189,6 +210,13 @@ function TaskCard({ task, bucket, unread }: { task: MyTaskDto; bucket: Bucket; u
           </span>
         ) : null}
       </div>
+      {task.assignedToMe !== undefined ? (
+        <span className="nz-task-card-owner">
+          <span className={team ? 'pill blue' : 'pill brand'} data-testid={team ? 'mytask-badge-team' : 'mytask-badge-mine'}>
+            {owner}
+          </span>
+        </span>
+      ) : null}
       <Text className="nz-task-card-name" fw={600}>
         {task.name}
       </Text>

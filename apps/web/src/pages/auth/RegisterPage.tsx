@@ -8,13 +8,16 @@ import {
   Paper,
   PasswordInput,
   Radio,
+  Select,
   SimpleGrid,
   Stack,
   Text,
   TextInput,
 } from '@mantine/core';
-import { IconEye, IconUsersGroup } from '@tabler/icons-react';
-import { registerSchema } from '@nuzli/shared';
+import { IconBuildingCommunity, IconEye, IconUsersGroup } from '@tabler/icons-react';
+import { registerSchema, usernameSchema } from '@nuzli/shared';
+import { z } from 'zod';
+import { usePublicWorkspaces } from '../../api/a12Queries';
 import { useApi } from '../../api/context';
 import { ApiError } from '../../api/errors';
 import { useZodForm } from '../../forms/useZodForm';
@@ -25,6 +28,12 @@ import { AuthLayout } from './AuthLayout';
 
 type AccountType = 'SUPERVISOR' | 'MONITOR';
 
+/** A12: the optional username and the workspace may be left empty in the form ('' → not sent). */
+const formSchema = registerSchema.extend({
+  username: usernameSchema.optional().or(z.literal('')),
+  workspaceId: z.string().uuid().optional().or(z.literal('')),
+});
+
 const TYPES: { value: AccountType; icon: typeof IconEye }[] = [
   { value: 'SUPERVISOR', icon: IconUsersGroup },
   { value: 'MONITOR', icon: IconEye },
@@ -34,7 +43,13 @@ export function RegisterPage() {
   const api = useApi();
   const navigate = useNavigate();
   const [error, setError] = useState<unknown>(null);
-  const form = useZodForm(registerSchema, {
+  // A12: the workspace step — only when more than one active workspace exists (single-workspace
+  // mode looks exactly as before).
+  const workspaces = usePublicWorkspaces();
+  const several = (workspaces.data?.length ?? 0) > 1;
+  const form = useZodForm(formSchema, {
+    workspaceId: '',
+    username: '',
     accountType: 'SUPERVISOR' as AccountType,
     fullName: '',
     email: '',
@@ -46,9 +61,15 @@ export function RegisterPage() {
 
   const submit = form.onSubmit(async (data) => {
     setError(null);
+    if (several && !data.workspaceId) {
+      form.setErrors({ workspaceId: t('register.workspacePlaceholder') });
+      return;
+    }
     try {
       await api.auth.register({
         ...data,
+        workspaceId: several && data.workspaceId ? data.workspaceId : undefined,
+        username: data.username ? data.username : undefined,
         requestedTeamName: data.accountType === 'SUPERVISOR' ? data.requestedTeamName : undefined,
       });
       // ADR-063: the API answers PENDING for new and duplicate details alike; never claim an account was created.
@@ -72,6 +93,19 @@ export function RegisterPage() {
       <Paper component="form" onSubmit={submit} p="lg" withBorder shadow="sm" noValidate>
         <Stack>
           <FormError error={error} />
+          {several ? (
+            <Select
+              label={t('register.workspace')}
+              placeholder={t('register.workspacePlaceholder')}
+              description={t('register.workspaceHint')}
+              data={(workspaces.data ?? []).map((w) => ({ value: w.id, label: w.name }))}
+              leftSection={<IconBuildingCommunity size={17} stroke={1.7} aria-hidden />}
+              withAsterisk
+              allowDeselect={false}
+              data-testid="register-workspace"
+              {...form.getInputProps('workspaceId')}
+            />
+          ) : null}
           <Radio.Group
             label={t('register.accountType')}
             value={form.values.accountType}
@@ -140,6 +174,13 @@ export function RegisterPage() {
               {...form.getInputProps('mobile')}
             />
           </SimpleGrid>
+          <TextInput
+            label={t('register.username')}
+            description={t('register.usernameHint')}
+            autoComplete="username"
+            {...ltr}
+            {...form.getInputProps('username')}
+          />
           <TextInput
             label={t('register.nationalId')}
             description={t('register.nationalIdHint')}

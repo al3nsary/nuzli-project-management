@@ -21,6 +21,7 @@ import { riyadhToday } from '../../../features/projects/today';
 import { daysInclusive } from '../../../features/workload/math';
 import { priorityLabel, taskStatusLabel } from '../parts';
 import type { TabProps } from './types';
+import { useProjectAccess } from '../../../features/participants/access';
 
 const STATUS_ORDER: TaskStatus[] = ['DONE', 'IN_PROGRESS', 'ON_HOLD', 'NOT_STARTED'];
 const PRIORITY_ORDER: Priority[] = ['URGENT', 'HIGH', 'MEDIUM', 'LOW'];
@@ -42,7 +43,9 @@ const tileFmt = () =>
 export function ProjectDashboardTab(props: TabProps) {
   const id = props.data.project.id;
   const dash = useProjectDashboard(id);
-  const budget = useBudget(id);
+  // A12 round 2: money is not sent without budget.read — no burn chart, no «الميزانية» section.
+  const showMoney = useProjectAccess(id).budgetRead;
+  const budget = useBudget(id, showMoney);
   const p = useChartPalette();
   const currency = props.data.project.currency ?? budget.data?.currency ?? 'SAR';
   const today = riyadhToday();
@@ -189,6 +192,7 @@ export function ProjectDashboardTab(props: TabProps) {
         </ReportCard>
       </div>
 
+      {showMoney && d.budgetBurn ? (
       <ReportCard title={t('a9r.dash.burnTitle')} sub={t('a9r.dash.burnSub')}>
         {d.budgetBurn.plannedByWeek.length ? (
           <>
@@ -214,8 +218,9 @@ export function ProjectDashboardTab(props: TabProps) {
           <CardEmpty>{t('a9r.budget.noCosts')}</CardEmpty>
         )}
       </ReportCard>
+      ) : null}
 
-      <BudgetSection report={budget.data} loading={budget.isLoading} error={budget.error} onOpenTask={props.onOpenTask} />
+      {showMoney ? <BudgetSection report={budget.data} loading={budget.isLoading} error={budget.error} onOpenTask={props.onOpenTask} /> : null}
     </div>
   );
 }

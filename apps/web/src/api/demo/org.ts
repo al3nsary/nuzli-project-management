@@ -19,7 +19,7 @@ import { fail, newId, validate } from './util';
 
 export interface OrgInternals {
   db: DemoDb;
-  actor(permission?: Permission): Promise<DemoUser>;
+  actor(permission?: Permission, opts?: import('./access').ActorOptions): Promise<DemoUser>;
   writeAudit(entry: Omit<DemoAudit, 'id' | 'at' | 'ip'>): Promise<unknown>;
 }
 

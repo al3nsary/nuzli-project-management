@@ -1,0 +1,116 @@
+/* A12 round 2 — the project cover (generated or uploaded). Logical properties only; the cover is
+   content, so its colour is the project's (with the name/initials), never decoration of chrome. */
+
+.nz-cover {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  inline-size: 100%;
+  background: var(--cover, var(--primary));
+  color: #fff;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+}
+
+.nz-cover-pattern {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.nz-cover-initials {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(28px, 9cqi, 56px);
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  user-select: none;
+}
+
+.nz-cover-img {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.nz-cover[data-variant='card'] {
+  container-type: inline-size;
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
+}
+
+.nz-cover[data-variant='thumb'] {
+  inline-size: 96px;
+  flex: 0 0 auto;
+  border-radius: var(--r3, 6px);
+  border: 1px solid var(--line);
+}
+.nz-cover[data-variant='thumb'] .nz-cover-initials {
+  font-size: 20px;
+}
+
+.nz-cover[data-variant='frame'] {
+  container-type: inline-size;
+  border-radius: var(--r, 16px);
+  border: 1px solid var(--line);
+}
+
+@media (max-width: 767px) {
+  .nz-cover[data-variant='thumb'] {
+    inline-size: 64px;
+  }
+  .nz-cover[data-variant='thumb'] .nz-cover-initials {
+    font-size: 15px;
+  }
+}
+
+/* ---- project card with a cover on top */
+.nz-project-card.nz-project-card--cover {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.nz-project-card--cover .nz-project-card-body {
+  padding: var(--sp-4, 16px);
+  flex: 1;
+  min-inline-size: 0;
+}
+
+/* ---- the cover editor (project settings) */
+.nz-cover-editor {
+  display: grid;
+  gap: 12px;
+}
+.nz-cover-crop {
+  position: relative;
+  inline-size: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r, 16px);
+  overflow: hidden;
+  background: var(--panel2);
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+  border: 1px solid var(--line2);
+}
+.nz-cover-crop:active {
+  cursor: grabbing;
+}
+.nz-cover-crop:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.nz-cover-crop canvas {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}

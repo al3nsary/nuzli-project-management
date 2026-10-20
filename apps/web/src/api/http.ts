@@ -74,6 +74,19 @@ import type {
   RegisterViolationMemberResultDto,
 } from '@nuzli/shared';
 import type { GanttView, ProjectView } from './hoursWire';
+import type {
+  MemberRequestAcceptedDto,
+  MemberRequestDto,
+  MyParticipationDto,
+  OwnerDto,
+  ParticipantDto,
+  PublicWorkspaceDto,
+  SystemInfoDto,
+  WorkspaceAdminDto,
+  WorkspaceCountsDto,
+  WorkspaceMemberDto,
+  WorkspaceSummaryDto,
+} from '@nuzli/shared';
 import { ERRORS } from '@nuzli/shared';
 import { ApiError } from './errors';
 import { t } from '../i18n';
@@ -264,22 +277,92 @@ export class HttpApi implements ApiClient {
       return s;
     },
     me: () => this.request<UserDto>('GET', '/auth/me'),
+    switchWorkspace: async (workspaceId) => {
+      const s = await this.request<AuthSession>('POST', '/auth/switch-workspace', {
+        body: { workspaceId },
+        csrf: true,
+      });
+      this.accessToken = s.accessToken;
+      return s;
+    },
+    workspaces: () => this.request<WorkspaceSummaryDto[]>('GET', '/auth/workspaces'),
+  };
+
+  system: ApiClient['system'] = {
+    info: () => this.request<SystemInfoDto>('GET', '/system/info'),
+    publicWorkspaces: () => this.request<PublicWorkspaceDto[]>('GET', '/public/workspaces'),
   };
 
   me: ApiClient['me'] = {
     update: (input) => this.request<UserDto>('PATCH', '/me', { body: input }),
+    participations: () => this.request<MyParticipationDto[]>('GET', '/me/participations'),
+  };
+
+  owners: ApiClient['owners'] = {
+    list: () => this.request<OwnerDto[]>('GET', '/owners'),
+    add: (input) => this.request<OwnerDto>('POST', '/owners', { body: input }),
+    remove: (userId) => this.request<void>('DELETE', `/owners/${enc(userId)}`),
+  };
+
+  workspaces: ApiClient['workspaces'] = {
+    list: (q) => this.request<WorkspaceAdminDto[]>('GET', `/workspaces${toQueryString(q)}`),
+    create: (input) => this.request<WorkspaceAdminDto>('POST', '/workspaces', { body: input }),
+    rename: (id, input) => this.request<WorkspaceAdminDto>('PATCH', `/workspaces/${enc(id)}`, { body: input }),
+    archive: (id) => this.request<WorkspaceAdminDto>('POST', `/workspaces/${enc(id)}/archive`),
+    restore: (id) => this.request<WorkspaceAdminDto>('POST', `/workspaces/${enc(id)}/restore`),
+    summary: (id) => this.request<WorkspaceCountsDto>('GET', `/workspaces/${enc(id)}/summary`),
+    admins: (id) => this.request<WorkspaceMemberDto[]>('GET', `/workspaces/${enc(id)}/admins`),
+    addAdmin: (id, input) =>
+      this.request<WorkspaceMemberDto>('POST', `/workspaces/${enc(id)}/admins`, { body: input }),
+    removeAdmin: (id, userId) =>
+      this.request<void>('DELETE', `/workspaces/${enc(id)}/admins/${enc(userId)}`),
+    members: (id) => this.request<WorkspaceMemberDto[]>('GET', `/workspaces/${enc(id)}/members`),
+    addMember: (id, input) =>
+      this.request<WorkspaceMemberDto>('POST', `/workspaces/${enc(id)}/members`, { body: input }),
+    updateMember: (id, membershipId, input) =>
+      this.request<WorkspaceMemberDto>('PATCH', `/workspaces/${enc(id)}/members/${enc(membershipId)}`, {
+        body: input,
+      }),
+    removeMember: (id, membershipId) =>
+      this.request<void>('DELETE', `/workspaces/${enc(id)}/members/${enc(membershipId)}`),
+  };
+
+  memberRequests: ApiClient['memberRequests'] = {
+    list: (q) => this.request<Paginated<MemberRequestDto>>('GET', `/member-requests${toQueryString(q)}`),
+    get: (id) => this.request<MemberRequestDto>('GET', `/member-requests/${enc(id)}`),
+    approve: (id) => this.request<MemberRequestDto>('POST', `/member-requests/${enc(id)}/approve`),
+    reject: (id, input) =>
+      this.request<MemberRequestDto>('POST', `/member-requests/${enc(id)}/reject`, { body: input }),
+  };
+
+  participants: ApiClient['participants'] = {
+    list: (projectId) => this.request<ParticipantDto[]>('GET', `/projects/${enc(projectId)}/participants`),
+    add: (projectId, input) =>
+      this.request<ParticipantDto>('POST', `/projects/${enc(projectId)}/participants`, { body: input }),
+    update: (projectId, userId, input) =>
+      this.request<ParticipantDto>('PATCH', `/projects/${enc(projectId)}/participants/${enc(userId)}`, {
+        body: input,
+      }),
+    remove: (projectId, userId) =>
+      this.request<void>('DELETE', `/projects/${enc(projectId)}/participants/${enc(userId)}`),
   };
 
   users: ApiClient['users'] = {
     list: (q) => this.request<Paginated<UserDto>>('GET', `/users${toQueryString(q)}`),
     get: (id) => this.request<UserDto>('GET', `/users/${encodeURIComponent(id)}`),
     create: (input) => this.request<UserDto>('POST', '/users', { body: input }),
+    all: (q) => this.request<Paginated<UserDto>>('GET', `/users/all${toQueryString(q)}`),
+    update: (id, input) => this.request<UserDto>('PATCH', `/users/${encodeURIComponent(id)}`, { body: input }),
+    setUsername: (id, input) =>
+      this.request<UserDto>('POST', `/users/${encodeURIComponent(id)}/username`, { body: input }),
+    setPassword: (id, input) =>
+      this.request<UserDto>('POST', `/users/${encodeURIComponent(id)}/password`, { body: input }),
     changeRole: (id, input) =>
       this.request<UserDto>('PATCH', `/users/${encodeURIComponent(id)}/role`, { body: input }),
     suspend: (id, input) =>
       this.request<UserDto>('POST', `/users/${encodeURIComponent(id)}/suspend`, { body: input }),
-    reactivate: (id) =>
-      this.request<UserDto>('POST', `/users/${encodeURIComponent(id)}/reactivate`),
+    reactivate: (id, input) =>
+      this.request<UserDto>('POST', `/users/${encodeURIComponent(id)}/reactivate`, input ? { body: input } : {}),
     supervisors: (q) => this.request<UserDto[]>('GET', `/users/supervisors${toQueryString({ q })}`),
     search: (input) => this.request<Paginated<UserDto>>('POST', '/users/search', { body: input }),
   };
@@ -340,8 +423,9 @@ export class HttpApi implements ApiClient {
       this.request<SupervisorHistoryDto[]>('GET', `/teams/${enc(id)}/supervisor-history`),
     setViolationVisibility: (id, mode) =>
       this.request<TeamDto>('PUT', `/teams/${enc(id)}/violation-visibility`, { body: { mode } }),
+    // A12 round 2: 201 MemberDto for admins, 202 MemberRequestAcceptedDto for supervisors.
     addMember: (teamId, input) =>
-      this.request<MemberDto>('POST', `/teams/${enc(teamId)}/members`, { body: input }),
+      this.request<MemberDto | MemberRequestAcceptedDto>('POST', `/teams/${enc(teamId)}/members`, { body: input }),
     importMembers: (input) =>
       this.request<ImportMembersResultDto>('POST', '/members/import', { body: input }),
     supervisorsOf: (id) => this.request<TeamSupervisorsDto>('GET', `/teams/${enc(id)}/supervisors`),
@@ -379,6 +463,10 @@ export class HttpApi implements ApiClient {
     history: (id) => this.request<MembershipHistoryDto[]>('GET', `/members/${enc(id)}/history`),
     move: (input) => this.request<MemberDto[]>('POST', '/members/move', { body: input }),
     search: (input) => this.request<Paginated<MemberDto>>('POST', '/members/search', { body: input }),
+    archive: (id, input) =>
+      this.request<{ status: 'ARCHIVED' } | MemberRequestAcceptedDto>('POST', `/members/${enc(id)}/archive`, {
+        body: input,
+      }),
   };
 
   reference: ApiClient['reference'] = {
@@ -575,6 +663,21 @@ export class HttpApi implements ApiClient {
       this.request<ProjectView>('POST', `/projects/${enc(id)}/save-as-template`, { body: input }),
     templates: () => this.request<ProjectView[]>('GET', '/project-templates'),
     report: (q) => this.request<ProjectReportRow[]>('GET', `/reports/projects${toQueryString(q)}`),
+    coverUrl: (id) => this.request<{ url: string; expiresAt: string }>('GET', `/projects/${enc(id)}/cover-url`),
+    uploadCover: async (id, blob, opts) => {
+      const presigned = await this.files.presign({
+        entityType: 'project_cover',
+        entityId: id,
+        contentType: blob.type as PresignUploadInput['contentType'],
+        sizeBytes: blob.size,
+        ...(await sha256Hex(blob)),
+      });
+      await this.files.upload(presigned, blob, opts);
+      opts?.onProgress?.(1);
+      await this.files.confirm(presigned.fileId);
+      return { fileId: presigned.fileId };
+    },
+    removeCover: (id) => this.request<void>('DELETE', `/projects/${enc(id)}/cover`),
   };
 
   tasks: ApiClient['tasks'] = {

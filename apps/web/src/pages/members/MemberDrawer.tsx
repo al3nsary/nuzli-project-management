@@ -16,7 +16,7 @@ import {
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconEye, IconHistory } from '@tabler/icons-react';
+import { IconEye, IconHistory, IconUserMinus } from '@tabler/icons-react';
 import { can, updateMemberSchema, type MemberDto } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { ApiError } from '../../api/errors';
@@ -34,6 +34,7 @@ import { ReferenceInput, refFields } from '../teams/shared';
 import { PhotoUploader } from '../../components/photos/PhotoUploader';
 import { useCanChangeMemberPhoto } from '../../features/photos/access';
 import { ForemanBadge } from '../../components/Foreman';
+import { RemoveMemberDialog, useRemovesDirectly } from './RemoveMemberDialog';
 
 /** Membership history (brief §5.3): newest first; the open row is the current team. */
 export function MembershipTimeline({ memberId }: { memberId: string }) {
@@ -184,12 +185,15 @@ export function MemberDrawer({ memberId, onClose }: { memberId: string | null; o
   const member = useMember(memberId);
   const [editing, setEditing] = useState(false);
   const [showId, setShowId] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const removesDirectly = useRemovesDirectly();
   // Drawer position is physical: open it on the inline-end side.
   const { dir } = useDirection();
 
   useEffect(() => {
     setEditing(false);
     setShowId(false);
+    setRemoving(false);
   }, [memberId]);
 
   const m = member.data;
@@ -268,10 +272,16 @@ export function MemberDrawer({ memberId, onClose }: { memberId: string | null; o
                 <Text size="sm">{m.department ?? t('common.none')}</Text>
               </Group>
               {canManage(user, m) ? (
-                <Group mt="xs">
+                <Group mt="xs" gap="xs" wrap="wrap">
                   <Button variant="light" onClick={() => setEditing(true)}>
                     {t('members.edit')}
                   </Button>
+                  {/* A12 round 2: admins remove at once; a supervisor of the team sends a removal request. */}
+                  {m.team || removesDirectly ? (
+                    <Button variant="subtle" color="breach" leftSection={<IconUserMinus size={16} />} onClick={() => setRemoving(true)} data-testid="member-remove-request">
+                      {removesDirectly ? t('a12roles.req.removeDirect') : t('a12roles.req.removeRequest')}
+                    </Button>
+                  ) : null}
                 </Group>
               ) : null}
             </Stack>
@@ -282,6 +292,7 @@ export function MemberDrawer({ memberId, onClose }: { memberId: string | null; o
             <Title order={4}>{t('members.history')}</Title>
           </Group>
           <MembershipTimeline memberId={m.id} />
+          <RemoveMemberDialog member={removing ? m : null} onClose={() => setRemoving(false)} onDone={removesDirectly ? onClose : undefined} />
         </Stack>
       ) : null}
     </Drawer>

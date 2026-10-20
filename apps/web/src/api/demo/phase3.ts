@@ -64,6 +64,7 @@ import type {
   DemoViolationType,
 } from './db';
 import type { DemoInternals } from './phase2';
+import { teamInScope } from './access';
 import { sniffImageType } from './phase2';
 import { verifyImportBytes } from '../../features/imports/files';
 import { drawIdCard, drawPlaceholder, drawPortrait } from './placeholderImage';
@@ -84,6 +85,9 @@ export interface Phase3Internals extends DemoInternals {
     actor: DemoUser,
   ): Promise<void>;
   afterPhotoConfirm?(file: DemoFile, actor: DemoUser): Promise<void>;
+  /** A12 round 2: project cover images (a12.ts). */
+  beforeCoverPresign?(input: { entityId?: string; contentType?: string; sizeBytes?: number }, actor: DemoUser): Promise<void>;
+  afterCoverConfirm?(file: DemoFile, actor: DemoUser): Promise<void>;
   /** True when the demo should behave as if the network were down (navigator offline or forced). */
   isOffline(): boolean;
   /** A9: the OCR engine (tesseract.js in the browser; tests inject a fake). */
@@ -287,7 +291,8 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
   }
 
   function inScope(v: DemoViolation, w: World, viewer: DemoUser): boolean {
-    if (can(viewer, 'violations.readAll')) return true;
+    // A12 round 2: an assistant limited to some teams sees their violations (and unassigned ones).
+    if (can(viewer, 'violations.readAll')) return teamInScope(viewer, v.teamIdSnapshot);
     if (can(viewer, 'violations.readRecorded') && v.recordedById === viewer.id) return true;
     if (can(viewer, 'violations.readOwnTeams') && v.teamIdSnapshot) {
       const team = w.teams.get(v.teamIdSnapshot);
@@ -443,6 +448,10 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       // A9 imports (ADR-110): admins only (projects.create), no entityId/kind, ≤ 20 MB (schema).
       if (data.entityType === 'import' && !can(actor, 'projects.create')) fail('FORBIDDEN');
       if (data.entityType === 'task') await api.beforeTaskPresign?.(data, actor);
+      if (data.entityType === 'project_cover') {
+        if (!api.beforeCoverPresign) fail('FORBIDDEN');
+        await api.beforeCoverPresign(data, actor);
+      }
       if (data.entityType === 'violation') {
         if (!data.entityId || (data.kind !== 'ID_CARD' && data.kind !== 'EVIDENCE' && data.kind !== 'PERSON')) {
           fail('VALIDATION_FAILED', { fieldErrors: { kind: [t('violations.err.kind')] } });
@@ -543,6 +552,7 @@ export function createPhase3(api: Phase3Internals): Phase3Api {
       if (confirmed?.entityType === 'user_photo' || confirmed?.entityType === 'member_photo') {
         await api.afterPhotoConfirm?.(confirmed, actor);
       }
+      if (confirmed?.entityType === 'project_cover') await api.afterCoverConfirm?.(confirmed, actor);
       // A9 (ADR-104): a confirmed ID-card photo queues the reading of the card.
       if (confirmed?.entityType === 'violation' && confirmed.kind === 'ID_CARD' && confirmed.violationId) {
         await ocrRunner.enqueue(confirmed.violationId, confirmed.id);

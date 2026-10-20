@@ -27,7 +27,7 @@ import { openLeaderIds } from './leaders';
  */
 export interface PhotoInternals {
   db: DemoDb;
-  actor(permission?: Permission): Promise<DemoUser>;
+  actor(permission?: Permission, opts?: import('./access').ActorOptions): Promise<DemoUser>;
   writeAudit(entry: Omit<DemoAudit, 'id' | 'at' | 'ip'>): Promise<unknown>;
   readSettings(): ReturnType<ApiClient['settings']['get']>;
   isOffline(): boolean;

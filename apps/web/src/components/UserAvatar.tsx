@@ -7,6 +7,9 @@ export function initials(name: string): string {
   const parts = name
     .trim()
     .split(/\s+/)
+    // A12 QA: a parenthetical («(تجريبي)») is not part of the name, and punctuation is never an initial.
+    .filter((p, i, all) => !(p.startsWith('(') && all.length > 1))
+    .map((p) => p.replace(/[^\p{L}\p{N}]/gu, ''))
     .filter((p) => p && p !== 'بن' && p !== 'بنت');
   const pick = parts.length > 1 ? [parts[0]!, parts[parts.length - 1]!] : parts;
   // A zero-width non-joiner keeps the two letters apart (no ligature).

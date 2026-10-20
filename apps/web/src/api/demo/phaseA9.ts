@@ -122,7 +122,8 @@ export type A9Api = Pick<ApiClient, 'labels' | 'customFields' | 'timeEntries' | 
 export const COPY_SUFFIX = ' (نسخة)';
 export const copyName = (name: string): string => name.slice(0, 300 - COPY_SUFFIX.length) + COPY_SUFFIX;
 
-const TASK_READ = ['projects.readAll', 'tasks.readAssigned'] as const;
+// A12 round 2: participants read their projects' tasks.
+const TASK_READ = ['projects.readAll', 'tasks.readAssigned', 'projects.readGranted'] as const;
 const TASK_WORK = ['tasks.manage', 'tasks.updateAssigned'] as const;
 
 const byNameAr = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'ar');
@@ -234,7 +235,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       return (await db.labels.where('projectId').equals(projectId).toArray()).sort(byNameAr).map(toLabelDto);
     },
     create: async (projectId, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { projectId } });
       const data = validate(labelSchema, input);
       await writableProject(projectId, viewer);
       const row: DemoLabel = { id: newId(), projectId, name: data.name, color: data.color.toUpperCase(), createdAt: new Date().toISOString() };
@@ -246,7 +247,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       return toLabelDto(row);
     },
     update: async (id, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { labelId: id } });
       const data = validate(updateLabelSchema, input);
       const cur = await db.labels.get(id);
       if (!cur) fail('NOT_FOUND');
@@ -261,7 +262,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       return toLabelDto({ ...cur, ...patch });
     },
     remove: async (id) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { labelId: id } });
       const cur = await db.labels.get(id);
       if (!cur) fail('NOT_FOUND');
       await writableProject(cur.projectId, viewer);
@@ -279,7 +280,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
   };
 
   async function setTaskLabel(taskId: string, labelId: string, on: boolean) {
-    const viewer = await api.actor('tasks.manage');
+    const viewer = await api.actor('tasks.manage', { project: { taskId } });
     const { task } = await core.writableTask(taskId, viewer);
     let previous = {};
     await tx(async () => {
@@ -691,7 +692,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
 
   const tasksA9: A9Tasks = {
     duplicate: async (id, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { taskId: id } });
       const data = validate(duplicateTaskSchema, input ?? {});
       const { task: visible } = await core.visibleTask(id, viewer);
       let res!: Awaited<ReturnType<ProjectsCore['persist']>>;
@@ -767,7 +768,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     },
 
     bulk: async (projectId, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { projectId } });
       const data = validate(taskBulkSchema, input);
       if (data.ids.length > BULK_MAX) fail('VALIDATION_FAILED', { fieldErrors: { ids: ['عدد كبير من المهام'] } });
       await core.visibleProject(projectId, viewer);
@@ -824,7 +825,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     },
 
     bulkArchive: async (projectId, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { projectId } });
       const data = validate(taskBulkArchiveSchema, input);
       await core.visibleProject(projectId, viewer);
       const ids = uniqueVersioned(data.ids, data.versions);
@@ -838,7 +839,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     },
 
     restore: async (projectId, idsIn) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { projectId } });
       if (!Array.isArray(idsIn) || !idsIn.length) fail('VALIDATION_FAILED', { fieldErrors: { ids: ['حدّد المهام'] } });
       await core.visibleProject(projectId, viewer);
       const ids = [...new Set(idsIn)];
@@ -871,7 +872,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     },
 
     labels: async (id) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       const { task } = await core.visibleTask(id, viewer);
       const rows = (await db.labels.bulkGet(task.labelIds)).filter((l): l is DemoLabel => !!l);
@@ -881,14 +882,14 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     removeLabel: (id, labelId) => setTaskLabel(id, labelId, false),
 
     customFields: async (id) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       const { task } = await core.visibleTask(id, viewer);
       const fields = (await db.customFields.where('projectId').equals(task.projectId).toArray()).sort((a, b) => a.sort - b.sort || byNameAr(a, b));
       return fields.map((f) => ({ ...toFieldDto(f), value: task.customValues?.[f.id] ?? null }));
     },
     setCustomValue: async (id, fieldId, raw) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { taskId: id } });
       const { task } = await core.writableTask(id, viewer);
       const field = await db.customFields.get(fieldId);
       if (!field || field.projectId !== task.projectId) fail('NOT_FOUND');
@@ -909,14 +910,14 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     },
 
     checklist: async (id) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       await core.visibleTask(id, viewer);
       const byId = await users();
       return (await items(id)).map((i) => itemDto(i, byId));
     },
     addChecklistItem: async (id, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { taskId: id } });
       const data = validate(checklistItemSchema, input);
       await core.writableTask(id, viewer);
       let row!: DemoChecklistItem;
@@ -935,12 +936,13 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       return itemDto(row, await users());
     },
     updateChecklistItem: async (id, itemId, input) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_WORK])) fail('FORBIDDEN');
       const data = validate(updateChecklistItemSchema, input);
-      const { task } = await core.writableTask(id, viewer);
-      if (!can(viewer, 'tasks.manage')) {
-        if (task.assigneeId !== viewer.id || data.text !== undefined) fail('FORBIDDEN', data.text !== undefined ? { fields: ['text'] } : undefined);
+      const { relation } = await core.writableTask(id, viewer);
+      if (!can(viewer, 'tasks.manage') || relation !== 'manage') {
+        // The assignee (and, A12, a contributor) only ticks; a co-supervisor's task: never (A12).
+        if (relation !== 'work' || data.text !== undefined) fail('FORBIDDEN', data.text !== undefined ? { fields: ['text'] } : undefined);
       }
       const cur = await db.checklist.get(itemId);
       if (!cur || cur.taskId !== id) fail('NOT_FOUND');
@@ -966,7 +968,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       return itemDto(next, await users());
     },
     removeChecklistItem: async (id, itemId) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { taskId: id } });
       await core.writableTask(id, viewer);
       const cur = await db.checklist.get(itemId);
       if (!cur || cur.taskId !== id) fail('NOT_FOUND');
@@ -976,7 +978,7 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
       });
     },
     reorderChecklist: async (id, input) => {
-      const viewer = await api.actor('tasks.manage');
+      const viewer = await api.actor('tasks.manage', { project: { taskId: id } });
       const data = validate(checklistReorderSchema, input);
       await core.writableTask(id, viewer);
       await tx(async () => {
@@ -993,20 +995,21 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
     },
 
     timeEntries: async (id) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_READ])) fail('FORBIDDEN');
       await core.visibleTask(id, viewer);
       return entryDtos((await db.timeEntries.where('taskId').equals(id).toArray()).sort(byDateDesc));
     },
     addTimeEntry: async (id, input) => {
-      const viewer = await api.actor();
+      const viewer = await api.actor(undefined, { project: { taskId: id } });
       if (!canAny(viewer, [...TASK_WORK])) fail('FORBIDDEN');
       const data = validate(timeEntrySchema, input);
       assertEntryDate(data.date);
-      const { task, project } = await core.visibleTask(id, viewer);
+      const { project, relation } = await core.visibleTask(id, viewer);
       if (project.archivedAt) fail('PROJECT_ARCHIVED');
-      const admin = can(viewer, 'tasks.manage');
-      if (!admin && task.assigneeId !== viewer.id) fail('TIME_ENTRY_NOT_ALLOWED');
+      const admin = can(viewer, 'tasks.manage') && relation === 'manage';
+      // The time log stays with the assignee (or a contributor); a co-supervisor's task: never (A12).
+      if (!admin && relation !== 'work') fail('TIME_ENTRY_NOT_ALLOWED');
       let userId = viewer.id;
       if (data.userId && data.userId !== viewer.id) {
         if (!admin) fail('FORBIDDEN', { fields: ['userId'] });
@@ -1208,12 +1211,22 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
 
     hub: {
       list: async (input = {}) => {
-        const viewer = await api.actor('tasks.comment');
+        const viewer = await api.actor();
+        // A12: contributors and editors of a project use the hub for that project.
+        const parts = Object.values((viewer as { _parts?: Record<string, string> })._parts ?? {});
+        if (!can(viewer, 'tasks.comment') && !parts.some((l) => l === 'CONTRIBUTOR' || l === 'EDITOR')) fail('FORBIDDEN');
         const q = validate(hubQuerySchema, input);
         const term = q.q?.trim().toLowerCase();
         const live = await core.liveProjects();
         const admin = can(viewer, 'projects.readAll');
-        const all = (await db.tasks.toArray()).filter((t) => !t.archivedAt && live.has(t.projectId) && (admin || t.assigneeId === viewer.id));
+        const peers = await core.teamPeers(viewer);
+        // Admins: everything (assistants: their projects); supervisors: own + team tasks; participants: their projects (not viewers).
+        const relation = (t: { assigneeId: string | null; projectId: string }) => core.relationTo(viewer, t, live.get(t.projectId)!, peers);
+        const all = (await db.tasks.toArray()).filter((t) => {
+          if (t.archivedAt || !live.has(t.projectId)) return false;
+          const r = relation(t);
+          return r !== null && (r !== 'view' || (admin && can(viewer, 'tasks.comment')));
+        });
         const comments = await db.taskComments.toArray();
         const byTask = new Map<string, typeof comments>();
         for (const c of comments) {
@@ -1277,12 +1290,12 @@ export function createA9(api: DemoInternals, core: ProjectsCore): A9Api {
         const q = validate(attachmentBrowseQuerySchema, input);
         const term = q.q?.trim().toLowerCase();
         const live = await core.liveProjects();
-        const admin = can(viewer, 'projects.readAll');
+        const peers = await core.teamPeers(viewer);
         const tasks = (await db.tasks.toArray()).filter(
           (t) =>
             !t.archivedAt &&
             live.has(t.projectId) &&
-            (admin || t.assigneeId === viewer.id) &&
+            core.relationTo(viewer, t, live.get(t.projectId)!, peers) !== null &&
             (!q.projectId || t.projectId === q.projectId) &&
             (!term || t.name.toLowerCase().includes(term) || (live.get(t.projectId)?.name ?? '').toLowerCase().includes(term)),
         );

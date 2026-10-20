@@ -21,6 +21,7 @@
  * - Keyboard: ↑/↓ rows, Enter opens, ←/→ expand/collapse (RTL), Alt+←/→ one working day (HOUR:
  *   one hour) later/earlier, F2 renames.
  */
+import { useAuthStore } from '../../stores/auth';
 import {
   memo,
   useCallback,
@@ -48,7 +49,7 @@ import {
   IconTrash,
 } from '@tabler/icons-react';
 import { MINUTES_PER_DAY, dueDayOf, toDayNumber, toMinuteNumber } from '@nuzli/scheduling';
-import { calendarDaysOverdue, type CustomFieldDto, type GanttDto, type LabelDto, type TaskDto } from '@nuzli/shared';
+import { can, calendarDaysOverdue, type CustomFieldDto, type GanttDto, type LabelDto, type TaskDto } from '@nuzli/shared';
 import { formatMoney, formatNumber, t, tCount } from '../../i18n';
 import { overdueText } from '../reports/parts';
 import type { Digits } from '../../i18n/format';
@@ -725,7 +726,11 @@ export function Gantt(props: GanttProps) {
     window.addEventListener('pointerup', up);
   };
 
-  const addable = canEditCols ? availableColumns(cols, data.customFields ?? []) : [];
+  // A12 round 2: cost columns are offered only to users who receive money fields (budget.read).
+  const moneyVisible = can(useAuthStore.getState().user, 'budget.read');
+  const addable = canEditCols
+    ? availableColumns(cols, data.customFields ?? []).filter((id) => moneyVisible || (id !== 'plannedCost' && id !== 'actualCost'))
+    : [];
   const colLabel = (id: ColumnId) => (isCustom(id) ? (fields.get(fieldIdOf(id)!)?.name ?? '') : t(COLUMN_DEFS[id as BaseColumnId].label));
 
   // ------------------------------------------------------------ render

@@ -75,7 +75,10 @@ describe('supervisor scope (ADR-092)', () => {
     await api.auth.login({ identifier: ADMIN, password: DEMO_PASSWORD });
     const g = await api.projects.gantt(PARK);
     const supId = '00000000-0000-4000-8000-000000000003';
-    const other = g.tasks.find((x) => x.assignee && x.assignee.id !== supId);
+    // A12 round 2: the other supervisors of the same teams are the supervisor's team (their tasks are
+    // readable), so «not theirs» is a task assigned to nobody.
+    void supId;
+    const other = g.tasks.find((x) => !x.assignee && x.type !== 'GROUP');
     expect(other).toBeTruthy();
     await renderAt(api, SUP, `/my-tasks/${other!.id}`);
     expect(await screen.findByText('لا تملك هذه المهمة أو لم تعد مسندة إليك', {}, { timeout: 8000 })).toBeInTheDocument();

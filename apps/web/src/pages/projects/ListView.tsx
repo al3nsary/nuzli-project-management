@@ -24,6 +24,7 @@ import { errorMessage } from '../../api/errors';
 import { useSupervisors } from '../../api/queries';
 import type { useProjectWrites } from '../../api/projectWrites';
 import { useAuthStore } from '../../stores/auth';
+import { useProjectAccess } from '../../features/participants/access';
 import { formatDate, formatDateTime, formatHours, formatMoney, formatNumber, t, tCount } from '../../i18n';
 import { useViewPref } from '../../api/a9Queries';
 import {
@@ -79,7 +80,14 @@ export function ListView({
   const hours = unitOf(data.project as { durationUnit?: 'DAY' | 'HOUR' }) === 'HOUR';
   const when = (v: string) => (hours ? formatDateTime(v, COMPACT) : formatDate(v, COMPACT));
   const [colsRaw, setColsPref] = useViewPref<ColumnPref[] | null>('list.columns', data.project.id, null);
-  const cols = useMemo(() => normalizeColumns(colsRaw ?? DEFAULT_LIST_COLUMNS, data.customFields ?? [], DEFAULT_LIST_COLUMNS), [colsRaw, data.customFields]);
+  // A12 round 2: the account's rights plus the participant level; no cost columns without budget.read.
+  const access = useProjectAccess(data.project.id);
+  const money = access.budgetRead;
+  const noMoney = (id: ColumnId) => money || (id !== 'plannedCost' && id !== 'actualCost');
+  const cols = useMemo(
+    () => normalizeColumns(colsRaw ?? DEFAULT_LIST_COLUMNS, data.customFields ?? [], DEFAULT_LIST_COLUMNS).filter((c) => money || (c.id !== 'plannedCost' && c.id !== 'actualCost')),
+    [colsRaw, data.customFields, money],
+  );
   const [liveCols, setLiveCols] = useState<ColumnPref[] | null>(null);
   const shown = liveCols ?? cols;
   const setCols = (next: ColumnPref[]) => setColsPref(next.length ? next : DEFAULT_LIST_COLUMNS);
@@ -134,7 +142,7 @@ export function ListView({
   };
   const api = useApi();
   const user = useAuthStore((s) => s.user);
-  const admin = can(user, 'tasks.manage');
+  const admin = access.editTasks;
   const supervisors = useSupervisors(admin);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const rows = useMemo(() => buildRows(data.tasks, collapsed), [data.tasks, collapsed]);
@@ -309,7 +317,7 @@ export function ListView({
                   </Menu.Target>
                   <Menu.Dropdown mah={420} style={{ overflowY: 'auto' }}>
                     <Menu.Label>{t('col.addTitle')}</Menu.Label>
-                    {[...cols.map((c) => c.id), ...availableColumns(cols, data.customFields ?? [])].map((id) => {
+                    {[...cols.map((c) => c.id), ...availableColumns(cols, data.customFields ?? []).filter(noMoney)].map((id) => {
                       const on = cols.some((c) => c.id === id);
                       return (
                         <Menu.Item
@@ -335,7 +343,7 @@ export function ListView({
             {visible.map((r) => {
               const task = r.task;
               const isGroup = r.hasChildren;
-              const mine = task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned');
+              const mine = access.workAll || (task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned'));
               const editStatus = admin || mine;
               const cellOf = (id: ColumnId): ReactNode => {
                 switch (id) {
@@ -498,13 +506,13 @@ export function ListView({
                       <Text size="sm" c="dimmed">{t('common.none')}</Text>
                     );
                   case 'plannedCost':
-                    return admin && !isGroup ? (
+                    return admin && access.budgetManage && !isGroup ? (
                       <CommitNumber value={task.plannedCost ?? 0} min={0} max={999999999} label={t('col.plannedCost')} onCommit={(v) => v !== task.plannedCost && void update(task, { plannedCost: v })} />
                     ) : (
                       <Text size="sm" className="num">{formatMoney(task.plannedCost ?? 0)}</Text>
                     );
                   case 'actualCost':
-                    return admin && !isGroup ? (
+                    return admin && access.budgetManage && !isGroup ? (
                       <CommitNumber value={task.actualCost ?? 0} min={0} max={999999999} label={t('col.actualCost')} onCommit={(v) => v !== task.actualCost && void update(task, { actualCost: v })} />
                     ) : (
                       <Text size="sm" className="num" c={task.overBudget ? 'var(--red)' : undefined}>{formatMoney(task.actualCost ?? 0)}</Text>

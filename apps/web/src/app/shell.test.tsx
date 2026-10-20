@@ -28,7 +28,7 @@ describe('RTL app shell', () => {
     expect(document.documentElement).toHaveAttribute('lang', 'ar');
     for (const label of [
       'الرئيسية',
-      'طلبات التسجيل',
+      'الطلبات',
       'المستخدمون',
       'سجل التدقيق',
       'الإشعارات',
@@ -46,7 +46,7 @@ describe('RTL app shell', () => {
     const nav = await screen.findByRole('navigation', { name: 'القائمة الرئيسية' });
     expect(within(nav).getByText('الرئيسية')).toBeInTheDocument();
     expect(within(nav).queryByText('المستخدمون')).toBeNull();
-    expect(within(nav).queryByText('طلبات التسجيل')).toBeNull();
+    expect(within(nav).queryByText('الطلبات')).toBeNull();
     // Phase 3: the monitor's violation items, and the admin's violation pages stay hidden.
     expect(within(nav).getByText('مخالفاتي')).toBeInTheDocument();
     expect(within(nav).getByText('بانتظار المزامنة')).toBeInTheDocument();

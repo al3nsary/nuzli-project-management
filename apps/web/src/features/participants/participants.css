@@ -1,0 +1,140 @@
+/* A12 round 2 — «المشاركون» of a project. Logical properties only; 44px targets; from 360px. */
+
+.nz-part {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+  max-inline-size: 920px;
+  overflow-y: auto;
+  block-size: 100%;
+  padding-block-end: 16px;
+}
+
+.nz-part-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.nz-part-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.nz-part-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r, 16px);
+  overflow: hidden;
+}
+
+.nz-part-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  min-block-size: 64px;
+}
+.nz-part-row + .nz-part-row {
+  border-block-start: 1px solid var(--line);
+}
+.nz-part-row:hover {
+  background: var(--hover);
+}
+
+.nz-part-who {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nz-part-actions {
+  margin-inline-start: -4px;
+}
+
+@media (max-width: 560px) {
+  .nz-part-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'av who pill'
+      'av who act';
+    row-gap: 4px;
+  }
+  .nz-part-row > :nth-child(1) {
+    grid-area: av;
+  }
+  .nz-part-row > .nz-part-who {
+    grid-area: who;
+  }
+  .nz-part-row > .pill {
+    grid-area: pill;
+    justify-self: end;
+  }
+  .nz-part-row > .nz-part-actions {
+    grid-area: act;
+    justify-self: end;
+  }
+}
+
+/* ---- the level radio group: each option says what it allows */
+.nz-level-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  min-block-size: 44px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r3, 6px);
+  cursor: pointer;
+  background: var(--panel);
+}
+.nz-level-option[data-checked] {
+  border-color: var(--primary);
+  background: var(--tint);
+}
+.nz-level-option:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.nz-level-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.nz-level-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.nz-level-hint {
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.6;
+}
+
+/* ---- the participant's pill on the project header */
+.nz-part-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .nz-part-dialog-actions {
+    position: sticky;
+    inset-block-end: 0;
+    background: var(--panel);
+    padding-block: 8px;
+  }
+}

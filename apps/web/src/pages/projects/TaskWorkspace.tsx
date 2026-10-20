@@ -6,20 +6,21 @@
  * the task's identity, dates, deadline, status and progress; a side panel (≥ 992px) or a second
  * tab (phones) holds the checklist, description, time log, attachments, activity, labels and fields.
  */
+import { AccessTaskChat } from '../../features/participants/AccessTaskChat';
 import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Accordion, ActionIcon, Badge, Drawer, Group, Select, SegmentedControl, Slider, Text, Tooltip, useDirection } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconArrowLeft, IconChecklist, IconClock, IconFileText, IconFlag, IconHistory, IconLock, IconMessages, IconPaperclip, IconTag, IconX } from '@tabler/icons-react';
+import { IconArrowLeft, IconChecklist, IconClock, IconFileText, IconFlag, IconHistory, IconInfoCircle, IconLock, IconMessages, IconPaperclip, IconTag, IconX } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { can, type TaskStatus } from '@nuzli/shared';
+import type { TaskStatus } from '@nuzli/shared';
 import { useApi } from '../../api/context';
 import { ApiError, errorMessage } from '../../api/errors';
 import { qkA9, useTask } from '../../api/a9Queries';
 import { qk4 } from '../../api/projectQueries';
 import type { TaskView } from '../../api/hoursWire';
-import { useAuthStore } from '../../stores/auth';
+import { useTaskAccess } from '../../features/participants/access';
 import { EmptyState, ErrorBlock, LoadingBlock } from '../../components/ui';
 import { formatDate, formatNumber, t } from '../../i18n';
 import { useTabParam } from '../../lib/useUrlState';
@@ -88,7 +89,7 @@ function WorkspaceBody({
       {wide ? (
         <div className="nz-mt-grid">
           <div className="nz-mt-chat">
-            <TaskChat taskId={data.id} taskName={data.name} projectId={data.projectId} assignee={data.assignee} />
+            <AccessTaskChat taskId={data.id} taskName={data.name} projectId={data.projectId} assignee={data.assignee} />
           </div>
           <aside className="nz-mt-side" aria-label={t('a9s.task.details')}>
             <TaskSide task={data} />
@@ -124,7 +125,7 @@ function WorkspaceBody({
           />
           {view === 'chat' ? (
             <div className="nz-mt-chat">
-              <TaskChat taskId={data.id} taskName={data.name} projectId={data.projectId} assignee={data.assignee} />
+              <AccessTaskChat taskId={data.id} taskName={data.name} projectId={data.projectId} assignee={data.assignee} />
             </div>
           ) : (
             <div className="nz-mt-side nz-mt-side--phone">
@@ -201,8 +202,9 @@ function TaskHeader({
 }) {
   const api = useApi();
   const qc = useQueryClient();
-  const user = useAuthStore((s) => s.user);
-  const canUpdate = can(user, 'tasks.manage') || (task.assignee?.id === user?.id && can(user, 'tasks.updateAssigned'));
+  // A12 round 2: admins, the assignee, a contributor/editor participant, or a co-supervisor (team task).
+  const access = useTaskAccess(task);
+  const canUpdate = access.status;
   const [progress, setProgress] = useState(task.progress);
   const [busy, setBusy] = useState(false);
   useEffect(() => setProgress(task.progress), [task.progress, task.version]);
@@ -261,6 +263,11 @@ function TaskHeader({
       </div>
       <div className="nz-mt-meta">
         <TaskStatusBadge status={task.status} />
+        {access.team ? (
+          <span className="pill blue" title={t('a12roles.task.teamHint')}>
+            {task.assignee ? t('a12roles.mine.badgeTeamOf', { name: task.assignee.fullName }) : t('a12roles.mine.badgeTeam')}
+          </span>
+        ) : null}
         <Text span size="sm" c="dimmed">
           {taskWhen(task)}
         </Text>
@@ -316,12 +323,19 @@ function TaskHeader({
 // ---------------------------------------------------------------- secondary panel
 
 function TaskSide({ task }: { task: TaskView }) {
-  const user = useAuthStore((s) => s.user);
-  const admin = can(user, 'tasks.manage');
-  const assignee = task.assignee?.id === user?.id;
+  const access = useTaskAccess(task);
   const checklist = task.checklist;
   return (
+    <>
+    {access.team ? (
+      <p className="nz-mt-team-note" data-testid="team-task-note">
+        <IconInfoCircle size={16} aria-hidden />
+        {t('a12roles.task.teamOnly')}
+      </p>
+    ) : null}
     <Accordion multiple defaultValue={['checklist', 'description']} variant="separated" radius="md" className="nz-mt-acc" chevronPosition="right">
+      {!access.team ? (
+        <>
       <Accordion.Item value="checklist">
         <Accordion.Control icon={<IconChecklist size={18} />}>
           <Group gap={8} wrap="nowrap">
@@ -334,9 +348,11 @@ function TaskSide({ task }: { task: TaskView }) {
           </Group>
         </Accordion.Control>
         <Accordion.Panel>
-          <TaskChecklist taskId={task.id} projectId={task.projectId} mode={admin ? 'admin' : assignee ? 'assignee' : 'read'} />
+          <TaskChecklist taskId={task.id} projectId={task.projectId} mode={access.checklist} />
         </Accordion.Panel>
       </Accordion.Item>
+        </>
+      ) : null}
       <Accordion.Item value="description">
         <Accordion.Control icon={<IconFileText size={18} />}>{t('task.description')}</Accordion.Control>
         <Accordion.Panel>
@@ -351,10 +367,12 @@ function TaskSide({ task }: { task: TaskView }) {
           )}
         </Accordion.Panel>
       </Accordion.Item>
+      {!access.team ? (
+        <>
       <Accordion.Item value="time">
         <Accordion.Control icon={<IconClock size={18} />}>{t('a9s.time.title')}</Accordion.Control>
         <Accordion.Panel>
-          <TaskTimeLog taskId={task.id} admin={admin} canLog={admin || assignee} />
+          <TaskTimeLog taskId={task.id} admin={access.timeAdmin} canLog={access.logTime} />
         </Accordion.Panel>
       </Accordion.Item>
       <Accordion.Item value="files">
@@ -369,9 +387,11 @@ function TaskSide({ task }: { task: TaskView }) {
           </Group>
         </Accordion.Control>
         <Accordion.Panel>
-          <TaskAttachments taskId={task.id} projectId={task.projectId} assigneeId={task.assignee?.id ?? null} />
+          <TaskAttachments taskId={task.id} projectId={task.projectId} assigneeId={task.assignee?.id ?? null} canUpload={access.attach} />
         </Accordion.Panel>
       </Accordion.Item>
+        </>
+      ) : null}
       <Accordion.Item value="activity">
         <Accordion.Control icon={<IconHistory size={18} />}>{t('task.tab.activity')}</Accordion.Control>
         <Accordion.Panel>
@@ -385,5 +405,6 @@ function TaskSide({ task }: { task: TaskView }) {
         </Accordion.Panel>
       </Accordion.Item>
     </Accordion>
+    </>
   );
 }

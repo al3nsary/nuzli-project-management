@@ -9,6 +9,7 @@ import { nationalIdCheckDigit } from '@nuzli/shared';
 import { DemoApi } from './DemoApi';
 import { DEMO_PASSWORD } from './constants';
 import { ApiError } from '../errors';
+import { isMemberRequestAccepted } from '../client';
 import { uuidv4 } from '../../lib/uuid';
 import { OfflineDb } from '../../features/violations/offline/db';
 import { enqueueViolation } from '../../features/violations/offline/outbox';
@@ -92,8 +93,9 @@ describe('teams with several supervisors (ADR-100)', () => {
     expect(mine.map((t) => t.id)).toContain(TEAM(1));
     const detail = await api.teams.get(TEAM(1));
     expect(detail.supervisors!.map((s) => s.id)).toEqual([SUP1_ID, SUP3_ID]);
+    // A12 round 2: a supervisor's new worker is a request for the team (202) until an approver accepts.
     const added = await api.teams.addMember(TEAM(1), { fullName: 'عضو مساعد تجريبي', nationalId: validId('109111222') });
-    expect(added.team?.id).toBe(TEAM(1));
+    expect(isMemberRequestAccepted(added) ? added.request.team?.id : null).toBe(TEAM(1));
     // Adding supervisors is admin-only.
     expect((await codeOf(api.teams.addSupervisor(TEAM(1), { userId: SUP2_ID }))).code).toBe('FORBIDDEN');
   });
@@ -494,10 +496,13 @@ describe('hub and attachments scopes (ADR-092, ADR-097)', () => {
     const me = await loginAs(SUP1);
     const hub = await api.hub.list({ filter: 'all', pageSize: 100 });
     expect(hub.items.length).toBeGreaterThan(0);
-    expect(hub.items.every((i) => i.task.assignee?.id === me.id)).toBe(true);
-    expect(hub.items.length).toBeLessThan(adminHub.items.length);
+    // A12 round 2: own tasks and the team's (the other supervisors of the same teams) — «مهامي» lists both.
+    const mine = await api.tasks.mine();
+    const myTaskIds = new Set(mine.map((t) => t.id));
+    expect(hub.items.every((i) => myTaskIds.has(i.task.id))).toBe(true);
+    expect(hub.items.some((i) => i.task.assignee?.id === me.id)).toBe(true);
+    expect(hub.items.length).toBeLessThanOrEqual(adminHub.items.length);
     const files = await api.hub.attachments({ pageSize: 100 });
-    const myTaskIds = new Set((await api.tasks.mine()).map((t) => t.id));
     expect(files.items.every((f) => myTaskIds.has(f.task.id))).toBe(true);
     expect(files.total).toBeLessThanOrEqual(adminFiles.total);
   });

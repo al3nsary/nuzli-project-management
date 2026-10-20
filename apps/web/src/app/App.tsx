@@ -86,8 +86,35 @@ function AuthBootstrap({ api, children }: { api: ApiClient; children: ReactNode 
       off();
     };
   }, [api, setSession, qc]);
+
+  // A12 (docs/API.md «What the web must change» 6): a workspace that is no longer available
+  // (membership removed, workspace archived, none chosen) → re-read the session; the guard then
+  // shows «اختر القسم» or the sign-in page. Cached data of that workspace is dropped.
+  useEffect(() => {
+    let inFlight = false;
+    return qc.getQueryCache().subscribe((event) => {
+      if (event.type !== 'updated' || event.action.type !== 'error') return;
+      const err = event.action.error;
+      if (!(err instanceof ApiError) || !WORKSPACE_LOST.has(err.code) || inFlight) return;
+      inFlight = true;
+      void api.auth
+        .refresh()
+        .then((session) => {
+          qc.clear();
+          dropPrintRun();
+          api.setAccessToken(session?.accessToken ?? null);
+          setSession(session);
+        })
+        .catch(() => setSession(null))
+        .finally(() => {
+          inFlight = false;
+        });
+    });
+  }, [api, qc, setSession]);
   return <>{children}</>;
 }
+
+const WORKSPACE_LOST = new Set<string>(['WORKSPACE_REQUIRED', 'WORKSPACE_FORBIDDEN', 'WORKSPACE_ARCHIVED']);
 
 /** Keeps <html dir="rtl" lang="ar"> even if a host page or test renders without index.html. */
 function DocumentDirection() {

@@ -1,16 +1,21 @@
 import type { ReactNode } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useMyParticipations } from '../api/a12Queries';
 import { Button, Group } from '@mantine/core';
 import { IconArrowLeft, IconHome, IconLock, IconMapOff, IconRefresh } from '@tabler/icons-react';
 import { can, type Permission } from '@nuzli/shared';
-import { useAuthStore } from '../stores/auth';
+import { needsWorkspacePick, useAuthStore } from '../stores/auth';
 import { FullPageLoader } from '../components/ui';
 import { t } from '../i18n';
 import { hasInAppHistory } from './shell/TopBar';
 
-/** Signed-in users only; a forced password change comes before anything else. */
+/**
+ * Signed-in users only; a forced password change comes before anything else, then (A12) the
+ * «اختر القسم» screen when the user can enter several workspaces and none is chosen yet.
+ */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { status, user } = useAuthStore();
+  const state = useAuthStore();
+  const { status, user } = state;
   const location = useLocation();
   if (status === 'loading') return <FullPageLoader />;
   if (status !== 'authenticated' || !user) {
@@ -18,6 +23,9 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }
   if (user.mustChangePassword && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
+  }
+  if (!user.mustChangePassword && needsWorkspacePick(state) && location.pathname !== '/choose-workspace') {
+    return <Navigate to="/choose-workspace" replace state={{ from: location.pathname + location.search }} />;
   }
   return <>{children}</>;
 }
@@ -41,6 +49,35 @@ export function RequirePermission({
   const user = useAuthStore((s) => s.user);
   if (!can(user, permission)) return <Forbidden />;
   return <>{children}</>;
+}
+
+/** Any of the permissions (A12: registrations.review for admins, registrations.read for assistants). */
+export function RequireAnyPermission({ permissions, children }: { permissions: Permission[]; children: ReactNode }) {
+  const user = useAuthStore((s) => s.user);
+  if (!permissions.some((p) => can(user, p))) return <Forbidden />;
+  return <>{children}</>;
+}
+
+/** A12: owners (accountRole OWNER) only — the «إدارة النظام» pages. The API enforces it too. */
+export function RequireOwner({ children }: { children: ReactNode }) {
+  const user = useAuthStore((s) => s.user);
+  if (user?.accountRole !== 'OWNER') return <Forbidden />;
+  return <>{children}</>;
+}
+
+/**
+ * A12 round 2: projects for `projects.readAll`, and for project participants their projects
+ * (`GET /me/participations`; another project's page shows «لا تملك صلاحية»). The API scopes too.
+ */
+export function RequireProjectsAccess({ children, project }: { children: ReactNode; project?: boolean }) {
+  const user = useAuthStore((s) => s.user);
+  const params = useParams();
+  const parts = useMyParticipations();
+  if (can(user, 'projects.readAll')) return <>{children}</>;
+  if (parts.isLoading) return <FullPageLoader />;
+  const list = parts.data ?? [];
+  const ok = project ? list.some((p) => p.projectId === params.id) : list.length > 0;
+  return ok ? <>{children}</> : <Forbidden />;
 }
 
 function StatePage({

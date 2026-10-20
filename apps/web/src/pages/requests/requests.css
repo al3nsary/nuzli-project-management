@@ -1,0 +1,24 @@
+/* A12 round 2 — workers' requests. Logical properties only. */
+.nz-wr-kind {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 40px;
+  block-size: 40px;
+  flex: 0 0 auto;
+  border-radius: var(--r3, 6px);
+  background: var(--tint);
+  color: var(--accent);
+}
+.nz-wr-kind[data-kind='REMOVE'] {
+  background: var(--p-no-b, #fbe9eb);
+  color: var(--red);
+}
+.nz-req-tabs {
+  margin-block-end: 16px;
+}
+.nz-req-tabs .mantine-Tabs-tab {
+  min-block-size: 44px;
+}
+.nz-req-note {
+  margin-block-end: 12px;
+}

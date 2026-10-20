@@ -79,6 +79,27 @@ import type {
   ViolationOcrDto,
   RegisterViolationMemberResultDto,
 } from '@nuzli/shared';
+import type {
+  AddOwnerInput,
+  AddWorkspaceMemberInput,
+  CreateAccountInput,
+  CreateWorkspaceInput,
+  MemberRequestAcceptedDto,
+  MemberRequestDto,
+  MyParticipationDto,
+  OwnerDto,
+  ParticipantDto,
+  ParticipantLevel,
+  PublicWorkspaceDto,
+  SystemInfoDto,
+  UpdateUserInput,
+  WorkspaceAdminDto,
+  WorkspaceCountsDto,
+  WorkspaceMemberDto,
+  WorkspaceSummaryDto,
+  AssistantPermissions,
+  AssistantScope,
+} from '@nuzli/shared';
 import type { z } from 'zod';
 import type {
   approveRegistrationSchema,
@@ -265,6 +286,8 @@ export type CalendarListDto = CalendarDto & { isDefault: boolean };
 
 export interface DemoAccount {
   role: Role;
+  /** A12: what the quick-login button says (owner, assistant and project participants added). */
+  kind?: 'OWNER' | 'ADMIN' | 'SUPERVISOR' | 'MONITOR' | 'ASSISTANT' | 'EDITOR' | 'VIEWER';
   identifier: string;
   fullName: string;
 }
@@ -318,19 +341,88 @@ export interface ApiClient {
     resetPassword(input: In<typeof resetPasswordSchema>): Promise<void>;
     changePassword(input: In<typeof changePasswordSchema>): Promise<AuthSession>;
     me(): Promise<UserDto>;
+    /**
+     * A12 `POST /auth/switch-workspace`: a NEW session bound to the target workspace (the old refresh
+     * family is revoked). The caller clears the previous workspace's device data first.
+     * 403 WORKSPACE_FORBIDDEN / WORKSPACE_ARCHIVED.
+     */
+    switchWorkspace(workspaceId: string): Promise<AuthSession>;
+    /** A12 `GET /auth/workspaces`: the workspaces the caller can enter (owners: every active one). */
+    workspaces(): Promise<WorkspaceSummaryDto[]>;
+  };
+
+  /** A12 `GET /system/info` and `GET /public/workspaces` (registration). */
+  system: {
+    info(): Promise<SystemInfoDto>;
+    publicWorkspaces(): Promise<PublicWorkspaceDto[]>;
   };
 
   me: {
     update(input: In<typeof updateProfileSchema>): Promise<UserDto>;
+    /** A12 round 2 `GET /me/participations`: the caller's project grants (buttons per project). */
+    participations(): Promise<MyParticipationDto[]>;
+  };
+
+  /** A12 round 2 — owners only (403 FORBIDDEN otherwise). */
+  owners: {
+    list(): Promise<OwnerDto[]>;
+    /** Promote an existing ACTIVE account (`userId` / `identifier`) or create a new owner account. */
+    add(input: AddOwnerInput): Promise<OwnerDto>;
+    /** 409 LAST_OWNER for the last active owner. */
+    remove(userId: string): Promise<void>;
+  };
+
+  /**
+   * A12 round 2 — workspaces (أقسام): owners only, except the `members` family (admins and
+   * assistants: their own workspace).
+   */
+  workspaces: {
+    list(query?: { status?: 'ACTIVE' | 'ARCHIVED' | 'ALL' }): Promise<WorkspaceAdminDto[]>;
+    /** 409 WORKSPACE_CODE_TAKEN. */
+    create(input: CreateWorkspaceInput): Promise<WorkspaceAdminDto>;
+    rename(id: string, input: { name: string }): Promise<WorkspaceAdminDto>;
+    /** 409 LAST_WORKSPACE. */
+    archive(id: string): Promise<WorkspaceAdminDto>;
+    restore(id: string): Promise<WorkspaceAdminDto>;
+    summary(id: string): Promise<WorkspaceCountsDto>;
+    admins(id: string): Promise<WorkspaceMemberDto[]>;
+    /** 409 DUAL_ROLE_CONFIRM_REQUIRED until `confirmDualRole: true`. */
+    addAdmin(
+      id: string,
+      input: { userId?: string; identifier?: string; title?: string; confirmDualRole?: boolean },
+    ): Promise<WorkspaceMemberDto>;
+    removeAdmin(id: string, userId: string): Promise<void>;
+    members(id: string): Promise<WorkspaceMemberDto[]>;
+    /** Adds an EXISTING account. 409 MEMBERSHIP_EXISTS / DUAL_ROLE_CONFIRM_REQUIRED / INVALID_STATE. */
+    addMember(id: string, input: AddWorkspaceMemberInput): Promise<WorkspaceMemberDto>;
+    updateMember(
+      id: string,
+      membershipId: string,
+      input: { title?: string | null; permissions?: AssistantPermissions; scope?: AssistantScope },
+    ): Promise<WorkspaceMemberDto>;
+    /** 409 LAST_ADMIN. */
+    removeMember(id: string, membershipId: string): Promise<void>;
   };
 
   users: {
     list(query?: UserListQuery): Promise<Paginated<UserDto>>;
     get(id: string): Promise<UserDto>;
-    create(input: In<typeof createUserSchema>): Promise<UserDto>;
+    /**
+     * A12 round 2 `createAccountSchema`: `role` (the caller's workspace) or `memberships`; an optional
+     * first `password` (+ `mustChangePassword`, default true). 409 DUAL_ROLE_CONFIRM_REQUIRED, USERNAME_TAKEN…
+     */
+    create(input: CreateAccountInput | In<typeof createUserSchema>): Promise<UserDto>;
+    /** A12 round 2 `GET /users/all` (owners): every account with `allRoles`. */
+    all(query?: PageQuery & { status?: UserStatus; accountRole?: 'OWNER' | 'USER' }): Promise<Paginated<UserDto>>;
+    /** `PATCH /users/:id`. Admins: users of their workspace only (403 USER_IN_OTHER_WORKSPACES). */
+    update(id: string, input: UpdateUserInput): Promise<UserDto>;
+    /** `POST /users/:id/username`. 409 USERNAME_TAKEN. */
+    setUsername(id: string, input: { username: string }): Promise<UserDto>;
+    /** `POST /users/:id/password`: sets a NEW password (nobody reads one) and ends every session of the user. */
+    setPassword(id: string, input: { password: string; mustChangePassword?: boolean }): Promise<UserDto>;
     changeRole(id: string, input: In<typeof changeRoleSchema>): Promise<UserDto>;
     suspend(id: string, input: In<typeof suspendUserSchema>): Promise<UserDto>;
-    reactivate(id: string): Promise<UserDto>;
+    reactivate(id: string, input?: { scope?: 'workspace' | 'global' }): Promise<UserDto>;
     supervisors(q?: string): Promise<UserDto[]>;
     /**
      * `POST /users/search`: the same filters in the body. Use it whenever the term holds a full
@@ -383,7 +475,11 @@ export interface ApiClient {
     changeSupervisor(id: string, input: In<typeof changeSupervisorSchema>): Promise<TeamDto>;
     supervisorHistory(id: string): Promise<SupervisorHistoryDto[]>;
     setViolationVisibility(id: string, mode: VisibilityMode): Promise<TeamDto>;
-    addMember(teamId: string, input: In<typeof memberInputSchema>): Promise<MemberDto>;
+    /**
+     * Admins: 201 MemberDto. A12 round 2 — supervisors: 202 `MemberRequestAcceptedDto` (the worker
+     * is created only when an approver accepts). Use `isMemberRequestAccepted`.
+     */
+    addMember(teamId: string, input: In<typeof memberInputSchema>): Promise<MemberDto | MemberRequestAcceptedDto>;
     importMembers(input: In<typeof importMembersSchema>): Promise<ImportMembersResultDto>;
     // A9 (ADR-100/101): several supervisors and the worker foreman.
     /** `GET /teams/:id/supervisors` — current supervisors (primary first) and the full history. */
@@ -422,6 +518,31 @@ export interface ApiClient {
     move(input: In<typeof moveMembersSchema>): Promise<MemberDto[]>;
     /** `POST /members/search` — for full national IDs (ADR-067). */
     search(input: MemberSearchInput): Promise<Paginated<MemberDto>>;
+    /**
+     * A12 round 2 `POST /members/:id/archive`: admins archive at once (`{ status: 'ARCHIVED' }`);
+     * a supervisor's call becomes a REMOVE request (202 `MemberRequestAcceptedDto`).
+     */
+    archive(id: string, input: { reason: string }): Promise<{ status: 'ARCHIVED' } | MemberRequestAcceptedDto>;
+  };
+
+  /** A12 round 2 — supervisors' worker add/remove requests (طلبات العمّال). */
+  memberRequests: {
+    list(
+      query?: PageQuery & { status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'; teamId?: string },
+    ): Promise<Paginated<MemberRequestDto>>;
+    get(id: string): Promise<MemberRequestDto>;
+    /** 409 MEMBER_REQUEST_NOT_PENDING. */
+    approve(id: string): Promise<MemberRequestDto>;
+    reject(id: string, input: { reason: string }): Promise<MemberRequestDto>;
+  };
+
+  /** A12 round 2 — project participants (محرّر / مساهم / مطّلع). */
+  participants: {
+    list(projectId: string): Promise<ParticipantDto[]>;
+    /** 409 PARTICIPANT_NOT_MEMBER / PARTICIPANT_EXISTS / PROJECT_ARCHIVED. */
+    add(projectId: string, input: { userId: string; title: string; level: ParticipantLevel }): Promise<ParticipantDto>;
+    update(projectId: string, userId: string, input: { title?: string; level?: ParticipantLevel }): Promise<ParticipantDto>;
+    remove(projectId: string, userId: string): Promise<void>;
   };
 
   reference: {
@@ -565,6 +686,12 @@ export interface ApiClient {
     templates(): Promise<ProjectView[]>;
     /** `GET /reports/projects`. */
     report(query?: { status?: ProjectListQuery['status'] }): Promise<ProjectReportRow[]>;
+    // A12 round 2 — the project cover image (16:9, at most 3 MB; JPEG/PNG/WebP).
+    /** Short-lived signed GET; 404 when the project has no cover. */
+    coverUrl(id: string): Promise<{ url: string; expiresAt: string }>;
+    /** presign (`project_cover`) → PUT → confirm; the previous cover is removed. */
+    uploadCover(id: string, blob: Blob, opts?: UploadOptions): Promise<{ fileId: string }>;
+    removeCover(id: string): Promise<void>;
   };
 
   tasks: {
@@ -689,6 +816,13 @@ export interface ApiClient {
     list(query?: In<typeof hubQuerySchema>): Promise<HubPageDto>;
     attachments(query?: In<typeof attachmentBrowseQuerySchema>): Promise<Paginated<AttachmentBrowseDto>>;
   };
+}
+
+/** A12 round 2: true when a supervisor's add/remove was turned into a request (202). */
+export function isMemberRequestAccepted(x: unknown): x is MemberRequestAcceptedDto {
+  return Boolean(
+    x && typeof x === 'object' && (x as { status?: unknown }).status === 'PENDING_APPROVAL' && 'request' in (x as object),
+  );
 }
 
 /** A calendar as listed: `CalendarDto` + `isDefault` + the A9 working hours. */

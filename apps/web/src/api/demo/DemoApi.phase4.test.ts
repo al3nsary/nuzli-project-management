@@ -154,11 +154,14 @@ describe('supervisor rights (ADR-007, ADR-058, A9 ADR-092)', () => {
 
   it('a supervisor without a task sees nothing: projects 403, tasks 404 (ADR-092)', async () => {
     const { project, a } = await chainProject();
+    const lone = await api.tasks.create(project.id, { name: 'بلا إسناد', startDate: '2026-11-01', durationDays: 1 });
     // A grant no longer opens anything (project_access kept but inert).
     await api.projects.grantAccess(project.id, { userId: '00000000-0000-4000-8000-000000000005' });
     await loginAs('supervisor3@demo.nuzli.example');
     expect((await codeOf(api.projects.gantt(project.id))).code).toBe('FORBIDDEN');
-    expect((await codeOf(api.tasks.comments(a.id))).code).toBe('NOT_FOUND');
+    expect((await codeOf(api.tasks.comments(lone.id))).code).toBe('NOT_FOUND');
+    // A12 round 2 (owner rule): a co-supervisor of the same team reads the team's tasks.
+    await expect(api.tasks.comments(a.id)).resolves.toBeInstanceOf(Array);
   });
 
   it('assignees are active supervisors only', async () => {

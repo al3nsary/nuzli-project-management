@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button, Select } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconCoin, IconFileSpreadsheet, IconFolders, IconListCheck } from '@tabler/icons-react';
-import type { ProjectReportRow, ProjectStatus } from '@nuzli/shared';
+import { can, type ProjectReportRow, type ProjectStatus } from '@nuzli/shared';
+import { useAuthStore } from '../../stores/auth';
 import { useProjectsReport } from '../../api/a9Queries';
 import { errorMessage } from '../../api/errors';
 import { EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '../../components/ui';
@@ -30,6 +31,8 @@ const money = (v: number | null | undefined, currency?: string) => (v === null |
  */
 export function ReportsPage() {
   const navigate = useNavigate();
+  // A12 round 2: money fields are not sent without budget.read — hide them, never show zeros.
+  const showMoney = can(useAuthStore((s) => s.user), 'budget.read');
   const [filter, setFilter] = useTabParam<Filter>('status', FILTERS, 'OPEN');
   const q = useProjectsReport(filter === 'OPEN' ? undefined : (filter as ProjectStatus | 'ALL'));
   const rows = useMemo(() => q.data ?? [], [q.data]);
@@ -153,12 +156,12 @@ export function ReportsPage() {
               <Kpi icon={IconFolders} label={t('a9r.rep.kpiProjects')} value={formatNumber(rows.length)} />
               <Kpi icon={IconListCheck} label={t('a9r.rep.kpiTasks')} value={formatNumber(totals.leaf)} foot={t('a9r.rep.kpiDone', { n: totals.done })} />
               <Kpi icon={IconAlertTriangle} label={t('a9r.col.overdue')} value={formatNumber(totals.overdue)} tone={totals.overdue ? 'no' : undefined} foot={totals.deadline ? t('a9r.rep.kpiDeadline', { n: totals.deadline }) : undefined} />
-              <Kpi icon={IconCoin} small label={t('a9r.rep.kpiActual')} value={money(totals.actual)} foot={t('a9r.rep.kpiPlanned', { amount: money(totals.planned) })} />
+              {showMoney ? <Kpi icon={IconCoin} small label={t('a9r.rep.kpiActual')} value={money(totals.actual)} foot={t('a9r.rep.kpiPlanned', { amount: money(totals.planned) })} /> : null}
             </div>
 
             <ReportCard flush title={t('a9r.rep.tableTitle')} sub={t('a9r.rep.tableSub')}>
               <div className="rp-table-scroll">
-                <ReportTable rows={rows} totals={totals} />
+                <ReportTable rows={rows} totals={totals} money={showMoney} />
               </div>
             </ReportCard>
 
@@ -179,7 +182,7 @@ export function ReportsPage() {
               </ReportCard>
             </div>
 
-            <ReportCard title={t('a9r.rep.costChart')} sub={t('a9r.rep.costChartSub')}>
+            {showMoney ? <ReportCard title={t('a9r.rep.costChart')} sub={t('a9r.rep.costChartSub')}>
               {costChart.categories.length ? (
                 <>
                   <ChartLegend
@@ -195,7 +198,7 @@ export function ReportsPage() {
               ) : (
                 <CardEmpty>{t('a9r.budget.noCosts')}</CardEmpty>
               )}
-            </ReportCard>
+            </ReportCard> : null}
           </>
         )}
       </div>
@@ -203,7 +206,7 @@ export function ReportsPage() {
   );
 }
 
-function ReportTable({ rows, totals }: { rows: ProjectReportRow[]; totals: { leaf: number; done: number; overdue: number; deadline: number; milestones: number; budget: number; planned: number; actual: number; withBudget: number } }) {
+function ReportTable({ rows, totals, money: showMoney = true }: { money?: boolean; rows: ProjectReportRow[]; totals: { leaf: number; done: number; overdue: number; deadline: number; milestones: number; budget: number; planned: number; actual: number; withBudget: number } }) {
   return (
     <table className="rp-table" aria-label={t('a9r.rep.tableTitle')}>
       <thead>
@@ -217,12 +220,16 @@ function ReportTable({ rows, totals }: { rows: ProjectReportRow[]; totals: { lea
           <th className="num">{t('a9r.col.overdue')}</th>
           <th className="num">{t('a9r.col.deadlinePassed')}</th>
           <th className="num">{t('a9r.col.milestones')}</th>
-          <th className="num">{t('a9r.col.budget')}</th>
-          <th className="num">{t('a9r.col.planned')}</th>
-          <th className="num">{t('a9r.col.actual')}</th>
-          <th className="num" style={{ minWidth: 110 }}>
-            {t('a9r.col.used')}
-          </th>
+          {showMoney ? (
+            <>
+              <th className="num">{t('a9r.col.budget')}</th>
+              <th className="num">{t('a9r.col.planned')}</th>
+              <th className="num">{t('a9r.col.actual')}</th>
+              <th className="num" style={{ minWidth: 110 }}>
+                {t('a9r.col.used')}
+              </th>
+            </>
+          ) : null}
         </tr>
       </thead>
       <tbody>
@@ -251,7 +258,7 @@ function ReportTable({ rows, totals }: { rows: ProjectReportRow[]; totals: { lea
               <td className={r.overdueCount ? 'num rp-red' : 'num rp-dim'}>{formatNumber(r.overdueCount)}</td>
               <td className={r.deadlinePassedCount ? 'num rp-amber' : 'num rp-dim'}>{formatNumber(r.deadlinePassedCount)}</td>
               <td className="num">{formatNumber(r.milestoneCount)}</td>
-              <td className="num">{pr.budget === null || pr.budget === undefined ? <span className="rp-dim">{t('common.none')}</span> : money(pr.budget, pr.currency)}</td>
+              {showMoney ? <><td className="num">{pr.budget === null || pr.budget === undefined ? <span className="rp-dim">{t('common.none')}</span> : money(pr.budget, pr.currency)}</td>
               <td className="num">{money(pr.plannedCost ?? 0, pr.currency)}</td>
               <td className={tone === 'over' ? 'num rp-red' : 'num'}>{money(pr.actualCost ?? 0, pr.currency)}</td>
               <td className="num">
@@ -265,7 +272,7 @@ function ReportTable({ rows, totals }: { rows: ProjectReportRow[]; totals: { lea
                     <BudgetMeter pct={pr.budgetUsedPct} size="sm" label={t('a9r.rep.usedOf', { name: pr.name })} />
                   </div>
                 )}
-              </td>
+              </td></> : null}
             </tr>
           );
         })}
@@ -278,10 +285,14 @@ function ReportTable({ rows, totals }: { rows: ProjectReportRow[]; totals: { lea
           <td className={totals.overdue ? 'num rp-red' : 'num'}>{formatNumber(totals.overdue)}</td>
           <td className="num">{formatNumber(totals.deadline)}</td>
           <td className="num">{formatNumber(totals.milestones)}</td>
-          <td className="num">{totals.withBudget ? money(totals.budget) : t('common.none')}</td>
-          <td className="num">{money(totals.planned)}</td>
-          <td className="num">{money(totals.actual)}</td>
-          <td />
+          {showMoney ? (
+            <>
+              <td className="num">{totals.withBudget ? money(totals.budget) : t('common.none')}</td>
+              <td className="num">{money(totals.planned)}</td>
+              <td className="num">{money(totals.actual)}</td>
+              <td />
+            </>
+          ) : null}
         </tr>
       </tfoot>
     </table>

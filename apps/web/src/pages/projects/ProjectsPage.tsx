@@ -32,6 +32,7 @@ import { formatDate, formatMoney, formatNumber, t, tCount } from '../../i18n';
 import { useOverlayParam } from '../../lib/useUrlState';
 import { ProgressLine, ProjectStatusBadge, PROJECT_STATUSES, projectStatusLabel } from './parts';
 import { CreateProjectDialog } from './CreateProjectDialog';
+import { ProjectCover } from '../../features/projects/ProjectCover';
 import './projects.css';
 import './a9-projects.css';
 
@@ -89,8 +90,12 @@ function Star({ on, onToggle, name }: { on: boolean; onToggle(): void; name: str
 }
 
 export function ProjectCard({ project, favourite, onToggleFavourite }: { project: ProjectView; favourite?: boolean; onToggleFavourite?: () => void }) {
+  // A12 round 2: money is absent without budget.read — the budget line is not drawn then.
+  const showMoney = can(useAuthStore((s) => s.user), 'budget.read');
   return (
-    <UnstyledButton component={Link} to={`/projects/${project.id}`} className="surface-card nz-project-card" aria-label={t('projects.open', { name: project.name })}>
+    <UnstyledButton component={Link} to={`/projects/${project.id}`} className="surface-card nz-project-card nz-project-card--cover" aria-label={t('projects.open', { name: project.name })}>
+      <ProjectCover project={project} variant="card" />
+      <div className="nz-project-card-body">
       <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
         <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
           <span className="nz-pl-folder" aria-hidden>
@@ -117,15 +122,18 @@ export function ProjectCard({ project, favourite, onToggleFavourite }: { project
       <div style={{ marginBlockStart: 12 }}>
         <ProgressLine value={project.progress} label={t('projects.progress')} />
       </div>
-      <div style={{ marginBlockStart: 10 }}>
-        <BudgetMeter project={project} />
-      </div>
+      {showMoney ? (
+        <div style={{ marginBlockStart: 10 }}>
+          <BudgetMeter project={project} />
+        </div>
+      ) : null}
       <Group justify="space-between" mt="sm" gap="xs" wrap="nowrap">
         <Text size="sm" c="dimmed">
           {tCount('projects.taskCount', project.taskCount)}
         </Text>
         <IconChevronRight size={16} className="mirror-rtl" aria-hidden color="var(--muted)" />
       </Group>
+      </div>
     </UnstyledButton>
   );
 }
@@ -169,10 +177,12 @@ export function ProjectsPage() {
   };
   const projects = useProjects(query);
   const canCreate = can(user, 'projects.create');
+  const showMoney = can(user, 'budget.read');
+  const sorts = (['recent', 'name', 'start', 'end', 'progress', 'budget'] as const).filter((x) => showMoney || x !== 'budget');
   const favSet = useMemo(() => new Set(favourites), [favourites]);
   const toggleFav = (id: string) => setFavourites(favSet.has(id) ? favourites.filter((x) => x !== id) : [...favourites, id]);
 
-  const sorted = useMemo(() => sortProjects(projects.data ?? [], sort), [projects.data, sort]);
+  const sorted = useMemo(() => sortProjects(projects.data ?? [], showMoney || sort !== 'budget' ? sort : 'recent'), [projects.data, sort, showMoney]);
   const favs = sorted.filter((p) => favSet.has(p.id));
   const others = sorted.filter((p) => !favSet.has(p.id));
 
@@ -191,14 +201,14 @@ export function ProjectsPage() {
             ))}
           </SimpleGrid>
         ) : (
-          <div className="nz-pl-table" role="table" aria-labelledby={`pl-${key}`}>
+          <div className="nz-pl-table" role="table" aria-labelledby={`pl-${key}`} data-money={showMoney || undefined}>
             <div className="nz-pl-row nz-pl-head" role="row">
               <span role="columnheader" className="nz-pl-c-star" aria-label={t('projects.favourites')} />
               <span role="columnheader">{t('projects.col.name')}</span>
               <span role="columnheader">{t('projects.col.status')}</span>
               <span role="columnheader">{t('projects.col.progress')}</span>
               <span role="columnheader">{t('projects.col.dates')}</span>
-              <span role="columnheader">{t('projects.col.budget')}</span>
+              {showMoney ? <span role="columnheader">{t('projects.col.budget')}</span> : null}
               <span role="columnheader">{t('projects.col.owner')}</span>
             </div>
             {list.map((p) => (
@@ -241,9 +251,11 @@ export function ProjectsPage() {
                     {dates(p)}
                   </Text>
                 </span>
-                <span role="cell">
-                  <BudgetMeter project={p} compact />
-                </span>
+                {showMoney ? (
+                  <span role="cell">
+                    <BudgetMeter project={p} compact />
+                  </span>
+                ) : null}
                 <span role="cell">
                   <Text size="sm" truncate>
                     {p.owner.fullName}
@@ -303,7 +315,7 @@ export function ProjectsPage() {
           value={sort}
           onChange={(v) => setSort((v as Sort) ?? 'recent')}
           allowDeselect={false}
-          data={(['recent', 'name', 'start', 'end', 'progress', 'budget'] as const).map((s) => ({ value: s, label: t(`projects.sort.${s}`) }))}
+          data={sorts.map((s) => ({ value: s, label: t(`projects.sort.${s}`) }))}
           w={230}
         />
         {!phone ? (

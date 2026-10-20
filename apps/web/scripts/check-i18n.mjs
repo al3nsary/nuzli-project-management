@@ -59,8 +59,20 @@ function walk(dir, out = []) {
 const problems = [];
 
 // 1–2. Keys
-const ar = dictionary(join(src, 'i18n', 'ar.ts'));
-const en = dictionary(join(src, 'i18n', 'en.ts'));
+// A12: features add their strings in src/i18n/parts/<name>.ar.ts / <name>.en.ts (spread into ar/en).
+function withParts(base, suffix) {
+  const dir = join(src, 'i18n', 'parts');
+  let names = [];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith(suffix));
+  } catch {
+    names = [];
+  }
+  for (const n of names) for (const [k, v] of dictionary(join(dir, n))) base.set(k, v);
+  return base;
+}
+const ar = withParts(dictionary(join(src, 'i18n', 'ar.ts')), '.ar.ts');
+const en = withParts(dictionary(join(src, 'i18n', 'en.ts')), '.en.ts');
 for (const key of ar.keys()) if (!en.has(key)) problems.push(`en.ts: missing key "${key}"`);
 for (const key of en.keys()) if (!ar.has(key)) problems.push(`ar.ts: missing key "${key}"`);
 for (const [key, value] of ar)

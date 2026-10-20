@@ -1,0 +1,153 @@
+/* A12 — workspaces (أقسام): the name under the logo, the picker, the switcher, the dual-role badge. */
+
+/* The active workspace under the Nozoly logo (sidebar head). Readex Pro, quiet violet. */
+.nz-ws-name {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.nz-side-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.nz-side.mini .nz-ws-name {
+  display: none;
+}
+
+/* Phones: a compact chip in the top bar (the logo lives in the drawer). */
+.nz-ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  max-width: 36vw;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: var(--tint);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nz-ws-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* «صلاحية مزدوجة»: amber with a ring and its own icon, so it never reads as a status. */
+.pill.dual {
+  background: var(--p-wait-b);
+  color: var(--p-wait-t);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p-wait-t) 45%, transparent);
+  font-weight: 600;
+  gap: 4px;
+  padding: 2px 8px;
+}
+.pill.dual.compact {
+  padding: 2px 5px;
+}
+
+/* «اختر القسم» */
+.nz-ws-pick {
+  display: grid;
+  gap: 12px;
+}
+.nz-ws-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 72px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--ink);
+  text-align: start;
+  cursor: pointer;
+  transition:
+    border-color 0.16s var(--e),
+    background 0.16s var(--e),
+    transform 0.16s var(--e);
+}
+.nz-ws-card:hover {
+  border-color: var(--tint2);
+  background: var(--hover);
+}
+.nz-ws-card:active {
+  transform: scale(0.985);
+}
+.nz-ws-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.nz-ws-card[aria-busy='true'] {
+  opacity: 0.7;
+}
+.nz-ws-ic {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 12px;
+  background: var(--tint);
+  color: var(--accent);
+}
+.nz-ws-card b {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.nz-ws-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.nz-ws-go {
+  margin-inline-start: auto;
+  color: var(--dim2);
+  flex: none;
+}
+
+/* The switcher inside the user menu. */
+.nz-ws-menu-item[data-active='true'] {
+  background: var(--tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* The home of an assistant / a project participant. */
+.nz-gh-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 96px;
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 0.16s var(--e), background 0.16s var(--e);
+}
+.nz-gh-card:hover {
+  border-color: var(--tint2);
+  background: var(--hover);
+}
+.nz-gh-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}

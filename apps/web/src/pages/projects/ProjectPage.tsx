@@ -67,6 +67,7 @@ import {
   IconTrash,
   IconUserCheck,
   IconUsers,
+  IconUsersGroup,
   IconX,
   IconZoomScan,
   IconChartArcs,
@@ -116,10 +117,14 @@ import { useOverlayParam, useTabParam } from '../../lib/useUrlState';
 import { TaskChatDrawer } from './TaskWorkspace';
 import { useTaskChatCounts } from '../../features/tasks/TaskChatButton';
 import { EDGE_SAFE_MIDDLEWARES } from '../../lib/floating';
+import { useProjectAccess, type ProjectAccess } from '../../features/participants/access';
+import { ParticipantsTab, levelLabel } from '../../features/participants/ParticipantsTab';
+import { ProjectCover } from '../../features/projects/ProjectCover';
+import { useMyParticipations } from '../../api/a12Queries';
 import './projects.css';
 import './a9-projects.css';
 
-const VIEWS = ['gantt', 'board', 'list', 'calendar', 'workload', 'people', 'dashboard'] as const;
+const VIEWS = ['gantt', 'board', 'list', 'calendar', 'workload', 'people', 'dashboard', 'participants'] as const;
 type View = (typeof VIEWS)[number];
 const TAB_ICONS: Record<View, typeof IconChartBar> = {
   gantt: IconChartBar,
@@ -129,7 +134,11 @@ const TAB_ICONS: Record<View, typeof IconChartBar> = {
   workload: IconChartArcs,
   people: IconUsers,
   dashboard: IconChartDonut,
+  participants: IconUsersGroup,
 };
+const tabLabel = (v: View) => (v === 'participants' ? t('a12roles.tab.participants') : t(`project.tab.${v}`));
+/** Gantt/list cost columns are hidden when money is not sent (A12 round 2: no budget.read). */
+const COST_COLUMNS = new Set(['plannedCost', 'actualCost']);
 /** Views whose rows the toolbar acts on (select, expand, filter…). */
 const TASK_VIEWS = new Set<View>(['gantt', 'board', 'list', 'calendar']);
 
@@ -147,9 +156,9 @@ const BAR_SWATCHES = ['#5030e5', '#1565C0', '#00838F', '#2E7D32', '#9E9D24', '#F
 export function ProjectPage() {
   const { id = '' } = useParams();
   const [view, setView] = useTabParam<View>('view', VIEWS, 'gantt');
-  const user = useAuthStore((s) => s.user);
   const gantt = useGantt(id);
   const writes = useProjectWrites(id);
+  const access = useProjectAccess(id);
   // Drawers live in the URL (?task=, ?panel=settings): deep links work and back closes them.
   const task = useOverlayParam('task', { drop: ['ttab'] });
   const panel = useOverlayParam('panel', { drop: ['stab'] });
@@ -195,18 +204,19 @@ export function ProjectPage() {
   if (gantt.isLoading) return <LoadingBlock variant="gantt" header />;
   if (gantt.isError || !gantt.data) return <ErrorBlock error={gantt.error} onRetry={() => void gantt.refetch()} />;
   const data = gantt.data;
-  const admin = can(user, 'projects.manage');
+  // A12 round 2: the account's rights plus the participant level on THIS project.
+  const admin = access.manageProject;
 
   return (
     <div className="nz-project-shell nz-ps" ref={shellRef} data-fullscreen={fullscreen || undefined}>
-      <ProjectHeader data={data} admin={admin} onSettings={() => panel.open('settings')} />
+      <ProjectHeader data={data} admin={admin} access={access} onSettings={() => panel.open('settings')} />
       <Tabs value={view} onChange={(v) => setView(v)} keepMounted={false} className="nz-ps-tabs">
         <Tabs.List>
           {VIEWS.map((v) => {
             const Icon = TAB_ICONS[v];
             return (
-              <Tabs.Tab key={v} value={v} leftSection={<Icon size={16} />}>
-                {t(`project.tab.${v}`)}
+              <Tabs.Tab key={v} value={v} leftSection={<Icon size={16} />} data-testid={v === 'participants' ? 'participants-tab' : undefined}>
+                {tabLabel(v)}
               </Tabs.Tab>
             );
           })}
@@ -218,7 +228,8 @@ export function ProjectPage() {
         data={data}
         writes={writes}
         onOpenTask={setOpenTask}
-        onOpenChat={can(user, 'tasks.comment') ? chat.open : undefined}
+        access={access}
+        onOpenChat={access.comment || access.level ? chat.open : undefined}
         filter={filter}
         setFilter={setFilterPref}
         groupBy={groupBy}
@@ -244,7 +255,7 @@ export function ProjectPage() {
 
 // ---------------------------------------------------------------- header
 
-function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: boolean; onSettings(): void }) {
+function ProjectHeader({ data, admin, access, onSettings }: { data: GanttView; admin: boolean; access: ProjectAccess; onSettings(): void }) {
   const api = useApi();
   const qc = useQueryClient();
   const p = data.project;
@@ -284,6 +295,7 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
   };
   return (
     <header className="nz-ps-head">
+      <ProjectCover project={p} variant="thumb" />
       {editing ? (
         <TextInput
           autoFocus
@@ -337,6 +349,7 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
         />
       ) : null}
       {unitOf(p) === 'HOUR' ? <span className="pill brand">{t('projects.hourBadge')}</span> : null}
+      {access.participantOnly && access.level ? <ParticipantPill projectId={p.id} level={access.level} /> : null}
       <span className="nz-ps-spacer" />
       <TeamStack tasks={data.tasks} />
       {admin ? (
@@ -363,6 +376,19 @@ function ProjectHeader({ data, admin, onSettings }: { data: GanttView; admin: bo
       ) : null}
       <SaveTemplateModal opened={tplOpen} onClose={() => setTplOpen(false)} projectId={p.id} projectName={p.name} />
     </header>
+  );
+}
+
+/** «مشارك بصفة …» on the header of a participant (A12 round 2), with the منصب and what the level allows. */
+function ParticipantPill({ projectId, level }: { projectId: string; level: NonNullable<ProjectAccess['level']> }) {
+  const mine = useMyParticipations().data?.find((x) => x.projectId === projectId);
+  const hint = level === 'VIEWER' ? t('a12roles.viewerNote') : level === 'CONTRIBUTOR' ? t('a12roles.contributorHint') : t('a12roles.editorHint');
+  return (
+    <Tooltip label={[mine?.title ? t('a12roles.pillTitle', { title: mine.title }) : '', hint].filter(Boolean).join(' — ')} withinPortal multiline w={300}>
+      <span className={`pill ${level === 'VIEWER' ? 'grey' : 'brand'} nz-part-pill`} data-testid="participant-pill" data-level={level} tabIndex={0}>
+        {t('a12roles.pill', { level: levelLabel(level) })}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -437,6 +463,7 @@ interface BodyProps {
   view: View;
   data: GanttView;
   writes: ProjectWrites;
+  access: ProjectAccess;
   onOpenTask(id: string): void;
   /** A10: opens the task chat screen; undefined when the viewer cannot write in task chats. */
   onOpenChat?(id: string): void;
@@ -486,7 +513,7 @@ function ProjectBody(p: BodyProps) {
   const api = useApi();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
-  const editable = can(user, 'tasks.manage');
+  const editable = p.access.editTasks;
   const phone = useMediaQuery('(max-width: 767px)') ?? false;
   const unit = unitOf(data.project);
   const zooms = zoomsFor(unit);
@@ -494,7 +521,9 @@ function ProjectBody(p: BodyProps) {
   const zoom = zooms.includes(zoomPref) ? zoomPref : zooms[1]!;
   const [colsRaw, setColsPref] = useViewPref<ColumnPref[] | null>('gantt.columns', data.project.id, null);
   const [showLabels, setShowLabels] = useViewPref<boolean>('gantt.showLabels', data.project.id, false);
-  const columns = useMemo(() => normalizeColumns(colsRaw ?? DEFAULT_COLUMNS, data.customFields ?? []), [colsRaw, data.customFields]);
+  const allColumns = useMemo(() => normalizeColumns(colsRaw ?? DEFAULT_COLUMNS, data.customFields ?? []), [colsRaw, data.customFields]);
+  const budgetRead = p.access.budgetRead;
+  const columns = useMemo(() => (budgetRead ? allColumns : allColumns.filter((c) => !COST_COLUMNS.has(c.id))), [allColumns, budgetRead]);
   const phoneColumns = useMemo(() => [{ id: 'name' as const, width: 170 }, { id: 'chat' as const, width: 62 }], []);
   const chatCounts = useTaskChatCounts(data.project.id, data.tasks, Boolean(p.onOpenChat));
   const showHijri = user?.preferences.showHijri ?? false;
@@ -883,6 +912,8 @@ function ProjectBody(p: BodyProps) {
           <ProjectWorkloadTab {...tabProps} data={data} />
         ) : view === 'people' ? (
           <ProjectPeopleTab {...tabProps} data={data} />
+        ) : view === 'participants' ? (
+          <ParticipantsTab projectId={data.project.id} projectName={data.project.name} canManage={p.access.manageProject} />
         ) : (
           <ProjectDashboardTab {...tabProps} data={data} />
         )}

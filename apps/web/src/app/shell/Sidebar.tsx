@@ -17,6 +17,7 @@ import { can } from '@nuzli/shared';
 import { NAV_GROUPS, type BadgeKind, type NavNode } from '../nav';
 import { formatNumber, t } from '../../i18n';
 import { NozolyLogo } from '../../components/Brand';
+import { WorkspaceName } from '../../features/workspaces/WorkspaceName';
 import { useAuthStore } from '../../stores/auth';
 import { useProjects } from '../../api/projectQueries';
 import { useShellStore } from './store';
@@ -278,9 +279,13 @@ export function Sidebar({
       aria-label={t('nav.main')}
     >
       <div className="nz-side-head">
-        <Link to="/" className="nz-logo-link" aria-label={t('nav.homeAria')} onClick={ctx.onPick}>
-          <NozolyLogo width={mini ? 34 : 124} mark={mini} decorative />
-        </Link>
+        <div className="nz-side-brand">
+          <Link to="/" className="nz-logo-link" aria-label={t('nav.homeAria')} onClick={ctx.onPick}>
+            <NozolyLogo width={mini ? 34 : 124} mark={mini} decorative />
+          </Link>
+          {/* A12: the active workspace (قسم) under the logo, in the display face. */}
+          {mini ? null : <WorkspaceName />}
+        </div>
         {mobile ? (
           <button type="button" className="nz-fold" onClick={() => setDrawer(false)} aria-label={t('common.closeMenu')}>
             <IconX size={18} stroke={1.8} />

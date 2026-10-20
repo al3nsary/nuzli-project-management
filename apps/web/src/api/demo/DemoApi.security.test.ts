@@ -61,8 +61,12 @@ describe('login throttling and the silent lock (ADR-062)', () => {
     const err = await codeOf(api.auth.login({ identifier: SUP1, password: DEMO_PASSWORD }));
     expect(err.code).toBe('INVALID_CREDENTIALS');
     expect(err.status).toBe(401);
+    // A12: the lock is account level (no workspace): kept outside every workspace's audit list.
     await loginAs(ADMIN);
-    expect((await api.audit.list({ action: 'auth.account_locked' })).total).toBe(1);
+    expect((await api.audit.list({ action: 'auth.account_locked' })).total).toBe(0);
+    const accountLevel = await api.unscoped(() => api.db.audit.filter((a) => a.action === 'auth.account_locked').toArray(), 'r');
+    expect(accountLevel).toHaveLength(1);
+    expect((accountLevel[0] as { wid?: string | null }).wid).toBeNull();
   });
 });
 
@@ -95,10 +99,10 @@ describe('full national IDs never in a URL (ADR-067)', () => {
     expect(sup.code).toBe('NATIONAL_ID_NOT_ACCEPTED');
     expect(sup.message_ar).toBe(ERRORS.NATIONAL_ID_NOT_ACCEPTED);
     expect(sup.fieldErrors.nationalId).toBe(ERRORS.NATIONAL_ID_NOT_ACCEPTED);
-    // A fresh ID still works for the supervisor.
+    // A fresh ID still works for the supervisor — A12 round 2: as a request awaiting approval (202).
     await expect(
       api.teams.addMember(TEAM(1), { fullName: 'عضو جديد', nationalId: validId('188776655') }),
-    ).resolves.toMatchObject({ fullName: 'عضو جديد' });
+    ).resolves.toMatchObject({ status: 'PENDING_APPROVAL', request: { payload: { fullName: 'عضو جديد' } } });
     await loginAs(ADMIN);
     const audit = await api.audit.list({ action: 'member.duplicate_rejected' });
     expect(audit.total).toBe(1);

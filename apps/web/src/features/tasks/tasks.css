@@ -628,3 +628,50 @@
     padding-block-end: max(8px, env(safe-area-inset-bottom));
   }
 }
+
+/* ---------------------------------------------------------------- A12 round 2: team tasks and «مهامي» */
+
+.nz-mt-team-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--r3, 6px);
+  background: var(--panel2);
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.nz-mt-team-note svg {
+  flex: 0 0 auto;
+  margin-block-start: 3px;
+  color: var(--blue);
+}
+
+.nz-task-card-owner {
+  display: inline-flex;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+}
+.nz-task-card-owner .pill {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nz-mytasks-scope {
+  margin-block-end: 12px;
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+.nz-mytasks-scope .mantine-SegmentedControl-root {
+  min-inline-size: 280px;
+}
+.nz-mytasks-scope .mantine-SegmentedControl-label {
+  min-block-size: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

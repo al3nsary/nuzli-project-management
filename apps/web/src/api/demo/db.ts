@@ -20,6 +20,10 @@ import type {
   DependencyType,
   OcrStatus,
   OrgUnitKind,
+  WorkspaceRole,
+  AssistantPermissions,
+  AssistantScope,
+  ParticipantLevel,
 } from '@nuzli/shared';
 import type { ExtractedCard } from '../../features/violations/ocr/parse';
 
@@ -45,6 +49,80 @@ export interface DemoUser {
   lockedUntil?: string | null;
   /** Owner request A8: the linked personal photo (`files` row, entityType user_photo). */
   photoFileId?: string | null;
+  /**
+   * A12: the login name (lower case, unique). The legacy `role` stays on the row only as the
+   * role a registration asked for; rights come from `wsMemberships` (per workspace).
+   */
+  username?: string;
+  /** A12: OWNER (مالك) sees every workspace; USER rights come from memberships. */
+  accountRole?: 'OWNER' | 'USER';
+  /** A12: the workspace a registration applies to. */
+  requestedWorkspaceId?: string | null;
+}
+
+/** A12: a workspace (قسم). Never deleted — archived. */
+export interface DemoWorkspace {
+  id: string;
+  name: string;
+  code: string;
+  status: 'ACTIVE' | 'ARCHIVED';
+  createdAt: string;
+  createdBy: string | null;
+  archivedAt: string | null;
+}
+
+/** A12: a role of a user in a workspace (a person may hold several: «صلاحية مزدوجة»). */
+export interface DemoWsMembership {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  role: WorkspaceRole;
+  title: string | null;
+  /** ASSISTANT: module → level. */
+  permissions: AssistantPermissions;
+  /** ASSISTANT: optional project / team limits. */
+  scope: AssistantScope;
+  status: 'ACTIVE' | 'SUSPENDED';
+  createdAt: string;
+  createdBy: string | null;
+  archivedAt: string | null;
+}
+
+/** A12 round 2: a project participant (محرّر / مساهم / مطّلع) — scoped. */
+export interface DemoParticipant {
+  id: string;
+  projectId: string;
+  userId: string;
+  title: string;
+  level: ParticipantLevel;
+  addedById: string | null;
+  createdAt: string;
+}
+
+/** A12 round 2: a supervisor's request to add or remove a worker — scoped. */
+export interface DemoMemberRequest {
+  id: string;
+  kind: 'ADD' | 'REMOVE';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  teamId: string | null;
+  memberId: string | null;
+  /** ADD: what the supervisor entered; the full national ID is cleared on decision. */
+  payload: {
+    fullName?: string;
+    nationalId?: string | null;
+    jobTitleId?: string | null;
+    jobTitleText?: string | null;
+    departmentId?: string | null;
+    departmentText?: string | null;
+    /** After the decision: the masked number only. */
+    nationalIdMasked?: string;
+  };
+  reason: string | null;
+  decisionReason: string | null;
+  requestedById: string | null;
+  decidedById: string | null;
+  createdAt: string;
+  decidedAt: string | null;
 }
 
 export interface DemoNotification {
@@ -72,6 +150,8 @@ export interface DemoSession {
   token: string;
   userId: string;
   createdAt: string;
+  /** A12: the workspace this session is bound to (null until one is chosen). */
+  workspaceId?: string | null;
 }
 
 export interface KeyValue {
@@ -350,6 +430,8 @@ export interface DemoProject {
   isTemplate?: boolean;
   templateOfId?: string | null;
   durationUnit?: 'DAY' | 'HOUR';
+  /** A12 round 2: the cover image (`files` row, entityType project_cover). */
+  coverFileId?: string | null;
 }
 
 /** A task as the API stores it (StoredTask) plus archive and reminder columns (ADR-059). */
@@ -512,6 +594,10 @@ export class DemoDb extends Dexie {
   orgUnits!: Table<DemoOrgUnit, string>;
   orgPositions!: Table<DemoOrgPosition, string>;
   violationOcr!: Table<DemoViolationOcr, string>;
+  workspaces!: Table<DemoWorkspace, string>;
+  wsMemberships!: Table<DemoWsMembership, string>;
+  participants!: Table<DemoParticipant, string>;
+  memberRequests!: Table<DemoMemberRequest, string>;
 
   constructor(name: string) {
     super(name);
@@ -616,6 +702,23 @@ export class DemoDb extends Dexie {
           reason: h.reason,
         }));
         if (rows.length) await tx.table('teamSupervisors').bulkPut(rows);
+      });
+    // A12 (ADR-153): workspaces, memberships, participants and worker requests. Uniqueness that
+    // was global becomes per workspace (a worker may exist in two workspaces; colours repeat).
+    // Demo data only: the old rows are wiped and the new seed (version.json) is loaded on first use.
+    this.version(7)
+      .stores({
+        users: 'id, &email, &mobile, &nationalId, &username, role, status, createdAt',
+        sessions: 'token, userId, workspaceId',
+        colors: 'id, hex, &[wid+hex], sortOrder',
+        members: 'id, nationalId, &[wid+nationalId]',
+        workspaces: 'id, &code, status',
+        wsMemberships: 'id, workspaceId, userId',
+        participants: 'id, projectId, userId',
+        memberRequests: 'id, status, teamId',
+      })
+      .upgrade(async (tx) => {
+        for (const table of tx.db.tables) await tx.table(table.name).clear();
       });
   }
 

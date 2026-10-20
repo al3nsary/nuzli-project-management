@@ -15,7 +15,18 @@ import { useAuthStore } from '../../stores/auth';
 import { formatDateTime, formatNumber, t } from '../../i18n';
 import { invalidateTaskFiles, isImage, uploadTaskFile } from './upload';
 
-export function TaskAttachments({ taskId, projectId, assigneeId }: { taskId: string; projectId?: string; assigneeId: string | null }) {
+export function TaskAttachments({
+  taskId,
+  projectId,
+  assigneeId,
+  canUpload: canUploadProp,
+}: {
+  taskId: string;
+  projectId?: string;
+  assigneeId: string | null;
+  /** A12 round 2: the caller's task access (participants upload; a supervisor's team task does not). */
+  canUpload?: boolean;
+}) {
   const api = useApi();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -23,7 +34,7 @@ export function TaskAttachments({ taskId, projectId, assigneeId }: { taskId: str
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const admin = can(user, 'tasks.manage');
-  const canUpload = admin || (!!assigneeId && assigneeId === user?.id);
+  const canUpload = canUploadProp ?? (admin || (!!assigneeId && assigneeId === user?.id));
 
   const upload = async (file: File | null) => {
     if (!file) return;

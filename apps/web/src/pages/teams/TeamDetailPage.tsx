@@ -67,6 +67,9 @@ import { EmptyState, ErrorBlock, FormError, Ltr, LoadingBlock } from '../../comp
 import { VestBand } from '../../theme/VestBand';
 import { formatDate, formatDateTime, formatNumber, localizeDigits, t, tCount } from '../../i18n';
 import { MemberDrawer } from '../members/MemberDrawer';
+import { RemoveMemberDialog, useRemovesDirectly } from '../members/RemoveMemberDialog';
+import { useInvalidateMemberRequests } from '../requests/MemberRequests';
+import { isMemberRequestAccepted } from '../../api/client';
 import { MemberAvatar, PhotoAvatar } from '../../components/UserAvatar';
 import {
   ColorPicker,
@@ -97,13 +100,14 @@ function useTeamAction() {
   const invalidate = useInvalidateTeams();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const run = async (fn: () => Promise<unknown>, okMessage: string) => {
+  /** `okMessage` may depend on the answer (A12 round 2: a supervisor's add becomes a request). */
+  const run = async (fn: () => Promise<unknown>, okMessage: string | ((result: unknown) => string)) => {
     setBusy(true);
     setError(null);
     try {
-      await fn();
+      const result = await fn();
       await invalidate();
-      notifications.show({ color: 'ok', message: okMessage });
+      notifications.show({ color: 'ok', message: typeof okMessage === 'function' ? okMessage(result) : okMessage });
       return true;
     } catch (err) {
       setError(err);
@@ -568,6 +572,9 @@ function SupervisorsCard({
 
 function AddMemberDialog({ team, opened, onClose }: { team: TeamDetailDto; opened: boolean; onClose: () => void }) {
   const api = useApi();
+  // A12 round 2: a supervisor's «إضافة عضو» is a request (202) that an admin approves.
+  const direct = useRemovesDirectly();
+  const invalidateRequests = useInvalidateMemberRequests();
   const jobTitles = useReference('job-titles');
   const departments = useReference('departments');
   const [fullName, setFullName] = useState('');
@@ -593,14 +600,19 @@ function AddMemberDialog({ team, opened, onClose }: { team: TeamDetailDto; opene
     }
     setErrors({});
     let fieldErrs: Record<string, string> = {};
-    const ok = await action.run(async () => {
-      try {
-        await api.teams.addMember(team.id, input);
-      } catch (err) {
-        if (err instanceof ApiError) fieldErrs = err.fieldErrors;
-        throw err;
-      }
-    }, t('members.added', { name: fullName }));
+    const ok = await action.run(
+      async () => {
+        try {
+          const res = await api.teams.addMember(team.id, input);
+          if (isMemberRequestAccepted(res)) await invalidateRequests();
+          return res;
+        } catch (err) {
+          if (err instanceof ApiError) fieldErrs = err.fieldErrors;
+          throw err;
+        }
+      },
+      (res) => (isMemberRequestAccepted(res) ? t('a12roles.req.sent') : t('members.added', { name: fullName })),
+    );
     setErrors(fieldErrs);
     if (ok) {
       setFullName('');
@@ -614,6 +626,11 @@ function AddMemberDialog({ team, opened, onClose }: { team: TeamDetailDto; opene
   return (
     <Modal opened={opened} onClose={onClose} title={t('members.addTitle', { team: team.name })}>
       <Stack gap="sm">
+        {!direct ? (
+          <Alert color="field" variant="light" data-testid="member-add-request-hint">
+            {t('a12roles.req.addHintSupervisor')}
+          </Alert>
+        ) : null}
         <FormError error={action.error} />
         <TextInput
           label={t('members.fullName')}
@@ -642,8 +659,8 @@ function AddMemberDialog({ team, opened, onClose }: { team: TeamDetailDto; opene
           <Button variant="default" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button loading={action.busy} onClick={() => void submit()}>
-            {t('members.add')}
+          <Button loading={action.busy} onClick={() => void submit()} data-testid="member-add-submit">
+            {direct ? t('members.add') : t('a12roles.req.sendAdd')}
           </Button>
         </Group>
       </Stack>
@@ -779,6 +796,8 @@ export function TeamDetailPage() {
   const [removing, setRemoving] = useState<{ id: string; fullName: string; isPrimary?: boolean } | null>(null);
   const member = useOverlayParam('member');
   const action = useTeamAction();
+  const [removingMember, setRemovingMember] = useState<{ id: string; fullName: string } | null>(null);
+  const removesDirectly = useRemovesDirectly();
 
   if (team.isLoading) return <LoadingBlock variant="detail" header />;
   if (team.isError || !team.data) return <ErrorBlock error={team.error} onRetry={() => void team.refetch()} />;
@@ -858,7 +877,7 @@ export function TeamDetailPage() {
                     </Button>
                   </Menu.Target>
                   <Menu.Dropdown>
-                    {membersManageable ? (
+                    {can(user, 'members.import') ? (
                       <Menu.Item leftSection={<IconFileImport size={18} />} onClick={() => setDialog('import')}>
                         {t('members.import')}
                       </Menu.Item>
@@ -951,7 +970,9 @@ export function TeamDetailPage() {
             title={t('teams.noMembers')}
             action={
               membersManageable && !archived
-                ? { label: t('members.import'), onClick: () => setDialog('import') }
+                ? can(user, 'members.import')
+                  ? { label: t('members.import'), onClick: () => setDialog('import') }
+                  : { label: t('members.add'), onClick: () => setDialog('addMember') }
                 : undefined
             }
           />
@@ -964,7 +985,7 @@ export function TeamDetailPage() {
                   <Table.Th>{t('members.nationalId')}</Table.Th>
                   <Table.Th>{t('members.jobTitle')}</Table.Th>
                   <Table.Th>{t('members.department')}</Table.Th>
-                  <Table.Th w={manageable && !archived ? 200 : 140}>{t('members.history')}</Table.Th>
+                  <Table.Th w={(manageable || membersManageable) && !archived ? 300 : 140}>{t('members.history')}</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -1023,6 +1044,19 @@ export function TeamDetailPage() {
                           {t('members.history')}
                         </Button>
                         {manageable && !archived ? <ForemanAction team={tm} member={m} run={action.run} /> : null}
+                        {membersManageable && !archived ? (
+                          <Button
+                            variant="subtle"
+                            color="breach"
+                            size="compact-sm"
+                            leftSection={<IconUserMinus size={16} />}
+                            onClick={() => setRemovingMember({ id: m.id, fullName: m.fullName })}
+                            aria-label={`${removesDirectly ? t('a12roles.req.removeDirect') : t('a12roles.req.removeRequest')}: ${m.fullName}`}
+                            data-testid="member-remove-request"
+                          >
+                            {removesDirectly ? t('a12roles.req.removeDirect') : t('a12roles.req.removeRequest')}
+                          </Button>
+                        ) : null}
                       </Group>
                     </Table.Td>
                   </Table.Tr>
@@ -1075,6 +1109,7 @@ export function TeamDetailPage() {
         }
       />
       <MemberDrawer memberId={member.value} onClose={member.close} />
+      <RemoveMemberDialog member={removingMember} onClose={() => setRemovingMember(null)} />
     </>
   );
 }
